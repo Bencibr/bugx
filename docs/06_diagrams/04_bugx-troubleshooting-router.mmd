@@ -1,0 +1,42 @@
+flowchart TD
+    A[出现问题] --> B{命令是否能启动?}
+    B -- 否 --> C[bugx doctor --installation-only --json]
+    C --> D{安装资源或 PATH 异常?}
+    D -- 是 --> E[按 doctor 结果修复安装来源]
+    D -- 否 --> F[记录版本、stderr 与命中路径]
+    B -- 是 --> G{项目状态是否正常?}
+    G -- 否 --> H[engine status --json]
+    H --> I[doctor --root ROOT --json]
+    I --> J{是否为宿主入口问题?}
+    J -- 是 --> K[install 指定宿主并重启宿主]
+    J -- 否 --> L{是否为运行态问题?}
+    L -- 是 --> M[log --errors / --trace TRACE_ID]
+    L -- 否 --> N[保留 .bugx 与日志，停止猜测]
+    G -- 是 --> O{生命周期是否停滞?}
+    O -- 是 --> P[status + log，确认当前阶段]
+    P --> Q{是否有明确恢复动作?}
+    Q -- 是 --> R[只执行当前状态允许的恢复命令]
+    Q -- 否 --> N
+    O -- 否 --> S{是否为云端问题?}
+    S -- 是 --> T[auth status --verify + cloud status]
+    T --> U[确认 scope 后再 sync]
+    S -- 否 --> V[检查报告、Finding、Coverage 与 Receipt]
+    E --> W[重新执行最小诊断]
+    F --> W
+    K --> W
+    M --> W
+    R --> W
+    U --> W
+    V --> W
+    W --> X{是否已得到新证据?}
+    X -- 是 --> Y[按证据继续或结束]
+    X -- 否 --> Z[标记 UNVERIFIED / BLOCKED，向维护者汇报]
+
+    classDef start fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+    classDef inspect fill:#e8f0fe,stroke:#2563eb,color:#172554,stroke-width:2px;
+    classDef recovery fill:#fef2f2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
+    classDef finish fill:#ecfdf5,stroke:#059669,color:#064e3b,stroke-width:2px;
+    class A,B,G,O,S,Q,D,J,L,X start;
+    class C,F,H,I,M,P,T,U,V,W inspect;
+    class E,K,N,R recovery;
+    class Y,Z finish;

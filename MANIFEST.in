@@ -1,0 +1,30 @@
+include LICENSE README.md pyproject.toml
+prune .opencode
+prune .bugx/pollings
+prune .bugx/knowledge
+prune interfaces/cli/bugx_agent.egg-info
+prune bugx_agent.egg-info
+prune tests
+prune scripts
+prune docs
+prune prd
+prune state
+recursive-include core *
+recursive-include ecosystem/integrations/opencode *
+recursive-include ecosystem/integrations/pi *
+recursive-include ecosystem/integrations/dsh *
+recursive-include ecosystem/plugins *
+global-exclude *.py[cod]
+global-exclude *.lock
+global-exclude *.json.bak
+global-exclude *.json.snapshot
+global-exclude bugx-runtime.json*
+global-exclude bugx-runtime.lock
+global-exclude audit-supervisor.json*
+global-exclude coverage-evidence.json*
+global-exclude finding-ledger.json*
+global-exclude finding-lifecycle.json
+global-exclude audit-campaign.json
+global-exclude repair-audit.log
+global-exclude current.json
+global-exclude __pycache__/*

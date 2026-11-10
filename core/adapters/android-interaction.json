@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "android-interaction",
+  "platform": "android",
+  "execution": {
+    "host_platforms": ["macos", "windows", "linux"],
+    "target_platform": "android-device",
+    "target_kind": "device",
+    "target_fingerprint_variable": "serial"
+  },
+  "variables": {
+    "serial": {
+      "description": "adb devices 返回的设备序列号",
+      "required": true
+    },
+    "x": {
+      "description": "点击/滑动起点的 X 坐标 (px)",
+      "default": "500"
+    },
+    "y": {
+      "description": "点击/滑动起点的 Y 坐标 (px)",
+      "default": "1000"
+    },
+    "x2": {
+      "description": "滑动终点的 X 坐标 (px)",
+      "default": "500"
+    },
+    "y2": {
+      "description": "滑动终点的 Y 坐标 (px)",
+      "default": "200"
+    },
+    "duration_ms": {
+      "description": "滑动持续毫秒数",
+      "default": "300"
+    },
+    "text": {
+      "description": "向当前焦点框灌入的文本",
+      "default": "test"
+    }
+  },
+  "steps": [
+    {
+      "id": "dump",
+      "command": ["adb", "-s", "{serial}", "exec-out", "uiautomator", "dump", "/sdcard/ui_dump.xml"],
+      "timeout_seconds": 15,
+      "evidence_paths": []
+    },
+    {
+      "id": "pull-dump",
+      "command": ["adb", "-s", "{serial}", "exec-out", "cat", "/sdcard/ui_dump.xml"],
+      "timeout_seconds": 15,
+      "capture_stdout": "ui_dump.xml",
+      "evidence_paths": ["ui_dump.xml"]
+    },
+    {
+      "id": "tap",
+      "command": ["adb", "-s", "{serial}", "shell", "input", "tap", "{x}", "{y}"],
+      "timeout_seconds": 10,
+      "evidence_paths": []
+    },
+    {
+      "id": "swipe",
+      "command": ["adb", "-s", "{serial}", "shell", "input", "swipe", "{x}", "{y}", "{x2}", "{y2}", "{duration_ms}"],
+      "timeout_seconds": 10,
+      "evidence_paths": []
+    },
+    {
+      "id": "text",
+      "command": ["adb", "-s", "{serial}", "shell", "input", "text", "{text}"],
+      "timeout_seconds": 10,
+      "evidence_paths": []
+    },
+    {
+      "id": "screenshot",
+      "command": ["adb", "-s", "{serial}", "exec-out", "screencap", "-p"],
+      "timeout_seconds": 30,
+      "capture_stdout": "android-screen.png",
+      "evidence_paths": ["android-screen.png"]
+    }
+  ]
+}

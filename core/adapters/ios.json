@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "ios-simulator-screenshot",
+  "platform": "ios",
+  "description": "通过 simctl 从已启动的 iOS Simulator 采集屏幕证据。",
+  "execution": {
+    "host_platforms": ["macos"],
+    "target_platform": "ios-simulator",
+    "target_kind": "simulator",
+    "target_fingerprint_variable": "device"
+  },
+  "variables": {
+    "device": {"required": true, "description": "明确的 Simulator UDID；不接受 booted 别名作为稳定身份"}
+  },
+  "steps": [
+    {
+      "id": "screenshot",
+      "command": ["xcrun", "simctl", "io", "{device}", "screenshot", "{artifact_dir}/ios-screen.png"],
+      "timeout_seconds": 30,
+      "evidence_paths": ["ios-screen.png"]
+    }
+  ]
+}

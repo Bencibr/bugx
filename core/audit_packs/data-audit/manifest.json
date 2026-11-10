@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "skill_id": "data-audit",
+  "version": "0.1.0",
+  "scope": "engine",
+  "applies_if": {
+    "forms": [
+      "data",
+      "backend",
+      "cli"
+    ],
+    "surfaces": [
+      "storage",
+      "queue"
+    ]
+  },
+  "stage_pipeline": [
+    {
+      "stage_id": "00-scope",
+      "barrier": true,
+      "required": true,
+      "affinity": "recon",
+      "consumes": [],
+      "produces": [
+        "scope-manifest.json"
+      ]
+    },
+    {
+      "stage_id": "10-schema-inventory",
+      "barrier": false,
+      "required": true,
+      "affinity": "recon",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "schema-inventory",
+        "migration-findings"
+      ]
+    },
+    {
+      "stage_id": "20-query-and-integrity",
+      "barrier": false,
+      "required": true,
+      "affinity": "exploit",
+      "consumes": [
+        "schema-inventory"
+      ],
+      "produces": [
+        "query-plan-evidence",
+        "integrity-findings"
+      ]
+    },
+    {
+      "stage_id": "80-evidence-regression",
+      "barrier": true,
+      "required": true,
+      "affinity": "exploit",
+      "consumes": [
+        "all-evidence"
+      ],
+      "produces": [
+        "verification-report.json"
+      ]
+    }
+  ],
+  "optional_modules": [
+    "redis",
+    "queue",
+    "migration"
+  ],
+  "experience_queries": {
+    "20-query-and-integrity": [
+      "sql-injection",
+      "n-plus-one",
+      "transaction-integrity",
+      "index-missing"
+    ]
+  },
+  "budgets": {
+    "max_l1_checklist_tokens": 300,
+    "max_stage_tokens": 1500,
+    "max_experience_cards": 3,
+    "max_experience_tokens": 600
+  },
+  "required_runtime": {
+    "mcp": [
+      {
+        "name": "dbhub",
+        "tier": "optional"
+      }
+    ]
+  }
+}

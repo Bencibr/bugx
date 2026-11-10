@@ -1,0 +1,42 @@
+flowchart TD
+    A[安装 BugX CLI] --> B{bugx --version 可用?}
+    B -- 否 --> C[bugx doctor --installation-only]
+    C --> D{安装资源完整?}
+    D -- 否 --> E[按诊断结果修复或重新安装]
+    D -- 是 --> F[确认 PATH 与版本来源]
+    E --> F
+    B -- 是 --> G[bugx init --root ROOT]
+    F --> G
+    G --> H[bugx hosts --root ROOT --json]
+    H --> I{需要接入 AI 宿主?}
+    I -- 是 --> J[bugx install --root ROOT --agent HOST]
+    J --> K[重启宿主会话]
+    I -- 否 --> L[使用 CLI 或本地流程]
+    K --> M[engine status --json]
+    L --> M
+    M --> N{当前状态}
+    N -- UNINITIALIZED --> O[engine pre]
+    N -- READY --> P[选择 audit / autonomous / goal]
+    N -- 阻断或异常 --> Q[doctor + log --errors]
+    O --> R{pre 退出码}
+    R -- 0 --> P
+    R -- 2 --> S[读取交互问题并完成授权]
+    S --> O
+    R -- 3 --> T[重新安装宿主并重启]
+    T --> O
+    R -- 其他非零 --> Q
+    P --> U[Worker / 审计执行]
+    U --> V[检查 Finding、Coverage、Receipt 与报告]
+    V --> W{是否还有未完成项?}
+    W -- 是 --> X[按状态恢复、修复或重新验证]
+    X --> U
+    W -- 否 --> Y[post / 报告 / 归档]
+
+    classDef action fill:#e8f0fe,stroke:#2563eb,color:#172554,stroke-width:2px;
+    classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+    classDef recovery fill:#fef2f2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
+    classDef done fill:#ecfdf5,stroke:#059669,color:#064e3b,stroke-width:2px;
+    class A,G,H,J,K,L,M,O,P,U,S,T action;
+    class B,D,I,N,R,W decision;
+    class C,E,F,Q,X recovery;
+    class V,Y done;

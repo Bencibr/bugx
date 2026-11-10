@@ -1,0 +1,118 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    "@dietrichgebert/ponytail"
+  ],
+  "mcp": {
+    "servers": {
+      "bugx-supervisor": {
+        "type": "local",
+        "command": [
+          "bugx",
+          "mcp",
+          "serve",
+          "--root",
+          ".",
+          "--role",
+          "host"
+        ],
+        "codemode": false
+      },
+      "bugx-supervisor-worker": {
+        "type": "local",
+        "command": [
+          "bugx",
+          "mcp",
+          "serve",
+          "--root",
+          ".",
+          "--role",
+          "worker"
+        ],
+        "codemode": false
+      },
+      "postmcp": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "postmcp"
+        ]
+      },
+      "playwright": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "playwright"
+        ]
+      },
+      "bugx-docs": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp",
+          "docs",
+          "serve",
+          "--root",
+          ".",
+          "--db",
+          ".bugx/knowledge/docs.sqlite3"
+        ]
+      },
+      "dbhub": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "dbhub"
+        ],
+        "disabled": true
+      },
+      "redis": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "redis"
+        ],
+        "disabled": true
+      },
+      "semgrep": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "semgrep"
+        ]
+      },
+      "mobile": {
+        "type": "local",
+        "codemode": false,
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "mobile"
+        ]
+      }
+    }
+  }
+}

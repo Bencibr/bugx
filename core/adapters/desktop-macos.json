@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "desktop-macos-screenshot",
+  "platform": "desktop",
+  "description": "采集当前 macOS 桌面截图，作为桌面测试证据起点。",
+  "execution": {
+    "host_platforms": ["macos"],
+    "target_platform": "macos",
+    "target_kind": "host",
+    "target_fingerprint_variable": null
+  },
+  "steps": [
+    {
+      "id": "screenshot",
+      "command": ["screencapture", "-x", "{artifact_dir}/desktop.png"],
+      "timeout_seconds": 30,
+      "evidence_paths": ["desktop.png"]
+    }
+  ]
+}

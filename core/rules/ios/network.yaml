@@ -1,0 +1,20 @@
+rules:
+  - id: ios-network-ats-arbitrary-loads
+    languages:
+      - generic
+    paths:
+      include:
+        - "*.plist"
+    severity: ERROR
+    message: "[MASVS-NETWORK-1] Info.plist 允许任意明文加载（NSAllowsArbitraryLoads=true），等同于关闭 ATS"
+    pattern-regex: '<key>NSAllowsArbitraryLoads</key>\s*<true\s*/>'
+
+  - id: ios-network-ats-arbitrary-loads-in-webcontent
+    languages:
+      - generic
+    paths:
+      include:
+        - "*.plist"
+    severity: ERROR
+    message: "[MASVS-NETWORK-1] NSAllowsArbitraryLoadsInWebContent=true：WKWebView 内容可走明文"
+    pattern-regex: '<key>NSAllowsArbitraryLoadsInWebContent</key>\s*<true\s*/>'

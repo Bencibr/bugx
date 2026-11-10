@@ -1,0 +1,36 @@
+rules:
+  - id: miniprogram-platform-webview-dynamic-src
+    languages:
+      - generic
+    paths:
+      include:
+        - "*.wxml"
+    severity: ERROR
+    message: "[MASVS-PLATFORM-1] web-view 的 src 由动态绑定控制（可被参数指向任意外站，形成开放重定向/钓鱼面）；必须白名单校验"
+    metadata:
+      summary: WeChat mini program web-view with dynamic (data-bound) src.
+      references:
+        - https://developers.weixin.qq.com/miniprogram/dev/component/web-view.html
+    pattern-regex: '<web-view[^>]*src="\{\{'
+
+  - id: miniprogram-platform-uricheck-disabled
+    languages:
+      - json
+    severity: WARNING
+    message: "[MASVS-NETWORK-1] project.config.json 关闭了 urlCheck（跳过合法域名校验），可能掩盖未配置域名的明文/外域请求"
+    metadata:
+      summary: urlCheck disabled in WeChat mini program project config.
+    pattern-either:
+      - pattern: '"urlCheck": false'
+      - pattern: '"urlCheck":false'
+
+  - id: miniprogram-platform-dynamic-code-execution
+    languages:
+      - javascript
+      - typescript
+    severity: ERROR
+    message: "[MASVS-CODE-4] 小程序内使用 eval / new Function 动态执行代码（可被注入拼接利用）；小程序环境不支持也不应使用"
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)

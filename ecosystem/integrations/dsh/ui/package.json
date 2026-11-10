@@ -1,0 +1,27 @@
+{
+  "name": "@bencibro/bugx-dsh-ui",
+  "version": "0.1.0",
+  "description": "BugX branding and Sidebar icon for DeepSeek Harness.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-ui-sidebar-right"],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "cordis.patch.yml",
+    "index.js",
+    "client.js"
+  ],
+  "license": "MIT"
+}

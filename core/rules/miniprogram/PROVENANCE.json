@@ -1,0 +1,26 @@
+{
+  "origin": "bugx-authored",
+  "license": "Business Source License 1.1（仓库根 LICENSE）",
+  "fetched_at": "2026-10-21",
+  "file_count": 3,
+  "files": {
+    "network.yaml": {
+      "sha256": "70daea566fcdc1fdf79608d6ebca5c8da4c42103a788aa16a2aa5ce325a27422",
+      "bytes": 1557
+    },
+    "platform.yaml": {
+      "sha256": "91a8064d45bebb860504cb2adc387c3037925f99e48bd45e5a6059ba89cac050",
+      "bytes": 1379
+    },
+    "storage.yaml": {
+      "sha256": "efc0255e78a8e514a490eb6d2090c83f547baa70e6c230020f326b601aaf8a02",
+      "bytes": 1971
+    }
+  },
+  "title": "WeChat Mini Program security rules (authored)",
+  "references": [
+    "https://developers.weixin.qq.com/miniprogram/dev/framework/",
+    "https://developers.weixin.qq.com/miniprogram/dev/api/"
+  ],
+  "note": "GitHub 上不存在可复用的 wxml/miniprogram semgrep 规则集（检索 miniprogram/wxml + semgrep 命中 0），本包按微信官方开发规范自建；规则覆盖有限，报告须显式声明。"
+}

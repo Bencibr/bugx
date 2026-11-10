@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "bugx",
+  "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+  "owner": {
+    "name": "BugX",
+    "url": "https://bugx.dev"
+  },
+  "plugins": [
+    {
+      "name": "bugx",
+      "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+      "source": "./",
+      "category": "developer-tools"
+    }
+  ]
+}

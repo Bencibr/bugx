@@ -1,0 +1,93 @@
+# 项目运行时状态（公共核心位于仓库根 core/，初始化后复制到项目 .bugx/core）
+.bugx/*
+
+# 宿主入口由 bugx install 按项目生成，不属于源码仓库
+.opencode/
+.codex/
+.claude/
+.codebuddy/
+.workbuddy/
+.workbuddy-ai/
+.pi/
+.agents/
+.qoder/
+.trea/
+.zcode/
+.cline/
+
+# IDE 个人配置与知识图谱运行时缓存
+.idea/
+.code-review-graph/
+
+# 测试与检查临时碎片
+chk_req.json
+ev*.json
+submit_checkpoint.py
+core/finding-commit/
+*.lock
+*.bak
+*.json.lock
+*.json.bak
+
+production-monitor-reports/
+bugx-artifacts/
+artifacts/
+test-report.sarif
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Playwright MCP 运行时产物
+.playwright-mcp/
+
+# 修复审计日志
+.bugx/core/repair-audit.log
+.gstack/
+.bugx/core/findings_round*.txt
+
+# 仓库根目录不得出现 dogfood 运行产物（归档统一进 evals/artifacts/）
+/findings_round*.txt
+/round*-evidence/
+/opencode.json
+/.mcp.json
+
+# 直接运行仓库 core/ 脚本时产生的临时运行态
+/core/bugx-life.json*
+/core/bugx-runtime*
+/core/audit-supervisor*
+/core/coverage-evidence*
+/core/finding-ledger*
+/core/repair-audit.log
+/core/*.lock
+/core/*.bak
+# 探针环境画像等运行态缓存：以 core/ 为 cwd 运行时 probe_registry 会落盘到
+# core/.bugx/state/，一旦被 git add -A 带走就会随包分发（见 engine_installer
+# 的 _is_runtime_artifact_path 守护）
+/core/.bugx/
+worktrees/
+.joycode/
+/manifest.json
+.dsh/
+
+# 引擎安装期运行时副产物（含本机绝对路径，不进仓库）
+.core.install.lock
+/engine-receipt.json
+
+# BugX engine-generated plugin package (auto-declared by bugx install)
+plugins/bugx/
+
+# 临时测试夹具与运行态目录
+.tmp*
+.tmp-*
+
+
+# codebase-memory 探针的本地索引产物（运行态，可再生）
+.codebase-memory/
+
+# tests 内运行态残留（self-heal 探针误写）
+tests/.bugx/

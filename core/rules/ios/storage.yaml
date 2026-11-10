@@ -1,0 +1,48 @@
+rules:
+  - id: ios-storage-keychain-always-accessible
+    languages:
+      - swift
+      - objective-c
+    severity: ERROR
+    message: "[MASVS-STORAGE-1] Keychain 使用 kSecAttrAccessibleAlways*（锁屏也可读）；改用 WhenUnlockedThisDeviceOnly"
+    metadata:
+      summary: Keychain item accessible even when device is locked.
+      references:
+        - https://developer.apple.com/documentation/security/ksecattraccessiblealways
+    pattern-either:
+      - pattern: kSecAttrAccessibleAlways
+      - pattern: kSecAttrAccessibleAlwaysThisDeviceOnly
+
+  - id: ios-storage-secret-in-userdefaults-swift
+    languages:
+      - swift
+    severity: WARNING
+    message: "[MASVS-STORAGE-1] 凭据写入 UserDefaults（明文 plist，可被备份读取）；改用 Keychain"
+    patterns:
+      - pattern-either:
+          - pattern: 'UserDefaults.standard.set($VAL, forKey: $KEY)'
+          - pattern: 'UserDefaults.standard.setValue($VAL, forKey: $KEY)'
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|secret|password|passwd|pwd|credential|apikey|api_key|session).*
+
+  - id: ios-storage-secret-in-userdefaults-objc
+    languages:
+      - objective-c
+    severity: WARNING
+    message: "[MASVS-STORAGE-1] 凭据写入 NSUserDefaults（明文 plist，可被备份读取）；改用 Keychain"
+    patterns:
+      - pattern: '[[NSUserDefaults standardUserDefaults] setObject:$VAL forKey:$KEY]'
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|secret|password|passwd|pwd|credential|apikey|api_key|session).*
+
+  - id: ios-storage-file-sharing-enabled
+    languages:
+      - generic
+    paths:
+      include:
+        - "*.plist"
+    severity: ERROR
+    message: "[MASVS-STORAGE-2] UIFileSharingEnabled=true：应用文档目录可被 iTunes/Finder 读取，确认无敏感文件"
+    pattern-regex: '<key>UIFileSharingEnabled</key>\s*<true\s*/>'

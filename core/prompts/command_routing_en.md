@@ -1,0 +1,42 @@
+# BugX CLI Command Routing and Operational Manual
+
+## How to Use This Skill (AI Meta-Guidance and Intent Decision Tree)
+
+When you (the AI) trigger and read this Skill, strictly follow this cognitive model and execution order:
+
+### 1. Intent Decision Tree
+In the first second of receiving a task, classify which branch it belongs to:
+- **Branch A: Focused Quick Triage / Specific Function / Diff / Error Stack**
+  - **Indicators**: Single-file inspection, reproducing a specific function, analyzing an exception stack trace.
+  - **Action**: Write a lightweight reproduction test (PoC) or run targeted tests locally using `bugx view`, `bugx test-generate`, `bugx test-verify`; **strictly forbid starting heavy full-lifecycle gates!**
+- **Branch B: Full-Repository Vulnerability Hunting / Deep Mutation / Parallel Worker Audit**
+  - **Indicators**: User explicitly triggers `/bugx`, requests "full codebase audit", or "hunt deep vulnerabilities".
+  - **Action**: Follow the canonical lifecycle progression (`engine pre` -> gate confirmation -> Explore -> Mutate -> Repair -> post settlement).
+- **Branch C: Environment Diagnosis / Dependency Repair / Host Inspection**
+  - **Action**: Run `bugx doctor --root <ROOT> --json` and `bugx engine --root <ROOT> status --json`; never use `init` or `--force` blindly.
+
+### 2. Standard 5-Step Execution Loop
+1. **Target Root**: Confirm the target repository's absolute path `<ROOT>`; strictly restrict operations within `<ROOT>`, and forbid broad filesystem scans.
+2. **Inspect State**: Run read-only commands to check runtime state first (`bugx engine --root <ROOT> status --json` or `bugx doctor`).
+3. **Select Route**: Pick commands based on intent; if parameters are needed, run `bugx help <top-level-cmd>` (e.g. `bugx help cloud`) to read live syntax dynamically; never guess.
+4. **Handle Gates**: If `engine pre` exits with code `2`, it signals waiting for host structured gate interaction; present options via the host's native control and execute the controlled action selected by the user. Do not fabricate choices or spin-loop. Exit code `0` confirms gate passage only, not audit completion.
+5. **Close the Loop**: Defects require standalone reproduction scripts (PoC) and call-stack evidence; report truthfully using the 6 standard status terms (read-only inspection, project ready, gate ready, test execution, mining launched, mining completed).
+
+### 3. Core Action Matrix (High-Frequency Commands Covering 90% of Calls)
+- **Environment Diagnosis**: `bugx doctor --root <ROOT> --json` (`--repair-assets` for repair)
+- **Startup and Gates**: `bugx engine --root <ROOT> status --json` / `bugx engine --root <ROOT> pre` (fresh projects use `bugx init --root <ROOT>`)
+- **Reproduction and Mutation**: `bugx test-generate --root <ROOT> --scope <PATH::SYM> --out <FILE>` / `bugx test-verify verify --scope <SCOPE>`
+- **Supervisor and Concurrency**: `bugx supervisor status --root <ROOT>`
+- **Telemetry and Logs**: `bugx telemetry inspect` / `bugx log --root <ROOT> --errors`
+- **Dual Reports and Preview**: `bugx report both --eval-dir evals/oss --out evals/oss` / `bugx report serve --port 18991`
+
+### 4. Compact Command Radar (41 Top-level Commands Classified Index)
+To invoke any command below, inspect exact parameters dynamically via `bugx help <cmd>`; never guess:
+- **Diagnostics and Inspection (9)**: `help`, `doctor`, `hosts`, `completion`, `log`, `stats`, `view`, `project`, `self-audit`
+- **Core Lifecycle and Hosts (14)**: `init`, `engine`, `supervisor`, `daemon`, `config`, `reset`, `install`, `uninstall`, `dsh`, `plugin`, `mcp`, `mcp-runtime`, `capability`, `logic-analysis`
+- **Deep Audit and Verification (10)**: `audit`, `probe`, `test-generate`, `test-audit`, `test-verify`, `patch-forge`, `test-strategy`, `fuzz-input`, `differential-probe`, `mining-audit`
+- **Knowledge Flywheel and Delivery (8)**: `report`, `lesson`, `knowledge`, `skill`, `cloud`, `auth`, `telemetry`, `advisory`
+
+### 5. Mandatory Rules and Deprecated Command Redirection
+- **Gate Blockage Forbids Destructive Repairs**: `FATAL_BLOCKED` must never be bypassed using `init`, `reset`, or `--force`; preserve logs and state first.
+- **Deprecated Command Redirections**: `matrix` -> `bugx audit`; `console` -> `bugx report serve`; `watch` -> `bugx log --watch`; `test` is an internal script, use `scripts/test_selector.py` instead.

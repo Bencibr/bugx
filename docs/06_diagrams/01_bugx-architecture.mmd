@@ -1,0 +1,48 @@
+flowchart LR
+    USER[用户] --> CLI[bugx CLI<br/>安装 · 配置 · 诊断]
+    CLI --> HOST[AI 宿主<br/>OpenCode · Codex · Claude · Pi · ChatGPT]
+    HOST --> PROTOCOL[BugX Agent / Skill<br/>审计协议]
+
+    subgraph BUGX[BugX 协议面]
+        SUP[状态与结算监督]
+        LIFE[Session / Round / Life]
+        COVER[覆盖与证据门禁]
+    end
+
+    subgraph HOST_EXEC[AI 宿主执行面]
+        ORCHESTRATOR[宿主原生编排<br/>串行 · 并发 · 子 Agent（可选）]
+        TASKS[测试任务]
+        TARGET[被测应用或代码库]
+        EVIDENCE[结构化证据]
+    end
+
+    PROTOCOL --> SUP
+    SUP --> LIFE
+    SUP --> COVER
+    HOST --> ORCHESTRATOR
+    PROTOCOL -.规则与门禁.-> ORCHESTRATOR
+    ORCHESTRATOR --> TASKS
+    TASKS --> TARGET
+    TARGET --> EVIDENCE
+    EVIDENCE --> FINDING[Finding 候选]
+    FINDING --> VERIFY[复现 · 独立 Oracle<br/>负对照 · 根因确认]
+    VERIFY --> LIFE
+    LIFE --> REPORT[测试报告与导出]
+    COVER --> REPORT
+
+    subgraph KNOWLEDGE[经验与质量]
+        LESSONS[项目 / 全局 SQLite 错题集]
+        REPLAY[回放与质量评估]
+    end
+
+    LESSONS --> PROTOCOL
+    REPLAY --> LESSONS
+
+    classDef user fill:#e8f0fe,stroke:#2563eb,color:#172554,stroke-width:2px;
+    classDef control fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+    classDef exec fill:#ecfdf5,stroke:#059669,color:#064e3b,stroke-width:2px;
+    classDef result fill:#f5f3ff,stroke:#7c3aed,color:#4c1d95,stroke-width:2px;
+    class USER user;
+    class CLI,HOST,PROTOCOL,SUP,LIFE,COVER,ORCHESTRATOR control;
+    class TASKS,TARGET,EVIDENCE,LESSONS,REPLAY exec;
+    class FINDING,VERIFY,REPORT result;

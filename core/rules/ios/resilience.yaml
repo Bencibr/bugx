@@ -1,0 +1,47 @@
+rules:
+  - id: ios-resilience-uiwebview
+    languages:
+      - swift
+      - objective-c
+    severity: WARNING
+    message: "[MASVS-PLATFORM-1] 使用已废弃的 UIWebView（无进程隔离、历史漏洞多）；改用 WKWebView"
+    pattern-either:
+      - pattern: UIWebView(...)
+      - pattern: UIWebView *$V
+
+  - id: ios-resilience-get-task-allow
+    languages:
+      - generic
+    paths:
+      include:
+        - "*.plist"
+        - "*.entitlements"
+    severity: ERROR
+    message: "[MASVS-RESILIENCE-1] entitlements 含 get-task-allow=true（允许调试器附加），发布包必须为 false"
+    pattern-regex: '<key>get-task-allow</key>\s*<true\s*/>'
+
+  - id: ios-resilience-secret-in-log-swift
+    languages:
+      - swift
+    severity: WARNING
+    message: "[MASVS-STORAGE-3] 日志中输出凭据类变量（可被 sysdiagnose/控制台读取）"
+    patterns:
+      - pattern-either:
+          - pattern: print($VAL)
+          - pattern: os_log("...", $VAL, ...)
+          - pattern: 'os_log("...", log: $L, type: $T, $VAL, ...)'
+      - metavariable-regex:
+          metavariable: $VAL
+          regex: (?i).*(token|password|passwd|secret|credential).*
+
+  - id: ios-resilience-secret-in-log-objc
+    languages:
+      - objective-c
+    severity: WARNING
+    message: "[MASVS-STORAGE-3] NSLog 输出凭据类变量（可被 sysdiagnose/控制台读取）"
+    patterns:
+      - pattern: NSLog(@"...", $VAL, ...)
+      - metavariable-regex:
+          metavariable: $VAL
+          regex: (?i).*(token|password|passwd|secret|credential).*
+

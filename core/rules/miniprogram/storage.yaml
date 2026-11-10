@@ -1,0 +1,48 @@
+rules:
+  - id: miniprogram-storage-credential-in-sync-storage
+    languages:
+      - javascript
+      - typescript
+    severity: WARNING
+    message: "[MASVS-STORAGE-1] 凭据写入 wx.setStorageSync（明文落盘、可被同源页面读取）；改用短时效 token + 服务端校验"
+    metadata:
+      summary: Detect tokens/passwords/keys written to WeChat mini program synchronous storage.
+      references:
+        - https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.setStorageSync.html
+    patterns:
+      - pattern-either:
+          - pattern: 'wx.setStorageSync($KEY, $VAL)'
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|secret|password|passwd|pwd|session|credential|apikey|api_key|openid|phone).*
+
+  - id: miniprogram-storage-credential-in-async-storage
+    languages:
+      - javascript
+      - typescript
+    severity: WARNING
+    message: "[MASVS-STORAGE-1] 凭据写入 wx.setStorage（明文落盘）；确认是否必须本地持久化"
+    patterns:
+      - pattern-either:
+          - pattern: 'wx.setStorage({key: $KEY, data: $VAL})'
+          - pattern: 'wx.setStorage({key: $KEY, ...})'
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|secret|password|passwd|pwd|session|credential|apikey|api_key).*
+
+  - id: miniprogram-storage-appsecret-in-frontend
+    languages:
+      - javascript
+      - typescript
+    severity: ERROR
+    message: "[MASVS-STORAGE-1] 小程序前端出现 AppSecret/私钥类常量（前端包可被反编译，等同泄露）"
+    metadata:
+      summary: Hardcoded AppSecret / private key in mini program client code.
+    patterns:
+      - pattern-either:
+          - pattern: const $NAME = "..."
+          - pattern: let $NAME = "..."
+          - pattern: var $NAME = "..."
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(appsecret|app_secret|privatekey|private_key|mch_key|paykey|api_secret).*

@@ -1,0 +1,16 @@
+{
+  "name": "bugx",
+  "version": "0.1.0",
+  "bugx_build_id": 98,
+  "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+  "author": {
+    "name": "BugX",
+    "url": "https://bugx.dev"
+  },
+  "homepage": "https://bugx.dev",
+  "skills": "./skills/",
+  "agents": [
+    "./agents/bugx.md",
+    "./agents/bugx-worker.md"
+  ]
+}

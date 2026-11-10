@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "skill_id": "mobile-audit",
+  "version": "0.1.0",
+  "scope": "engine",
+  "applies_if": {
+    "forms": [
+      "mobile"
+    ],
+    "surfaces": []
+  },
+  "stage_pipeline": [
+    {
+      "stage_id": "00-scope",
+      "barrier": true,
+      "required": true,
+      "affinity": "recon",
+      "dimension": "black-box",
+      "consumes": [],
+      "produces": [
+        "scope-manifest.json"
+      ]
+    },
+    {
+      "stage_id": "10-platform-inventory",
+      "barrier": false,
+      "required": true,
+      "affinity": "recon",
+      "dimension": "white-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "manifest-facts",
+        "platform-targets"
+      ]
+    },
+    {
+      "stage_id": "20-masvs-static",
+      "barrier": false,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "white-box",
+      "consumes": [
+        "manifest-facts"
+      ],
+      "produces": [
+        "masvs-findings"
+      ]
+    },
+    {
+      "stage_id": "30-component-exposure",
+      "barrier": false,
+      "required": true,
+      "affinity": "logic",
+      "dimension": "white-box",
+      "consumes": [
+        "manifest-facts"
+      ],
+      "produces": [
+        "exported-component-findings",
+        "deeplink-findings"
+      ]
+    },
+    {
+      "stage_id": "40-device-behavior",
+      "barrier": false,
+      "required": false,
+      "affinity": "exploit",
+      "dimension": "black-box",
+      "consumes": [
+        "exported-component-findings"
+      ],
+      "produces": [
+        "device-evidence"
+      ]
+    },
+    {
+      "stage_id": "80-evidence-regression",
+      "barrier": true,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "functional",
+      "consumes": [
+        "all-evidence"
+      ],
+      "produces": [
+        "verification-report.json"
+      ]
+    }
+  ],
+  "optional_modules": [
+    "android",
+    "ios",
+    "miniprogram",
+    "h5",
+    "webview"
+  ],
+  "experience_queries": {
+    "20-masvs-static": [
+      "insecure-storage",
+      "cleartext-traffic",
+      "weak-crypto",
+      "hardcoded-secret"
+    ],
+    "30-component-exposure": [
+      "exported-component",
+      "deeplink",
+      "pendingintent",
+      "content-provider"
+    ],
+    "40-device-behavior": [
+      "root-detection",
+      "jailbreak",
+      "tapjacking"
+    ]
+  },
+  "budgets": {
+    "max_l1_checklist_tokens": 300,
+    "max_stage_tokens": 1500,
+    "max_experience_cards": 3,
+    "max_experience_tokens": 600
+  },
+  "required_runtime": {
+    "tools": [
+      {
+        "name": "mobile",
+        "stage_ids": ["10-platform-inventory", "40-device-behavior"]
+      },
+      {
+        "name": "ios_binary",
+        "targets": ["ios"],
+        "stage_ids": ["20-masvs-static", "30-component-exposure"]
+      },
+      {
+        "name": "sast",
+        "stage_ids": ["20-masvs-static", "30-component-exposure"]
+      },
+      {
+        "name": "pattern",
+        "stage_ids": ["20-masvs-static", "30-component-exposure"]
+      }
+    ],
+    "mcp": [
+      {
+        "name": "mobile",
+        "tier": "optional"
+      },
+      {
+        "name": "semgrep",
+        "tier": "optional"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+flowchart LR
+    A[pre：启动门禁] --> B[快照与 Supervisor 就绪]
+    B --> C[workers：选择可覆盖单元]
+    C --> D[宿主真实启动 Worker]
+    D --> E[claim：身份、租约、工件目录]
+    E --> F[worker_start]
+    F --> G[heartbeat：先续租再执行]
+    G --> H[tool_call：请求 MCP / 工具]
+    H --> I[execution：源码检查、验证命令或目标代码]
+    I --> J[执行回执与工件 SHA-256]
+    J --> K[checkpoint：coverage / evidence / findings]
+    K --> L{还有未覆盖单元?}
+    L -- 是 --> C
+    L -- 否 --> M[Finding 核验与裁决]
+    M --> N[post：冻结报告快照]
+    N --> O[settlement receipt：绑定报告哈希]
+    O --> P[报告、结算与明确终态]
+
+    classDef control fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+    classDef worker fill:#e8f0fe,stroke:#2563eb,color:#172554,stroke-width:2px;
+    classDef evidence fill:#ecfdf5,stroke:#059669,color:#064e3b,stroke-width:2px;
+    classDef finish fill:#f5f3ff,stroke:#7c3aed,color:#4c1d95,stroke-width:2px;
+    class A,B,C,M,N control;
+    class D,E,F,G,H worker;
+    class I,J,K,O evidence;
+    class L,P finish;

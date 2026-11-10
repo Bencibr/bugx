@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "purpose": "seed regression fixtures; not production bug-discovery A/B evidence",
+  "cases": [
+    {"case_id": "seed-concurrency", "query": "并发 状态", "expected_pattern_ids": ["L-000000000004"]},
+    {"case_id": "seed-redaction", "query": "敏感 脱敏", "expected_pattern_ids": ["L-000000000003"]},
+    {"case_id": "seed-contract", "query": "契约 键名", "expected_pattern_ids": ["L-000000000005"]},
+    {"case_id": "seed-regression", "query": "回归 漏同步", "expected_pattern_ids": ["L-000000000006"]},
+    {"case_id": "seed-oracle", "query": "Oracle 假绿", "expected_pattern_ids": ["L-00000000000e"]},
+    {"case_id": "seed-type-assumption", "query": "类型 解析 崩溃", "expected_pattern_ids": ["L-000000000001"]},
+    {"case_id": "seed-ordering", "query": "最旧 记录 恢复", "expected_pattern_ids": ["L-000000000002"]},
+    {"case_id": "seed-drift", "query": "漂移 枚举 补全", "expected_pattern_ids": ["L-000000000007"]},
+    {"case_id": "seed-validation", "query": "校验 静默 放行", "expected_pattern_ids": ["L-000000000008"]},
+    {"case_id": "seed-streaming", "query": "流式 解析 结果", "expected_pattern_ids": ["L-000000000009"]},
+    {"case_id": "seed-input-boundary", "query": "正则 边界 输入", "expected_pattern_ids": ["L-00000000000a"]},
+    {"case_id": "seed-partial-failure", "query": "脏数据 批量 崩溃", "expected_pattern_ids": ["L-00000000000b"]},
+    {"case_id": "seed-ui", "query": "UI 布局 视觉", "expected_pattern_ids": ["L-00000000000c"]},
+    {"case_id": "seed-api-contract", "query": "API 状态码 违例", "expected_pattern_ids": ["L-00000000000d"]}
+  ]
+}

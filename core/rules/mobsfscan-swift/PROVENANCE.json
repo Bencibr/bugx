@@ -1,0 +1,58 @@
+{
+  "repo": "https://github.com/MobSF/mobsfscan",
+  "commit": "4645ea70bc093268502fe9f6df93e41bb482254a",
+  "fetched_at": "2026-10-21",
+  "file_count": 10,
+  "files": {
+    "jailbreak.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/best_practices/swift/jailbreak.yaml",
+      "sha256": "904acd036a359abb8ff1309bf8ffae74e7eedd2fcea53413ee341beb224565a2",
+      "bytes": 1732
+    },
+    "keyboard.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/best_practices/swift/keyboard.yaml",
+      "sha256": "668cdef4626360a3949d69330ad90cd1169a44d9e3a2ab85186e259605e5f0c8",
+      "bytes": 1261
+    },
+    "resilience.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/best_practices/swift/resilience.yaml",
+      "sha256": "8fe81c986819a552a7d1b27c665c38e8024552d569efc73484300bb656bd5323",
+      "bytes": 1139
+    },
+    "auth.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/auth.yaml",
+      "sha256": "cdcae299b319fd1fda0560a8fabcb74e08098feb801f3fc49b4e4d1611ce594c",
+      "bytes": 2628
+    },
+    "crypto.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/crypto.yaml",
+      "sha256": "d3d0abd6a7b09ad2bda8b54ecf19017b948a1d02baeb9e69326db2571cc8b207",
+      "bytes": 2253
+    },
+    "logging.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/logging.yaml",
+      "sha256": "702ca1638e4f8399d755be62ee38ac16de5b3f62de13971106971cb1a8a81042",
+      "bytes": 698
+    },
+    "network.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/network.yaml",
+      "sha256": "e3edde30454e84eb7d18dd26fc53c5febac25d60259ba3ef7e627435a74b9af5",
+      "bytes": 2231
+    },
+    "secrets.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/secrets.yaml",
+      "sha256": "40a18e458ac400e356b19b17e7186420549c2b713d83f646d1fbbda2fa0210a8",
+      "bytes": 1050
+    },
+    "storage.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/storage.yaml",
+      "sha256": "e451db8f1316254ed6a42a4d324d0f7d56255d50c66f08da102f105f57c18434",
+      "bytes": 946
+    },
+    "webview.yaml": {
+      "source_path": "mobsfscan/rules/semgrep/swift/webview.yaml",
+      "sha256": "a2451cc1e660c62fcf6d2c5f1327c4df023db82b1d5bfd848bed2733d3a4e974",
+      "bytes": 1048
+    }
+  }
+}

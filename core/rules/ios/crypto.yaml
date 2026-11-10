@@ -1,0 +1,36 @@
+rules:
+  - id: ios-crypto-md5-sha1
+    languages:
+      - swift
+      - objective-c
+    severity: WARNING
+    message: "[MASVS-CRYPTO-1] 使用 MD5/SHA1（已不适合口令或完整性场景）；改用 SHA-256+ 与 PBKDF2/scrypt"
+    metadata:
+      summary: Weak hash algorithm usage.
+    pattern-either:
+      - pattern: CC_MD5(...)
+      - pattern: CC_SHA1(...)
+      - pattern: Insecure.MD5...
+      - pattern: Insecure.SHA1...
+
+  - id: ios-crypto-weak-cipher
+    languages:
+      - swift
+      - objective-c
+    severity: ERROR
+    message: "[MASVS-CRYPTO-1] 使用 DES/3DES/RC4 等弱算法；改用 AES-GCM"
+    pattern-either:
+      - pattern: kCCAlgorithmDES
+      - pattern: kCCAlgorithm3DES
+      - pattern: kCCAlgorithmRC4
+      - pattern: kCCAlgorithmCAST
+
+  - id: ios-crypto-ecb-mode
+    languages:
+      - swift
+      - objective-c
+    severity: ERROR
+    message: "[MASVS-CRYPTO-1] 使用 ECB 模式（相同明文块产生相同密文）；改用 GCM/CBC + 随机 IV"
+    pattern-either:
+      - pattern: kCCOptionECBMode
+      - pattern: "\"AES/ECB/...\""

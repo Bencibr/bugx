@@ -1,0 +1,4 @@
+# BugX MCP bridge bundle patch: registers the session-aware BugX supervisor MCP client
+- insert:
+    - id: bugx-session-mcp-client
+      name: '@bencibro/bugx-dsh-mcp-client'

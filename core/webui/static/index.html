@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>BugX Studio · AI 编程与自主审计工作台</title>
+    <meta
+      name="description"
+      content="BugX Studio — 统一多项目控制台与智能体调度工作台。"
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#151517" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('atomcode.theme') || 'light';
+          var m = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (t === 'dark' || (t === 'system' && m)) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-CXAsl8mr.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DHQUtWtx.css">
+    <link rel="stylesheet" href="./project-settings.css?v=366">
+    <script src="./project-settings.js?v=366" defer></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

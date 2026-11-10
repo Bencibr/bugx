@@ -1,0 +1,111 @@
+# BugX 后端服务示例配置（不是 BugX CLI 配置）
+#
+# 归属：后端服务/部署模板。当前 BugX CLI 不读取本文件；CLI 使用项目根目录
+# 的 opencode.json，云端客户端使用 BUGX_CLOUD_CONFIG 或 ~/.bugx/cloud-config.json。
+#
+# 安全边界：本文件不可直接用于生产。`${BUGX_...}` 是必须由部署系统或 Secret
+# Manager 注入并渲染的占位符；本文件不假定运行时会自动展开环境变量。生产环境还
+# 必须启用传输加密，并保持 debug=false。请勿把渲染后的文件或密钥提交到仓库。
+
+app:
+  name: "bugx"
+  version: "0.1.0"
+  environment: "dev"  # dev, test, prod
+  debug: false  # 仅允许在本机临时调试时显式开启；生产环境必须为 false
+  timezone: "Asia/Shanghai"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+  max_header_mb: 1
+  trusted_proxies: ["127.0.0.1", "::1"]
+  tls:
+    enable: "${BUGX_SERVER_TLS_ENABLE}"  # 生产环境必须渲染为 true
+    cert_file: "${BUGX_SERVER_TLS_CERT_FILE}"
+    key_file: "${BUGX_SERVER_TLS_KEY_FILE}"
+  cors:
+    enable: true
+    allow_origins: ["http://localhost:5173", "http://localhost:8080"]
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers: ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID"]
+    allow_credentials: true
+    max_age: 86400
+
+database:
+  driver: "${BUGX_DATABASE_DRIVER}"  # 例如 mysql；部署时必须显式设置
+  host: "${BUGX_DATABASE_HOST}"
+  port: "${BUGX_DATABASE_PORT}"
+  username: "${BUGX_DATABASE_USERNAME}"
+  password: "${BUGX_DATABASE_PASSWORD}"
+  database: "${BUGX_DATABASE_NAME}"
+  charset: "utf8mb4"
+  timezone: "Asia/Shanghai"
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: "1h"
+  log_level: "info"
+  slow_threshold: "200ms"
+  tls:
+    enable: "${BUGX_DATABASE_TLS_ENABLE}"  # 生产环境必须渲染为 true
+    ssl_mode: "${BUGX_DATABASE_SSL_MODE}"  # 按驱动设置为 require/verify-full 等
+    ca_file: "${BUGX_DATABASE_TLS_CA_FILE}"
+    cert_file: "${BUGX_DATABASE_TLS_CERT_FILE}"
+    key_file: "${BUGX_DATABASE_TLS_KEY_FILE}"
+    server_name: "${BUGX_DATABASE_TLS_SERVER_NAME}"
+    min_version: "TLS1.2"
+
+redis:
+  host: "${BUGX_REDIS_HOST}"
+  port: "${BUGX_REDIS_PORT}"
+  password: "${BUGX_REDIS_PASSWORD}"
+  database: "${BUGX_REDIS_DATABASE}"
+  pool_size: 10
+  min_idle_conns: 5
+  dial_timeout: "5s"
+  read_timeout: "3s"
+  write_timeout: "3s"
+  idle_timeout: "5m"
+  tls:
+    enable: "${BUGX_REDIS_TLS_ENABLE}"  # 生产环境必须渲染为 true
+    ca_file: "${BUGX_REDIS_TLS_CA_FILE}"
+    cert_file: "${BUGX_REDIS_TLS_CERT_FILE}"
+    key_file: "${BUGX_REDIS_TLS_KEY_FILE}"
+    server_name: "${BUGX_REDIS_TLS_SERVER_NAME}"
+    min_version: "TLS1.2"
+
+logger:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json, text
+  output: "stdout"  # stdout, file, both
+  file_path: "logs/app.log"
+  max_size: 100  # MB
+  max_backups: 5
+  max_age: 30  # days
+  compress: true
+
+jwt:
+  secret: "${BUGX_JWT_SECRET}"  # 必须使用高熵密钥；禁止保留未渲染占位符运行
+  issuer: "bugx"
+  expire_time: "24h"
+  refresh_time: "168h"  # 7 days
+  signing_method: "HS256"
+  token_lookup: "header:Authorization"
+  token_head_name: "Bearer"
+  time_func: "time.Now"
+
+upload:
+  max_size: 10485760  # 10MB
+  allowed_types: [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".doc", ".docx"]
+  save_path: "uploads"
+  url_prefix: "/uploads"
+
+email:
+  host: "${BUGX_EMAIL_HOST}"
+  port: "${BUGX_EMAIL_PORT}"
+  username: "${BUGX_EMAIL_USERNAME}"
+  password: "${BUGX_EMAIL_PASSWORD}"
+  from: "${BUGX_EMAIL_FROM}"
+  ssl: "${BUGX_EMAIL_SSL}"  # 按邮件服务要求显式启用安全传输

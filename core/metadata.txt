@@ -1,0 +1,5 @@
+bugx_version: "0.1.0"
+bugx_channel: "stable"
+bugx_marker: "stable"
+build_id: 470
+

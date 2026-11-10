@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "skill_id": "native-audit",
+  "version": "0.1.0",
+  "scope": "engine",
+  "applies_if": {
+    "forms": [
+      "embedded",
+      "library",
+      "cli"
+    ],
+    "surfaces": [
+      "native"
+    ]
+  },
+  "stage_pipeline": [
+    {
+      "stage_id": "00-scope",
+      "barrier": true,
+      "required": true,
+      "affinity": "recon",
+      "dimension": "black-box",
+      "consumes": [],
+      "produces": [
+        "scope-manifest.json"
+      ]
+    },
+    {
+      "stage_id": "10-static-white-box",
+      "barrier": false,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "white-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "static-findings"
+      ]
+    },
+    {
+      "stage_id": "20-memory-concurrency",
+      "barrier": false,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "white-box",
+      "consumes": [
+        "static-findings"
+      ],
+      "produces": [
+        "memory-evidence",
+        "race-evidence"
+      ]
+    },
+    {
+      "stage_id": "30-behavior-black-box",
+      "barrier": false,
+      "required": true,
+      "affinity": "logic",
+      "dimension": "black-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "behavior-evidence"
+      ]
+    },
+    {
+      "stage_id": "80-evidence-regression",
+      "barrier": true,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "functional",
+      "consumes": [
+        "all-evidence",
+        "behavior-evidence"
+      ],
+      "produces": [
+        "verification-report.json"
+      ]
+    }
+  ],
+  "optional_modules": [
+    "abi",
+    "toolchain"
+  ],
+  "experience_queries": {
+    "10-static-white-box": [
+      "buffer-overflow",
+      "use-after-free",
+      "integer-overflow",
+      "unchecked-return"
+    ],
+    "20-memory-concurrency": [
+      "memory-leak",
+      "double-free",
+      "data-race",
+      "deadlock"
+    ]
+  },
+  "budgets": {
+    "max_l1_checklist_tokens": 300,
+    "max_stage_tokens": 1500,
+    "max_experience_cards": 3,
+    "max_experience_tokens": 600
+  },
+  "required_runtime": {
+    "tools": [
+      {
+        "name": "native",
+        "stage_ids": ["10-static-white-box"]
+      },
+      {
+        "name": "sast",
+        "stage_ids": ["10-static-white-box"]
+      },
+      {
+        "name": "memory",
+        "stage_ids": ["20-memory-concurrency"]
+      },
+      {
+        "name": "concurrency",
+        "stage_ids": ["20-memory-concurrency"]
+      }
+    ]
+  }
+}

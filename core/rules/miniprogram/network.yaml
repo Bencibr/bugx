@@ -1,0 +1,37 @@
+rules:
+  - id: miniprogram-network-cleartext-request
+    languages:
+      - javascript
+      - typescript
+    severity: WARNING
+    message: "[MASVS-NETWORK-1] wx.request 使用 http:// 明文地址；改为 https 并确认已在合法域名列表"
+    metadata:
+      summary: Cleartext HTTP request from WeChat mini program.
+      references:
+        - https://developers.weixin.qq.com/miniprogram/dev/api/network/request/wx.request.html
+    patterns:
+      - pattern-either:
+          - pattern: 'wx.request({url: $URL, ...})'
+          - pattern: 'wx.uploadFile({url: $URL, ...})'
+          - pattern: 'wx.downloadFile({url: $URL, ...})'
+          - pattern: 'wx.connectSocket({url: $URL, ...})'
+      - metavariable-regex:
+          metavariable: $URL
+          regex: ^["'`](http|ws)://
+
+  - id: miniprogram-network-url-from-user-input
+    languages:
+      - javascript
+      - typescript
+    severity: WARNING
+    message: "[MASVS-NETWORK-2] 请求/跳转地址由模板字符串拼接（可能被篡改为任意外域或任意页面）；改为服务端下发或白名单校验"
+    patterns:
+      - pattern-either:
+          - pattern: 'wx.request({url: `...${...}...`, ...})'
+          - pattern: 'wx.uploadFile({url: `...${...}...`, ...})'
+          - pattern: 'wx.downloadFile({url: `...${...}...`, ...})'
+          - pattern: 'wx.navigateTo({url: `...${...}...`})'
+          - pattern: 'wx.redirectTo({url: `...${...}...`})'
+          - pattern: 'wx.reLaunch({url: `...${...}...`})'
+          - pattern: 'wx.switchTab({url: `...${...}...`})'
+

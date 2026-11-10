@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "skill_id": "desktop-audit",
+  "version": "0.1.0",
+  "scope": "engine",
+  "applies_if": {
+    "forms": [
+      "desktop"
+    ],
+    "surfaces": [
+      "ui",
+      "native"
+    ]
+  },
+  "stage_pipeline": [
+    {
+      "stage_id": "00-scope",
+      "barrier": true,
+      "required": true,
+      "affinity": "recon",
+      "dimension": "black-box",
+      "consumes": [],
+      "produces": [
+        "scope-manifest.json"
+      ]
+    },
+    {
+      "stage_id": "10-process-model",
+      "barrier": false,
+      "required": true,
+      "affinity": "logic",
+      "dimension": "white-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "process-boundary-findings"
+      ]
+    },
+    {
+      "stage_id": "20-package-integrity",
+      "barrier": false,
+      "required": true,
+      "affinity": "recon",
+      "dimension": "white-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "package-integrity-findings"
+      ]
+    },
+    {
+      "stage_id": "30-ui-behavior",
+      "barrier": false,
+      "required": false,
+      "affinity": "exploit",
+      "dimension": "black-box",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "ui-behavior-evidence"
+      ]
+    },
+    {
+      "stage_id": "80-evidence-regression",
+      "barrier": true,
+      "required": true,
+      "affinity": "exploit",
+      "dimension": "functional",
+      "consumes": [
+        "all-evidence"
+      ],
+      "produces": [
+        "verification-report.json"
+      ]
+    }
+  ],
+  "optional_modules": [
+    "auto-update",
+    "code-signing",
+    "tray"
+  ],
+  "experience_queries": {
+    "10-process-model": [
+      "ipc-validation",
+      "context-isolation",
+      "privilege-boundary"
+    ],
+    "20-package-integrity": [
+      "unsigned-binary",
+      "asar-extraction",
+      "dependency-confusion"
+    ]
+  },
+  "budgets": {
+    "max_l1_checklist_tokens": 300,
+    "max_stage_tokens": 1500,
+    "max_experience_cards": 3,
+    "max_experience_tokens": 600
+  },
+  "required_runtime": {
+    "tools": [
+      {
+        "name": "desktop",
+        "stage_ids": ["10-process-model", "20-package-integrity"]
+      },
+      {
+        "name": "efficiency",
+        "stage_ids": ["00-scope", "10-process-model", "20-package-integrity", "30-ui-behavior"]
+      },
+      {
+        "name": "memory",
+        "stage_ids": ["30-ui-behavior", "80-evidence-regression"]
+      },
+      {
+        "name": "web_conformance",
+        "stage_ids": ["30-ui-behavior"]
+      }
+    ]
+  }
+}

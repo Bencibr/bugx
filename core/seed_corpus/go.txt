@@ -1,0 +1,46 @@
+# Go 种子语料 — fuzz 变异起点（fuzz_input.py --lang go）
+
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "sync"
+    "time"
+)
+
+func main() {
+    ch := make(chan int, 10)
+    var wg sync.WaitGroup
+    m := make(map[string]interface{})
+    m["key"] = 42
+    m["nil"] = nil
+    data, err := json.Marshal(m)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(string(data))
+}
+
+`raw string with \n not escaped`
+"normal \"escape\" \n \u4e2d"
+`{"status":"ok","count":100,"items":["a","b","c"]}`
+select { case x := <-ch: fmt.Println(x) default: }
+go func() { defer wg.Done(); ch <- 1 }()
+var mu sync.RWMutex; mu.Lock(); defer mu.Unlock()
+var ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second); defer cancel()
+type Item struct { ID int `json:"id"`; Name string `json:"name,omitempty"` }
+var buf [4096]byte; n, err := r.Read(buf[:])
+if ptr == nil { return errors.New("nil pointer dereference") }
+m := make(map[string]int); delete(m, "unknown")
+slice := []int{1, 2, 3}; _ = slice[0:2]
+int64(-9223372036854775808)
+uint64(18446744073709551615)
+0.0
+-0.0
+1e308
+math.NaN()
+math.Inf(1)
+nil
+interface{}(nil)

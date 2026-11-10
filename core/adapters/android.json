@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "android-screenshot",
+  "platform": "android",
+  "description": "通过 ADB 从已连接的 Android 目标采集屏幕证据。",
+  "execution": {
+    "host_platforms": ["macos", "windows", "linux"],
+    "target_platform": "android-device",
+    "target_kind": "device",
+    "target_fingerprint_variable": "serial"
+  },
+  "variables": {
+    "serial": {"required": true, "description": "adb devices 返回的设备序列号"}
+  },
+  "steps": [
+    {
+      "id": "screenshot",
+      "command": ["adb", "-s", "{serial}", "exec-out", "screencap", "-p"],
+      "timeout_seconds": 30,
+      "capture_stdout": "android-screen.png",
+      "evidence_paths": ["android-screen.png"]
+    }
+  ]
+}

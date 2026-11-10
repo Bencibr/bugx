@@ -1,0 +1,4 @@
+# BugX UI bundle: the dsh.client declaration supplies the browser icon.
+- insert:
+    - id: bugx-ui
+      name: '@bencibro/bugx-dsh-ui'

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "ios-interaction",
+  "platform": "ios",
+  "execution": {
+    "host_platforms": ["macos"],
+    "target_platform": "ios-simulator",
+    "target_kind": "simulator",
+    "target_fingerprint_variable": "udid"
+  },
+  "variables": {
+    "udid": {
+      "description": "xcrun simctl list booted 返回的设备 UDID",
+      "required": true
+    },
+    "x": {
+      "description": "由 Maestro/Appium 等交互驱动提供的 X 坐标 (px)",
+      "default": "500"
+    },
+    "y": {
+      "description": "由 Maestro/Appium 等交互驱动提供的 Y 坐标 (px)",
+      "default": "1000"
+    }
+  },
+  "steps": [
+    {
+      "id": "screenshot",
+      "command": ["xcrun", "simctl", "io", "{udid}", "screenshot", "type", "png"],
+      "timeout_seconds": 30,
+      "capture_stdout": "ios-screen.png",
+      "evidence_paths": ["ios-screen.png"]
+    }
+  ]
+}

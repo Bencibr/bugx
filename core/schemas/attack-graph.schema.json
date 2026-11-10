@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bugx.local/schemas/attack-graph.schema.json",
+  "title": "BugX Living Attack Graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "nodes", "edges"],
+  "properties": {
+    "version": {"type": "string"},
+    "nodes": {
+      "type": "object",
+      "properties": {
+        "roles": {"type": "array", "items": {"type": "object", "required": ["id", "type"]}},
+        "routes": {"type": "array", "items": {"type": "object", "required": ["id", "method", "auth_required"]}},
+        "parameters": {"type": "array", "items": {"type": "object", "required": ["id", "name"]}},
+        "sinks": {"type": "array", "items": {"type": "object", "required": ["id", "kind"]}},
+        "hypotheses": {"type": "array", "items": {"type": "object", "required": ["id", "type", "target", "status"]}}
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "relation"],
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "relation": {"type": "string"},
+          "hypothesis_id": {"type": "string"}
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "description": "图谱级观测数据：schema 校验降级事实、覆盖单元归属 (units)、轮次水位与计数器。会话级累积状态。",
+      "properties": {
+        "schema_validation": {
+          "type": "object",
+          "required": ["mode", "strict_json_schema"],
+          "properties": {
+            "mode": {"enum": ["jsonschema", "builtin_degraded"]},
+            "strict_json_schema": {"type": "boolean"},
+            "jsonschema_available": {"type": "boolean"},
+            "schema_path": {"type": "string"},
+            "reason": {"type": "string"},
+            "validated_at": {"type": "number"}
+          }
+        },
+        "units": {"type": "object"},
+        "project_root": {"type": "string"},
+        "session_layer": {"type": "string"},
+        "seeded_at": {"type": "number"},
+        "updated_at": {"type": "number"},
+        "last_round": {"type": "integer"},
+        "endpoints_ready": {"type": "boolean"}
+      }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 500,
+      "description": "StreamingEventBus 的落盘事件日志（endpoint_discovered / sink_found / hypothesis_verified / hypothesis_rejected / rollback …）。",
+      "items": {
+        "type": "object",
+        "required": ["event_type", "timestamp"],
+        "properties": {
+          "seq": {"type": "integer"},
+          "event_type": {"type": "string"},
+          "timestamp": {"type": "number"},
+          "round": {"type": "integer"},
+          "unit_id": {"type": "string"},
+          "payload": {"type": "object"},
+          "result": {"type": "object"}
+        }
+      }
+    },
+    "reflex": {
+      "type": "object",
+      "description": "跨 Round 回溯状态：回溯尝试历史、回滚审计、待重放计划与有界拓扑快照。",
+      "properties": {
+        "backtrack_history": {"type": "object"},
+        "rollbacks": {"type": "array", "maxItems": 50},
+        "replay_pending": {"type": "array", "maxItems": 50},
+        "auto_fix_suggestions": {"type": "array", "maxItems": 50},
+        "snapshots": {"type": "object", "maxProperties": 5}
+      }
+    }
+  }
+}

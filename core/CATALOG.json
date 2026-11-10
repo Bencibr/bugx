@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "description": "BugX Modular Domain Subpackage Catalog (DOC-256)",
+  "packages": [
+    {
+      "name": "autonomous_cve",
+      "path": "core/autonomous_cve",
+      "title": "Autonomous CVE Pipeline",
+      "description": "Autonomous CVE reproduction, dynamic target probing, and verifiable PoC execution.",
+      "maturity": "stable",
+      "spec": "core/autonomous_cve/SPEC.md",
+      "interface": "core/autonomous_cve/INTERFACE.md"
+    },
+    {
+      "name": "cloud_sync",
+      "path": "core/cloud_sync",
+      "title": "Cloud Synchronization Client",
+      "description": "Report synchronization, telemetry, remote licensing, and offline receipt queueing.",
+      "maturity": "stable",
+      "spec": "core/cloud_sync/SPEC.md",
+      "interface": "core/cloud_sync/INTERFACE.md"
+    },
+    {
+      "name": "dev_harness",
+      "path": "core/dev_harness",
+      "title": "Development & E2E Testing Harness",
+      "description": "Controlled execution environment, mock fixtures, and protocol-level E2E assertion drivers.",
+      "maturity": "stable",
+      "spec": "core/dev_harness/SPEC.md",
+      "interface": "core/dev_harness/INTERFACE.md"
+    },
+    {
+      "name": "host_acp",
+      "path": "core/host_acp",
+      "title": "Agent Control Protocol (ACP) Gateway",
+      "description": "Bidirectional communication gateway implementing the ACP contract between BugX supervisor and host agents.",
+      "maturity": "stable",
+      "spec": "core/host_acp/SPEC.md",
+      "interface": "core/host_acp/INTERFACE.md"
+    },
+    {
+      "name": "host_runtime",
+      "path": "core/host_runtime",
+      "title": "Host Runtime & Environment Detector",
+      "description": "Detects host agent installations, checks tool version constraints, and normalizes paths.",
+      "maturity": "stable",
+      "spec": "core/host_runtime/SPEC.md",
+      "interface": "core/host_runtime/INTERFACE.md"
+    },
+    {
+      "name": "hosts",
+      "path": "core/hosts",
+      "title": "Host Adapter Registry & Implementations",
+      "description": "Extensible plugin registry and concrete adapters for IDE/Agent hosts (OpenCode, Claude, Codex, DSH, etc.).",
+      "maturity": "stable",
+      "spec": "core/hosts/SPEC.md",
+      "interface": "core/hosts/INTERFACE.md"
+    },
+    {
+      "name": "launch_phases",
+      "path": "core/launch_phases",
+      "title": "Core Launch Lifecycle Phases",
+      "description": "Orchestrates multi-phase lifecycle: pre-execution gates, worker spawning, monitoring, and post-execution settlement.",
+      "maturity": "stable",
+      "spec": "core/launch_phases/SPEC.md",
+      "interface": "core/launch_phases/INTERFACE.md"
+    },
+    {
+      "name": "ledger",
+      "path": "core/ledger",
+      "title": "Immutable Audit Ledger & Receipt Store",
+      "description": "Append-only storage for findings, evidence checkpoints, audit trails, and execution receipts.",
+      "maturity": "stable",
+      "spec": "core/ledger/SPEC.md",
+      "interface": "core/ledger/INTERFACE.md"
+    },
+    {
+      "name": "mcp_handlers",
+      "path": "core/mcp_handlers",
+      "title": "Model Context Protocol (MCP) Request Handlers",
+      "description": "Routes, validates, and dispatches MCP tool calls (code generation, db queries, logs, server execution).",
+      "maturity": "stable",
+      "spec": "core/mcp_handlers/SPEC.md",
+      "interface": "core/mcp_handlers/INTERFACE.md"
+    },
+    {
+      "name": "probes",
+      "path": "core/probes",
+      "title": "Domain Dynamic Probes System",
+      "description": "Domain-specialized dynamic black-box probes (Web, Android, WeChat Mini Program) with static fallback.",
+      "maturity": "stable",
+      "spec": "core/probes/SPEC.md",
+      "interface": "core/probes/INTERFACE.md"
+    },
+    {
+      "name": "project_profiler",
+      "path": "core/project_profiler",
+      "title": "Deterministic Project Profiling & Classification Engine",
+      "description": "Non-intrusive bounded fact discovery, heuristic root anchoring, AI arbitration, and audit strategy compilation.",
+      "maturity": "stable",
+      "spec": "core/project_profiler/SPEC.md",
+      "interface": "core/project_profiler/INTERFACE.md"
+    },
+    {
+      "name": "report_engine",
+      "path": "core/report_engine",
+      "title": "Verification & Reporting Engine",
+      "description": "Aggregates findings, computes code volume, formats human/machine reports (HTML, Markdown, JSON), and hosts local report server.",
+      "maturity": "stable",
+      "spec": "core/report_engine/SPEC.md",
+      "interface": "core/report_engine/INTERFACE.md"
+    },
+    {
+      "name": "retrieval",
+      "path": "core/retrieval",
+      "title": "Context Retrieval & Knowledge Search",
+      "description": "AST code navigation, codebase-memory graph indexing, keyword search, and contextual evidence assembly.",
+      "maturity": "stable",
+      "spec": "core/retrieval/SPEC.md",
+      "interface": "core/retrieval/INTERFACE.md"
+    },
+    {
+      "name": "supervisor",
+      "path": "core/supervisor",
+      "title": "External Supervisor & Worker Governance",
+      "description": "Out-of-process supervisor governing worker leases, budgets, finish policy gates, and finding settlement.",
+      "maturity": "stable",
+      "spec": "core/supervisor/SPEC.md",
+      "interface": "core/supervisor/INTERFACE.md"
+    },
+    {
+      "name": "webui",
+      "path": "core/webui",
+      "title": "Interactive WebUI & Dashboard Server",
+      "description": "FastAPI/Starlette local web server providing mining status, visual architecture graph, and workbench controls.",
+      "maturity": "stable",
+      "spec": "core/webui/SPEC.md",
+      "interface": "core/webui/INTERFACE.md"
+    }
+  ]
+}

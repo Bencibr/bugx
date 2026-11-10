@@ -1,0 +1,30 @@
+{
+  "origin": "bugx-authored",
+  "license": "Business Source License 1.1（仓库根 LICENSE）",
+  "fetched_at": "2026-10-21",
+  "file_count": 4,
+  "files": {
+    "crypto.yaml": {
+      "sha256": "66ea88890f997bf919f95aa7b682176de3aa508d7e31af9ef146da6dad52c8ce",
+      "bytes": 1076
+    },
+    "network.yaml": {
+      "sha256": "16a84d2d1053d5cbb35b7ef0ddc0b7747867355da6a560a8786698a02ec3986f",
+      "bytes": 672
+    },
+    "resilience.yaml": {
+      "sha256": "576f2b8d1d6665005ae4d3a0049928d221709ab711aa2242f75fbfb281511235",
+      "bytes": 1554
+    },
+    "storage.yaml": {
+      "sha256": "b34eef0253096e0e51a164c0266c70a18126cce32ef44c3d0a1cf1abd9b5846f",
+      "bytes": 1919
+    }
+  },
+  "title": "iOS security rules (authored)",
+  "references": [
+    "https://developer.apple.com/documentation/bundleresources/information_property_list",
+    "https://developer.apple.com/documentation/security"
+  ],
+  "note": "MASTG rules/ 下 0 条 iOS 规则；mobsfscan 已有 22 条 Swift 规则作为基线。本包补充 plist/ATS/Keychain/弱算法等 Apple 官方文档口径的检查项。"
+}

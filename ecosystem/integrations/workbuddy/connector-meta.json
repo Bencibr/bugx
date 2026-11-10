@@ -1,0 +1,19 @@
+{
+  "name": "BugX",
+  "name_zh": "BugX 深度审计",
+  "name_en": "BugX",
+  "description": "Use BugX to discover, reproduce, verify, and report real bugs.",
+  "description_zh": "使用 BugX 发现、复现、验证并报告真实漏洞。",
+  "description_en": "Use BugX to discover, reproduce, verify, and report real bugs.",
+  "source": "bugx-cli",
+  "type": "skill-only",
+  "version": "0.1.0",
+  "examples_zh": [
+    "检查这个项目中是否存在真实漏洞",
+    "复现并验证这个 BugX 发现的问题"
+  ],
+  "examples_en": [
+    "Audit this project for real bugs",
+    "Reproduce and verify the BugX finding"
+  ]
+}

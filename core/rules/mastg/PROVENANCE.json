@@ -1,0 +1,270 @@
+{
+  "repo": "https://github.com/OWASP/mastg",
+  "commit": "02ffd85fb74383ec2a30b42866d38f89d72c0ead",
+  "fetched_at": "2026-10-21",
+  "file_count": 50,
+  "files": {
+    "mastg-android-asymmetric-key-pair-used-for-multiple-purposes.yml": {
+      "source_path": "rules/mastg-android-asymmetric-key-pair-used-for-multiple-purposes.yml",
+      "sha256": "f7dec88166d70ce0b7a6e02b7de5e7f21eb05351fda503ed5de3b03bd741340e",
+      "bytes": 634
+    },
+    "mastg-android-backup-manifest.yml": {
+      "source_path": "rules/mastg-android-backup-manifest.yml",
+      "sha256": "2926db783cc3615d21f2f007bb8fcd1c09e4b1ff19aec55110462ae95c693eee",
+      "bytes": 900
+    },
+    "mastg-android-biometric-event-bound.yml": {
+      "source_path": "rules/mastg-android-biometric-event-bound.yml",
+      "sha256": "4e2cf64d224b13bf7a8a105f4d6091baa2df62087628c2d698ec3b8cb38913bb",
+      "bytes": 2599
+    },
+    "mastg-android-biometric-invalidated-enrollment.yml": {
+      "source_path": "rules/mastg-android-biometric-invalidated-enrollment.yml",
+      "sha256": "4f514d4842232d90993755334afbd98020e3eb07229dd6aacd11c7a8490631f7",
+      "bytes": 580
+    },
+    "mastg-android-biometric-no-confirmation-required.yml": {
+      "source_path": "rules/mastg-android-biometric-no-confirmation-required.yml",
+      "sha256": "14bcff56cc1528021e3a218e9cc37e7593c6960c68d327b28ccc4aaa2f4ae99d",
+      "bytes": 470
+    },
+    "mastg-android-biometric-validity-duration.yml": {
+      "source_path": "rules/mastg-android-biometric-validity-duration.yml",
+      "sha256": "80585f0c55887389538c2cafc2529897b3553b90b902d3913c753d9717f97a54",
+      "bytes": 1115
+    },
+    "mastg-android-broken-encryption-algorithms.yaml": {
+      "source_path": "rules/mastg-android-broken-encryption-algorithms.yaml",
+      "sha256": "a8a99bc7708e6343c2ca5339a1d0adc0e9059aa40de51626ecaeeea812fa29e2",
+      "bytes": 366
+    },
+    "mastg-android-broken-encryption-modes.yaml": {
+      "source_path": "rules/mastg-android-broken-encryption-modes.yaml",
+      "sha256": "3551e4d8e1c80feb7f7f5acb8b6e4f3d1a02805b5bfaa574d419aac09ee5dcd5",
+      "bytes": 401
+    },
+    "mastg-android-content-provider-exported.yml": {
+      "source_path": "rules/mastg-android-content-provider-exported.yml",
+      "sha256": "b69953ee0ee73e3ee76a3f46569b4679295e393371038a14802f0924a8fcb3ac",
+      "bytes": 1441
+    },
+    "mastg-android-custom-deeplink-scheme.yml": {
+      "source_path": "rules/mastg-android-custom-deeplink-scheme.yml",
+      "sha256": "d5b86a0e689a538b0d40374f3ab9f214c3967a1152cddc29b3003323701832a8",
+      "bytes": 958
+    },
+    "mastg-android-dangerous-app-permissions.yaml": {
+      "source_path": "rules/mastg-android-dangerous-app-permissions.yaml",
+      "sha256": "237efb96a8ffc88e70c37abca76291c7b51c1c3cc0fe6f3b79c60547ce92f2f2",
+      "bytes": 4056
+    },
+    "mastg-android-data-unencrypted-shared-storage-no-user-interaction-apis.yml": {
+      "source_path": "rules/mastg-android-data-unencrypted-shared-storage-no-user-interaction-apis.yml",
+      "sha256": "76089b6050f9b5ee4d02b4ab84236dd61b436de87abbcbae71711b3a53781245",
+      "bytes": 1719
+    },
+    "mastg-android-data-unencrypted-shared-storage-no-user-interaction-manifest.yml": {
+      "source_path": "rules/mastg-android-data-unencrypted-shared-storage-no-user-interaction-manifest.yml",
+      "sha256": "4aee09ae244603e97b4ef1eae60fa4a72f86c99c582205aa42f5f22d3e30b91c",
+      "bytes": 680
+    },
+    "mastg-android-debuggable-flag.yml": {
+      "source_path": "rules/mastg-android-debuggable-flag.yml",
+      "sha256": "16f6cf7b5ed3cadcb86dc2ac651d03c70d3b2fc3ea1387dbb2ed8be5474fc3c5",
+      "bytes": 315
+    },
+    "mastg-android-debugger-checks.yml": {
+      "source_path": "rules/mastg-android-debugger-checks.yml",
+      "sha256": "68bc215fa2c44b7a905d07ba72aa0ec707236c4b5413bb569d0caf209809305e",
+      "bytes": 413
+    },
+    "mastg-android-deeplink-autoverify-missing.yml": {
+      "source_path": "rules/mastg-android-deeplink-autoverify-missing.yml",
+      "sha256": "422a7bbf8d8a0d9a6258b27ccc3cfd4ee9d171fa5e9fb02e4c2f80b6f75c58a5",
+      "bytes": 1036
+    },
+    "mastg-android-deeplink-unvalidated-parameter.yml": {
+      "source_path": "rules/mastg-android-deeplink-unvalidated-parameter.yml",
+      "sha256": "9b99499160490088becd9adef40444d23caa439ce40ac3353491be2b9d90fc83",
+      "bytes": 541
+    },
+    "mastg-android-device-passcode-present.yml": {
+      "source_path": "rules/mastg-android-device-passcode-present.yml",
+      "sha256": "a3b82c26c0f4917b9ec888aa441c9f122abc42c96122f2109dc9229b2a4b2df8",
+      "bytes": 600
+    },
+    "mastg-android-fileprovider-broad-scope.yml": {
+      "source_path": "rules/mastg-android-fileprovider-broad-scope.yml",
+      "sha256": "6e551f68ecd400786f55715b0f07504095a6edc7e4095ba72ba9260afbe16ef6",
+      "bytes": 1901
+    },
+    "mastg-android-hardcoded-crypto-keys-usage.yml": {
+      "source_path": "rules/mastg-android-hardcoded-crypto-keys-usage.yml",
+      "sha256": "4409b29926a2344f822a10da3f50474374d210f76755f5f62f5edb2424851c97",
+      "bytes": 448
+    },
+    "mastg-android-hardcoded-security-provider.yaml": {
+      "source_path": "rules/mastg-android-hardcoded-security-provider.yaml",
+      "sha256": "2c249dd3f5a84c0841dac45b6cde8043d37143dc2ce5f106c70d721b0eda4678",
+      "bytes": 962
+    },
+    "mastg-android-implicit-intent-internal-communication.yml": {
+      "source_path": "rules/mastg-android-implicit-intent-internal-communication.yml",
+      "sha256": "c8b99d0922f32d5e3b95c2136fdd43007266c9dd34eaf78a589ae5a1905920e3",
+      "bytes": 1055
+    },
+    "mastg-android-implicit-intent-leaking-extras.yml": {
+      "source_path": "rules/mastg-android-implicit-intent-leaking-extras.yml",
+      "sha256": "e26456f80a942a842a9da4c099b230afdd5f17f5c72f51cc8f704e4dda95aff7",
+      "bytes": 946
+    },
+    "mastg-android-input-field-usage.yml": {
+      "source_path": "rules/mastg-android-input-field-usage.yml",
+      "sha256": "751f0fe41a91865058dc9dc17fc3a4af2786d68466ba93561991eb6a186f046f",
+      "bytes": 450
+    },
+    "mastg-android-key-generation-with-insufficient-key-length.yml": {
+      "source_path": "rules/mastg-android-key-generation-with-insufficient-key-length.yml",
+      "sha256": "7a58d85c14e1c46db0be030d961ff62b7a579138006dc6f31c1f5140f9d83d62",
+      "bytes": 704
+    },
+    "mastg-android-keyboard-cache-input-types.yml": {
+      "source_path": "rules/mastg-android-keyboard-cache-input-types.yml",
+      "sha256": "02897abd7f102bbb6f4d1ede0ea1f4c9be2f2c88566af8fe1fdff5260908e17c",
+      "bytes": 305
+    },
+    "mastg-android-local-storage-input-validation.yml": {
+      "source_path": "rules/mastg-android-local-storage-input-validation.yml",
+      "sha256": "da5cdad2811e0a011bd2c3829c8fec977fde4017b0ce65f266182cc86bceeb2d",
+      "bytes": 1838
+    },
+    "mastg-android-native-debugger-checks.yml": {
+      "source_path": "rules/mastg-android-native-debugger-checks.yml",
+      "sha256": "a36c62b701c1832bc2db071582f119fa458038d2c1184c1c3fc0efcc92d2a3b2",
+      "bytes": 481
+    },
+    "mastg-android-network-checkservertrusted.yml": {
+      "source_path": "rules/mastg-android-network-checkservertrusted.yml",
+      "sha256": "3651af239bdc106e4689a67249c24a76f120b6fe33a4fc1c8fd3f55ae7120142",
+      "bytes": 428
+    },
+    "mastg-android-network-hostname-verification.yml": {
+      "source_path": "rules/mastg-android-network-hostname-verification.yml",
+      "sha256": "15f80d4f91412e7596d2a060e6a9e85f63e9435b8e3b9d715607440de51559d3",
+      "bytes": 318
+    },
+    "mastg-android-network-insecure-trust-anchors.yml": {
+      "source_path": "rules/mastg-android-network-insecure-trust-anchors.yml",
+      "sha256": "ad6cef32cedf0e5278b211639ca188bbe1276a976c40fbb1c5974ca3fb97ed58",
+      "bytes": 413
+    },
+    "mastg-android-network-onreceivedsslerror.yml": {
+      "source_path": "rules/mastg-android-network-onreceivedsslerror.yml",
+      "sha256": "84ca94dd18e22f87a81cd618a3f82e08fdb7e3cddf2015fe7dc00dce7cd1f79b",
+      "bytes": 400
+    },
+    "mastg-android-non-random-use.yml": {
+      "source_path": "rules/mastg-android-non-random-use.yml",
+      "sha256": "06fa9f790c8a06b81b80bea2b7731b5daf9234caceadba2079a1c5c6af467b8b",
+      "bytes": 740
+    },
+    "mastg-android-object-deserialization.yml": {
+      "source_path": "rules/mastg-android-object-deserialization.yml",
+      "sha256": "fb4508e106e7fe6afaeefd00bba8b5fb96d72dde64218762c0cdaa455ffc2b2c",
+      "bytes": 478
+    },
+    "mastg-android-overlay-protection.yml": {
+      "source_path": "rules/mastg-android-overlay-protection.yml",
+      "sha256": "a368a837cf4f730f9b354b0b2bb6e9111c5bd90d03723b66c5f0d111ad323913",
+      "bytes": 3036
+    },
+    "mastg-android-pendingintent-mutable.yml": {
+      "source_path": "rules/mastg-android-pendingintent-mutable.yml",
+      "sha256": "28c13a8de1132d5155a2117b89a04be8b8fdfd15f5d70e9041d074e62b987054",
+      "bytes": 2131
+    },
+    "mastg-android-random-apis-insufficient-entropy.yml": {
+      "source_path": "rules/mastg-android-random-apis-insufficient-entropy.yml",
+      "sha256": "9e143071dcfa65988ce8e1f6743615979bf848e1a3cd4a08f647530abca21a44",
+      "bytes": 669
+    },
+    "mastg-android-root-detection.yaml": {
+      "source_path": "rules/mastg-android-root-detection.yaml",
+      "sha256": "5a64af7aee4403db410da754553da16b9d02b78613e15fc6972759999ed232b7",
+      "bytes": 2502
+    },
+    "mastg-android-sdk-version.yml": {
+      "source_path": "rules/mastg-android-sdk-version.yml",
+      "sha256": "412acbd3fb5d70ff08619fc7b8333b5732e7264a55166b1d10e363763ce121cd",
+      "bytes": 409
+    },
+    "mastg-android-sensitive-data-in-notifications-manifest.yml": {
+      "source_path": "rules/mastg-android-sensitive-data-in-notifications-manifest.yml",
+      "sha256": "5bd5954849c3c6d9703315deb2dde4c587d941812e6efac9aed4a7062982eb3a",
+      "bytes": 778
+    },
+    "mastg-android-sensitive-data-in-notifications.yml": {
+      "source_path": "rules/mastg-android-sensitive-data-in-notifications.yml",
+      "sha256": "68316f9a9601f31d5448e80c743256f8db0878b2c04424a979e31ca737c8cd2b",
+      "bytes": 404
+    },
+    "mastg-android-sensitive-data-in-screenshot.yml": {
+      "source_path": "rules/mastg-android-sensitive-data-in-screenshot.yml",
+      "sha256": "99b5c3b68adc0dca1314317a51e0ab57ee2f8d80f3393340a0355fd198ac753c",
+      "bytes": 636
+    },
+    "mastg-android-sql-injection-contentprovider.yml": {
+      "source_path": "rules/mastg-android-sql-injection-contentprovider.yml",
+      "sha256": "2cb55c78a63699d934f7908b8797f27425dc767d974b582e3f307bd5a95539a2",
+      "bytes": 668
+    },
+    "mastg-android-ssl-socket-hostnameverifier.yml": {
+      "source_path": "rules/mastg-android-ssl-socket-hostnameverifier.yml",
+      "sha256": "203c8ec1e70a8b9a753fcfc042837cb8538ee4ab6a4cbb1137c5ca229bab802d",
+      "bytes": 549
+    },
+    "mastg-android-strictmode.yml": {
+      "source_path": "rules/mastg-android-strictmode.yml",
+      "sha256": "ddb1cf2c21dfd080c415fb643c1a64cf62c0c2fc57252a72f7e3a07613f93937",
+      "bytes": 276
+    },
+    "mastg-android-system-alert-window.yml": {
+      "source_path": "rules/mastg-android-system-alert-window.yml",
+      "sha256": "e71f4a254b33972babc7c340365ba1eaafc4f5c2327c48f609096e955e7ba534",
+      "bytes": 436
+    },
+    "mastg-android-webview-allow-local-access.yml": {
+      "source_path": "rules/mastg-android-webview-allow-local-access.yml",
+      "sha256": "876357aeb69f7f332ff43ec7d1323544b0910e42f5fd7f50866174957eb39234",
+      "bytes": 636
+    },
+    "mastg-android-webview-bridges.yml": {
+      "source_path": "rules/mastg-android-webview-bridges.yml",
+      "sha256": "be720f3ce22ad9e7076b41821ec1923fc09c3ef68bc62b0e1ae9bca1ffe4be6a",
+      "bytes": 1027
+    },
+    "mastg-android-webview-safebrowsing.yml": {
+      "source_path": "rules/mastg-android-webview-safebrowsing.yml",
+      "sha256": "9040acaab34bc5c5ac5a34c710112eee1002b46c1b0739ad248ff4a48faa323d",
+      "bytes": 1144
+    },
+    "mastg-android-webview-url-handlers.yml": {
+      "source_path": "rules/mastg-android-webview-url-handlers.yml",
+      "sha256": "51d5cadecab47d174a05092cffe3a20887071374a5bb5cc742643e988f382279",
+      "bytes": 1498
+    }
+  },
+  "excluded": [
+    {
+      "name": "mastg-android-biometric-device-credential-fallback.yml",
+      "reason": "semgrep 1.135.0 rejects nested pattern-not inside metavariable-pattern (Invalid rule schema)",
+      "evidence": "pysemgrep --validate --config core/rules/mastg"
+    }
+  ],
+  "validated_with": {
+    "engine": "semgrep 1.135.0 (pysemgrep)",
+    "command": "pysemgrep --validate --config core/rules/mastg --metrics=off",
+    "result": "clean"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "bugx-pi",
+  "version": "0.1.0",
+  "host": "pi",
+  "kind": "extension",
+  "entry": "index.ts",
+  "core_api": ">=0.7,<0.8",
+  "private": false,
+  "autoload": true
+}

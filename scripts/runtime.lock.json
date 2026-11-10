@@ -1,0 +1,31 @@
+{
+  "release": "20250212",
+  "cpython": "3.11.11",
+  "targets": {
+    "darwin-arm64": {
+      "url": "https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.11.11+20250212-aarch64-apple-darwin-install_only.tar.gz",
+      "sha256": "4b68e986cfecbbce7a67f7fa0c7a52f9543e390c50616fa1ca1fdfef7bcab068",
+      "bin": "python/bin/python3"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.11.11+20250212-x86_64-apple-darwin-install_only.tar.gz",
+      "sha256": "b48c1ea9aa7f5e8fbcbe3cbaf3cb967119ff39e16ca0bf2fcaeebe6f76c5b961",
+      "bin": "python/bin/python3"
+    },
+    "linux-x64": {
+      "url": "https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.11.11+20250212-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "8d3e91d8e136367355bb0576391d4e7efb0cbe8bc17887754f9d0c24e6ca9ec3",
+      "bin": "python/bin/python3"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.11.11+20250212-aarch64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "7aef8b72aa98a0026f86bdf8a14930d6bf4b6a8a473f27f0ef7e1ae14777d121",
+      "bin": "python/bin/python3"
+    },
+    "win32-x64": {
+      "url": "https://github.com/indygreg/python-build-standalone/releases/download/20250212/cpython-3.11.11+20250212-x86_64-pc-windows-msvc-shared-install_only.tar.gz",
+      "sha256": "7303eeb0c96c4293f9c6762391ce4fcfd1901a88db641ec923b72c918a5996ed",
+      "bin": "python/python.exe"
+    }
+  }
+}

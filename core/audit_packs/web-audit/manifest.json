@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "skill_id": "web-audit",
+  "version": "0.1.0",
+  "scope": "engine",
+  "applies_if": {
+    "forms": [
+      "web",
+      "backend"
+    ],
+    "surfaces": [
+      "http",
+      "rest",
+      "graphql",
+      "websocket",
+      "ui"
+    ],
+    "frameworks": [
+      "spring",
+      "django",
+      "express",
+      "fastapi",
+      "flask",
+      "gin",
+      "rails"
+    ]
+  },
+  "stage_pipeline": [
+    {
+      "stage_id": "00-scope",
+      "barrier": true,
+      "required": true,
+      "affinity": "recon",
+      "consumes": [],
+      "produces": [
+        "scope-manifest.json"
+      ]
+    },
+    {
+      "stage_id": "10-discovery",
+      "barrier": false,
+      "required": true,
+      "affinity": "recon",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "routes",
+        "parameters",
+        "attack-graph-nodes"
+      ]
+    },
+    {
+      "stage_id": "20-auth-session",
+      "barrier": false,
+      "required": true,
+      "affinity": "auth",
+      "consumes": [
+        "routes"
+      ],
+      "produces": [
+        "roles",
+        "tokens",
+        "session-matrix"
+      ]
+    },
+    {
+      "stage_id": "30-authz-business",
+      "barrier": false,
+      "required": true,
+      "affinity": "logic",
+      "consumes": [
+        "roles",
+        "routes"
+      ],
+      "produces": [
+        "idor-hypotheses",
+        "authz-evidence"
+      ]
+    },
+    {
+      "stage_id": "40-input-output",
+      "barrier": false,
+      "required": true,
+      "affinity": "exploit",
+      "consumes": [
+        "routes",
+        "parameters"
+      ],
+      "produces": [
+        "injection-pocs",
+        "error-evidence"
+      ]
+    },
+    {
+      "stage_id": "50-state-async",
+      "barrier": false,
+      "required": false,
+      "affinity": "logic",
+      "consumes": [
+        "routes"
+      ],
+      "produces": [
+        "race-evidence",
+        "idempotency-evidence"
+      ]
+    },
+    {
+      "stage_id": "60-file-ssrf-deser",
+      "barrier": false,
+      "required": false,
+      "affinity": "exploit",
+      "consumes": [
+        "routes",
+        "parameters"
+      ],
+      "produces": [
+        "ssrf-evidence",
+        "file-access-evidence"
+      ]
+    },
+    {
+      "stage_id": "70-config-dependency",
+      "barrier": false,
+      "required": false,
+      "affinity": "recon",
+      "consumes": [
+        "scope-manifest.json"
+      ],
+      "produces": [
+        "cve-evidence",
+        "config-leak-evidence"
+      ]
+    },
+    {
+      "stage_id": "80-evidence-regression",
+      "barrier": true,
+      "required": true,
+      "affinity": "exploit",
+      "consumes": [
+        "all-evidence"
+      ],
+      "produces": [
+        "verification-report.json"
+      ]
+    }
+  ],
+  "optional_modules": [
+    "graphql",
+    "websocket",
+    "upload",
+    "oauth",
+    "multi-tenant",
+    "h5"
+  ],
+  "experience_queries": {
+    "30-authz-business": [
+      "authorization",
+      "idor",
+      "multi-tenant"
+    ],
+    "40-input-output": [
+      "sql-injection",
+      "ssrf",
+      "deserialization",
+      "command-injection",
+      "open-redirect",
+      "postmessage-origin",
+      "token-in-localstorage"
+    ],
+    "50-state-async": [
+      "race-condition",
+      "concurrency",
+      "idempotency"
+    ]
+  },
+  "budgets": {
+    "max_l1_checklist_tokens": 300,
+    "max_stage_tokens": 1500,
+    "max_experience_cards": 3,
+    "max_experience_tokens": 600
+  },
+  "required_runtime": {
+    "mcp": [
+      {
+        "name": "playwright",
+        "tier": "optional"
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "bugx",
+  "version": "0.1.0",
+  "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+  "skills": "./skills/",
+  "homepage": "https://bugx.dev",
+  "author": {
+    "name": "BugX",
+    "url": "https://bugx.dev"
+  },
+  "license": "BSL-1.1",
+  "keywords": [
+    "bugx",
+    "audit",
+    "security",
+    "testing"
+  ],
+  "interface": {
+    "displayName": "BugX",
+    "shortDescription": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+    "longDescription": "An autonomous agent dedicated to code review, vulnerability hunting, and automated bug fixing. Built for deep investigations, BugX steps in when you are wrapping up a feature, opening a pull request, or hunting down an elusive bug. It analyzes code logic, automatically writes test cases to uncover and reproduce hidden flaws, and delivers verified patches that resolve root causes. Always safeguarding your code quality and security.",
+    "developerName": "BugX",
+    "category": "Developer tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://bugx.dev",
+    "privacyPolicyURL": "https://bugx.dev",
+    "termsOfServiceURL": "https://bugx.dev",
+    "composerIcon": "./assets/bugx-avatar-512.png",
+    "logo": "./assets/bugx-avatar-512.png",
+    "logoDark": "./assets/bugx-avatar-512.png",
+    "defaultPrompt": [
+      "Use BugX to find, reproduce, verify, and report bugs in this app or codebase."
+    ],
+    "brandColor": "#0284c7",
+    "screenshots": []
+  }
+}

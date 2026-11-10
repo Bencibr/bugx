@@ -1,0 +1,262 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bugx-cli"
+version = "0.1.0"
+description = "Evidence-driven AI code auditing, application security review, vulnerability hunting, and verified bug reproduction CLI for MCP/ACP coding agents"
+keywords = [
+  "AI code auditing",
+  "application security",
+  "security code review",
+  "vulnerability hunting",
+  "bug finding",
+  "verified bug reproduction",
+  "MCP",
+  "ACP",
+  "Python CLI",
+  "Node.js CLI",
+  "Claude Code",
+  "OpenAI Codex",
+  "OpenCode",
+  "Cline",
+]
+readme = "docs/07_distribution/02_README_PYPI.md"
+requires-python = ">=3.11"
+license = "BUSL-1.1"
+dependencies = []
+
+[project.optional-dependencies]
+tui = ["pexpect==4.9.0"]
+graph = ["tree-sitter-language-pack==1.14.3"]
+# 加密遥测包（flywheel 的 AES-GCM 往返）与 skill_pack 的 Ed25519 验签。
+# 两者都是可选能力：缺失时降级/明确报错，不影响核心审计流程。
+crypto = ["cryptography>=41"]
+
+[project.scripts]
+bugx = "bugx_cli.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "interfaces/cli"}
+
+[tool.setuptools.packages.find]
+where = ["interfaces/cli"]
+include = ["bugx_cli*"]
+
+[tool.setuptools.data-files]
+"share/bugx-agent" = ["ecosystem/integrations/opencode/opencode.json", "ecosystem/integrations/opencode/mcp-lock.json", "ecosystem/integrations/opencode/bugx-mcp-manifest.json"]
+"share/bugx-agent/dsh" = ["ecosystem/integrations/dsh/dsh-patch.yml"]
+"share/bugx-agent/dsh/skills/bugx" = ["ecosystem/integrations/dsh/skills/bugx/SKILL.md"]
+"share/bugx-agent/dsh/skills/bugx-dsh" = ["ecosystem/integrations/dsh/skills/bugx-dsh/SKILL.md"]
+"share/bugx-agent/dsh/agents" = ["ecosystem/integrations/dsh/agents/bugx.md"]
+"share/bugx-agent/dsh/ui" = [
+  "ecosystem/integrations/dsh/ui/package.json",
+  "ecosystem/integrations/dsh/ui/cordis.patch.yml",
+  "ecosystem/integrations/dsh/ui/index.js",
+  "ecosystem/integrations/dsh/ui/client.js",
+]
+"share/bugx-agent/dsh/mcp" = [
+  "ecosystem/integrations/dsh/mcp/package.json",
+  "ecosystem/integrations/dsh/mcp/cordis.patch.yml",
+  "ecosystem/integrations/dsh/mcp/index.js",
+]
+"share/bugx-agent/workbuddy" = [
+  "ecosystem/integrations/workbuddy/connector-meta.json",
+  "ecosystem/integrations/workbuddy/icon.png",
+]
+"share/bugx-agent/workbuddy/skills/bugx" = [
+  "ecosystem/integrations/workbuddy/skills/bugx/SKILL.md",
+]
+"share/bugx-agent/plugins/bugx/skills/bugx-zcode" = [
+  "ecosystem/plugins/bugx/skills/bugx-zcode/SKILL.md",
+]
+"share/bugx-agent/plugins/bugx/skills/bugx-claude" = [
+  "ecosystem/plugins/bugx/skills/bugx-claude/SKILL.md",
+]
+"share/bugx-agent/plugins/bugx/skills/bugx-opencode" = [
+  "ecosystem/plugins/bugx/skills/bugx-opencode/SKILL.md",
+]
+"share/bugx-agent/core" = [
+  "core/*.py",
+  "core/README.md",
+  "core/CATALOG.json",
+  "core/bugx.md",
+  "core/engine-integrity.json",
+  "core/lesson-ledger.json",
+  "core/metadata.txt",
+]
+"share/bugx-agent/core/infra" = ["core/infra/*.py", "core/infra/*.md"]
+"share/bugx-agent/core/contracts" = [
+  "core/contracts/*.md",
+  "core/contracts/*.py",
+]
+"share/bugx-agent/core/assets" = ["core/assets/*.png", "core/assets/*.svg", "core/assets/*.md"]
+"share/bugx-agent/core/coverage" = ["core/coverage/*.py", "core/coverage/*.md"]
+"share/bugx-agent/core/repair" = ["core/repair/*.py", "core/repair/*.md"]
+"share/bugx-agent/core/planning" = ["core/planning/*.py", "core/planning/*.md"]
+"share/bugx-agent/core/agent" = ["core/agent/*.py", "core/agent/*.md"]
+"share/bugx-agent/core/governance" = [
+  "core/governance/*.py",
+  "core/governance/*.md",
+  "core/governance/*.sh",
+]
+"share/bugx-agent/core/ledger" = [
+  "core/ledger/*.py",
+  "core/ledger/*.md",
+  "core/ledger/*.json",
+]
+"share/bugx-agent/core/autonomous_cve" = ["core/autonomous_cve/*.py", "core/autonomous_cve/*.md"]
+"share/bugx-agent/core/fuzzing" = ["core/fuzzing/*.py", "core/fuzzing/*.md"]
+"share/bugx-agent/core/cloud_sync" = ["core/cloud_sync/*.py", "core/cloud_sync/*.md"]
+"share/bugx-agent/core/skills" = ["core/skills/*.py", "core/skills/*.md"]
+"share/bugx-agent/core/launch_phases" = ["core/launch_phases/*.py", "core/launch_phases/*.md"]
+"share/bugx-agent/core/mcp_handlers" = ["core/mcp_handlers/*.py", "core/mcp_handlers/*.md"]
+"share/bugx-agent/core/mcp_runtime_support" = ["core/mcp_runtime_support/*.py", "core/mcp_runtime_support/*.md"]
+"share/bugx-agent/core/supervisor" = ["core/supervisor/*.py", "core/supervisor/*.md"]
+"share/bugx-agent/core/supervisor_types" = ["core/supervisor_types/*.py", "core/supervisor_types/*.md"]
+"share/bugx-agent/core/host_acp" = ["core/host_acp/*.py", "core/host_acp/*.md"]
+"share/bugx-agent/core/hosts" = ["core/hosts/*.py", "core/hosts/*.md"]
+"share/bugx-agent/core/host_runtime" = ["core/host_runtime/*.py", "core/host_runtime/*.md"]
+"share/bugx-agent/core/dev_harness" = ["core/dev_harness/*.py", "core/dev_harness/*.md"]
+"share/bugx-agent/core/probes" = ["core/probes/*.py", "core/probes/*.md"]
+"share/bugx-agent/core/project_profiler" = ["core/project_profiler/*.py", "core/project_profiler/*.md"]
+"share/bugx-agent/core/report_engine" = ["core/report_engine/*.py", "core/report_engine/*.md"]
+"share/bugx-agent/core/retrieval" = ["core/retrieval/*.py", "core/retrieval/*.md"]
+"share/bugx-agent/core/rules" = ["core/rules/*.md"]
+"share/bugx-agent/core/runtime" = ["core/runtime/*.py", "core/runtime/*.md"]
+"share/bugx-agent/core/webui" = ["core/webui/*.py", "core/webui/*.md"]
+"share/bugx-agent/core/webui/adapters" = ["core/webui/adapters/*.py"]
+"share/bugx-agent/core/webui/static" = [
+  "core/webui/static/*.css",
+  "core/webui/static/*.html",
+  "core/webui/static/*.js",
+  "core/webui/static/*.png",
+  "core/webui/static/*.webmanifest",
+]
+"share/bugx-agent/core/webui/static/assets" = [
+  "core/webui/static/assets/*.css",
+  "core/webui/static/assets/*.js",
+  "core/webui/static/assets/*.woff",
+  "core/webui/static/assets/*.woff2",
+]
+"share/bugx-agent/core/prompts" = ["core/prompts/*.md"]
+"share/bugx-agent/core/prompts/rules" = ["core/prompts/rules/*.md"]
+"share/bugx-agent/core/prompts/stages" = ["core/prompts/stages/*.md"]
+"share/bugx-agent/core/audit_packs" = ["core/audit_packs/*.md"]
+"share/bugx-agent/core/audit_packs/web-audit" = [
+  "core/audit_packs/web-audit/manifest.json",
+]
+"share/bugx-agent/core/audit_packs/web-audit/modules" = [
+  "core/audit_packs/web-audit/modules/*.md",
+]
+"share/bugx-agent/core/audit_packs/web-audit/stages" = [
+  "core/audit_packs/web-audit/stages/*.md",
+]
+"share/bugx-agent/core/audit_packs/mobile-audit" = [
+  "core/audit_packs/mobile-audit/manifest.json",
+]
+"share/bugx-agent/core/audit_packs/mobile-audit/stages" = [
+  "core/audit_packs/mobile-audit/stages/*.md",
+]
+"share/bugx-agent/core/audit_packs/mobile-audit/modules" = [
+  "core/audit_packs/mobile-audit/modules/*.md",
+]
+"share/bugx-agent/core/audit_packs/data-audit" = [
+  "core/audit_packs/data-audit/manifest.json",
+]
+"share/bugx-agent/core/audit_packs/data-audit/stages" = [
+  "core/audit_packs/data-audit/stages/*.md",
+]
+"share/bugx-agent/core/audit_packs/desktop-audit" = [
+  "core/audit_packs/desktop-audit/manifest.json",
+]
+"share/bugx-agent/core/audit_packs/desktop-audit/stages" = [
+  "core/audit_packs/desktop-audit/stages/*.md",
+]
+"share/bugx-agent/core/audit_packs/native-audit" = [
+  "core/audit_packs/native-audit/manifest.json",
+]
+"share/bugx-agent/core/audit_packs/native-audit/stages" = [
+  "core/audit_packs/native-audit/stages/*.md",
+]
+"share/bugx-agent/core/rules/mastg" = [
+  "core/rules/mastg/*.yml",
+  "core/rules/mastg/*.yaml",
+  "core/rules/mastg/LICENSE",
+  "core/rules/mastg/PROVENANCE.json",
+]
+"share/bugx-agent/core/rules/mobsfscan-swift" = [
+  "core/rules/mobsfscan-swift/*.yml",
+  "core/rules/mobsfscan-swift/*.yaml",
+  "core/rules/mobsfscan-swift/LICENSE",
+  "core/rules/mobsfscan-swift/PROVENANCE.json",
+]
+"share/bugx-agent/core/rules/miniprogram" = [
+  "core/rules/miniprogram/*.yml",
+  "core/rules/miniprogram/*.yaml",
+  "core/rules/miniprogram/PROVENANCE.json",
+]
+"share/bugx-agent/core/rules/ios" = [
+  "core/rules/ios/*.yml",
+  "core/rules/ios/*.yaml",
+  "core/rules/ios/PROVENANCE.json",
+]
+"share/bugx-agent/core/schemas" = ["core/schemas/*.json", "core/schemas/*.md"]
+"share/bugx-agent/core/adapters" = ["core/adapters/*.json", "core/adapters/*.md"]
+"share/bugx-agent/core/seed_corpus" = ["core/seed_corpus/*.txt", "core/seed_corpus/*.md"]
+"share/bugx-agent/core/locales" = ["core/locales/*.json", "core/locales/*.md"]
+"share/bugx-agent/pi/extensions/bugx" = [
+  "ecosystem/integrations/pi/extensions/bugx/index.ts",
+  "ecosystem/integrations/pi/extensions/bugx/manifest.json",
+  "ecosystem/integrations/pi/extensions/bugx/README.md",
+]
+"share/bugx-agent/pi/skills/bugx" = [
+  "ecosystem/integrations/pi/skills/bugx/SKILL.md",
+]
+
+[tool.bugx]
+node = ">=24,<27"
+playwright-mcp = "0.0.79"
+playwright-browser = "1.63.0-alpha-2026-08-05"
+postmcp = "1.0.3"
+agent-tty = "0.5.0"
+pexpect = "4.9.0"
+codebase-memory-mcp = "0.10.5"
+ripgrep = "15.2.0"
+ast-grep = "0.45.1"
+jq = "1.8.2"
+context7-mcp = "4.0.3"
+github-mcp-server = "1.9.0"
+schemathesis = "4.24.3"
+restler = "9.3.1"
+k6 = "2.2.0"
+vegeta = "12.13.0"
+conftest = "0.69.0"
+actionlint = "1.7.12"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", "scripts", "core", ".bugx", "worktrees", "ecosystem", "build", "dist"]
+pythonpath = [".", "core", "interfaces/cli", "tests"]
+
+[tool.coverage.run]
+parallel = true
+source = ["core", "interfaces/cli/bugx_cli"]
+branch = true
+omit = [
+    "tests/*",
+    ".bugx/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+include = ["core/*.py", "interfaces/cli/bugx_cli/*.py"]
+fail_under = 60
+
+[tool.coverage.json]
+output = ".coverage-report.json"

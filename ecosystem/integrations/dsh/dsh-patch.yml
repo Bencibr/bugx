@@ -1,0 +1,18 @@
+# DeepSeek Harness (dsh) preset — 由 `bugx install --agent dsh` 自动生成。
+# 将此文件复制到 ~/.dsh/.agent-presets/bugx/agent.cordis.yml
+# 并配合 preset.yml 即可在 Web UI 中选中 "BugX 深度审计" 预设。
+
+- id: agent-loop
+  name: cordis:patch
+  config:
+    agents:
+      - id: bugx
+        name: bugx
+        description: "你的自动化代码安全体检专家。深度排查项目中隐藏的逻辑漏洞、鉴权越界与并发隐患，不仅找 Bug，更能自动生成复现验证与修复建议。适合在项目提测发版前、安全合规体检或排查疑难缺陷时开启；日常开发与普通交流不打扰。"
+        instructions: |
+          在执行任何探索前，先通过 bugx engine path --name AGENT_GUIDE.md 和
+          bugx engine path --name bugx.md 读取全局协议，
+          并遵循确定性生命周期治理、Supervisor 租约与打卡机制。
+          DSH 安装 checkout（例如 node_modules/@deepseek-ai/dsh）和当前会话工作区是两个不同路径；
+          禁止把 checkout、DSH_HOME 或宿主进程启动目录当作项目根。所有文件、MCP --root、
+          BugX launcher 和 Skill 路径必须以当前 Session 的 cwd 为准；需要确认时先执行 pwd。

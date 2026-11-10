@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bugx://schemas/agent-graph/v1",
+  "title": "BugX Agent Graph Artifact Envelope",
+  "description": "Strict version 1 envelope and payloads for BugX Agent graph artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "artifact_type", "artifact_id", "producer_role",
+    "graph_id", "run_id", "round_no", "scheduler_epoch", "snapshot_digest",
+    "task_id", "stage", "attempt", "worker_id", "lease_id", "execution_id",
+    "parent_digests", "payload", "attachments", "created_at", "artifact_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_type": {
+      "enum": [
+        "BugCandidate", "ReproCase", "ReviewResult", "PatchCandidate",
+        "CheckPlan", "CheckResult", "RunReport"
+      ]
+    },
+    "artifact_id": {"$ref": "#/$defs/id"},
+    "producer_role": {"$ref": "#/$defs/id"},
+    "graph_id": {"$ref": "#/$defs/id"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "round_no": {"type": "integer", "minimum": 1},
+    "scheduler_epoch": {"type": "integer", "minimum": 0},
+    "snapshot_digest": {"$ref": "#/$defs/digest"},
+    "task_id": {"$ref": "#/$defs/nullable_id"},
+    "stage": {"$ref": "#/$defs/id"},
+    "attempt": {"type": "integer", "minimum": 0},
+    "worker_id": {"$ref": "#/$defs/nullable_id"},
+    "lease_id": {"$ref": "#/$defs/nullable_id"},
+    "execution_id": {"$ref": "#/$defs/nullable_id"},
+    "parent_digests": {
+      "type": "array",
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/digest"}
+    },
+    "payload": {"type": "object"},
+    "attachments": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/attachment"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "artifact_digest": {"$ref": "#/$defs/digest"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"artifact_type": {"const": "BugCandidate"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/bug_candidate"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "ReproCase"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/repro_case"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "ReviewResult"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/review_result"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "PatchCandidate"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/patch_candidate"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "CheckPlan"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/check_plan"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "CheckResult"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/check_result"}}}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "RunReport"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/run_report"}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "nullable_id": {
+      "oneOf": [
+        {"$ref": "#/$defs/id"},
+        {"type": "null"}
+      ]
+    },
+    "text": {"type": "string", "minLength": 1, "maxLength": 8192},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?![A-Za-z]:[/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "file_digest", "line_start", "line_end", "symbol"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "file_digest": {"$ref": "#/$defs/digest"},
+        "line_start": {"type": "integer", "minimum": 1},
+        "line_end": {"type": "integer", "minimum": 1},
+        "symbol": {"$ref": "#/$defs/id"}
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256", "media_type"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "case_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "content": {"type": "string", "maxLength": 8388608},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "plan_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_digest"],
+      "properties": {"plan_digest": {"$ref": "#/$defs/digest"}}
+    },
+    "check_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id", "phase", "workspace_id", "profile_digest", "argv", "cwd",
+        "env_keys", "deadline", "max_output_bytes", "selected_tests", "expected_oracle"
+      ],
+      "properties": {
+        "plan_id": {"$ref": "#/$defs/id"},
+        "phase": {"enum": ["baseline", "patched"]},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "profile_digest": {"$ref": "#/$defs/digest"},
+        "argv": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/id"}},
+        "cwd": {"$ref": "#/$defs/id"},
+        "env_keys": {
+          "type": "array", "maxItems": 256, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 256}
+        },
+        "deadline": {"type": "number", "exclusiveMinimum": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 1},
+        "selected_tests": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/id"}},
+        "expected_oracle": {"$ref": "#/$defs/text"}
+      }
+    },
+    "normal_case": {
+      "oneOf": [
+        {"$ref": "#/$defs/text"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["description", "assertion"],
+          "properties": {
+            "description": {"$ref": "#/$defs/text"},
+            "assertion": {"$ref": "#/$defs/text"}
+          }
+        }
+      ]
+    },
+    "call_evidence_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_symbols"],
+      "properties": {
+        "expected_symbols": {
+          "type": "array", "minItems": 1, "maxItems": 512,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "match_regex": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "patch_edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "old_digest", "diff"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "old_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "diff": {"type": "string", "minLength": 1, "maxLength": 8388608}
+      }
+    },
+    "check_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deadline", "max_output_bytes", "output_bytes", "timed_out", "truncated"],
+      "properties": {
+        "deadline": {"type": "number", "exclusiveMinimum": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 1},
+        "output_bytes": {"type": "integer", "minimum": 0},
+        "timed_out": {"type": "boolean"},
+        "truncated": {"type": "boolean"}
+      }
+    },
+    "bug_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bug_id", "artifact_digest"],
+      "properties": {
+        "bug_id": {"$ref": "#/$defs/id"},
+        "artifact_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "failed_task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "stage", "error"],
+      "properties": {
+        "task_id": {"$ref": "#/$defs/id"},
+        "stage": {"$ref": "#/$defs/id"},
+        "error": {"$ref": "#/$defs/text"}
+      }
+    },
+    "unsupported_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "line_start", "line_end", "reason"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relative_path"},
+        "line_start": {"type": "integer", "minimum": 1},
+        "line_end": {"type": "integer", "minimum": 1},
+        "reason": {"$ref": "#/$defs/text"}
+      }
+    },
+    "artifact_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "artifact_digest"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/id"},
+        "artifact_type": {"enum": ["BugCandidate", "ReproCase", "ReviewResult", "PatchCandidate", "CheckPlan", "CheckResult", "RunReport"]},
+        "artifact_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "bug_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bug_id", "source_refs", "category", "summary", "expected_behavior",
+        "expectation_refs", "suspected_behavior", "call_path", "preconditions", "candidate_source"
+      ],
+      "properties": {
+        "bug_id": {"$ref": "#/$defs/id"},
+        "source_refs": {"type": "array", "minItems": 1, "maxItems": 512, "items": {"$ref": "#/$defs/source_ref"}},
+        "category": {"enum": ["logic", "state", "boundary", "exception", "concurrency", "performance", "resource"]},
+        "summary": {"$ref": "#/$defs/text"},
+        "expected_behavior": {"$ref": "#/$defs/text"},
+        "expectation_refs": {"type": "array", "minItems": 1, "maxItems": 512, "items": {"$ref": "#/$defs/source_ref"}},
+        "suspected_behavior": {"$ref": "#/$defs/text"},
+        "call_path": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/id"}},
+        "preconditions": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/text"}},
+        "candidate_source": {"enum": ["agent", "static_hint"]}
+      }
+    },
+    "repro_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bug_id", "candidate_digest", "target_entry", "case_files", "setup_plan",
+        "run_plan", "expected_assertion", "normal_cases", "call_evidence_plan"
+      ],
+      "properties": {
+        "bug_id": {"$ref": "#/$defs/id"},
+        "candidate_digest": {"$ref": "#/$defs/digest"},
+        "target_entry": {"$ref": "#/$defs/id"},
+        "case_files": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/case_file"}},
+        "setup_plan": {"oneOf": [{"$ref": "#/$defs/plan_reference"}, {"$ref": "#/$defs/check_plan"}]},
+        "run_plan": {"oneOf": [{"$ref": "#/$defs/plan_reference"}, {"$ref": "#/$defs/check_plan"}]},
+        "expected_assertion": {"$ref": "#/$defs/text"},
+        "normal_cases": {"type": "array", "minItems": 1, "maxItems": 512, "items": {"$ref": "#/$defs/normal_case"}},
+        "call_evidence_plan": {"$ref": "#/$defs/call_evidence_plan"}
+      }
+    },
+    "review_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bug_id", "reviewer_task_id", "candidate_digest", "repro_digest", "observation_ids",
+        "expectation_check", "target_call_check", "normal_case_check",
+        "alternative_explanations", "verdict", "reason"
+      ],
+      "properties": {
+        "bug_id": {"$ref": "#/$defs/id"},
+        "reviewer_task_id": {"$ref": "#/$defs/id"},
+        "candidate_digest": {"$ref": "#/$defs/digest"},
+        "repro_digest": {"$ref": "#/$defs/digest"},
+        "observation_ids": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/id"}},
+        "expectation_check": {"type": "boolean"},
+        "target_call_check": {"type": "boolean"},
+        "normal_case_check": {"type": "boolean"},
+        "alternative_explanations": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/text"}},
+        "verdict": {"enum": ["supported", "rejected", "needs_context"]},
+        "reason": {"$ref": "#/$defs/text"}
+      }
+    },
+    "patch_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bug_id", "base_snapshot_digest", "edits", "reason", "affected_paths", "repro_digest"],
+      "properties": {
+        "bug_id": {"$ref": "#/$defs/id"},
+        "base_snapshot_digest": {"$ref": "#/$defs/digest"},
+        "edits": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/patch_edit"}},
+        "reason": {"$ref": "#/$defs/text"},
+        "affected_paths": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/relative_path"}},
+        "repro_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "check_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_digest", "observation_id", "bug_id", "baseline_or_patched", "target_called",
+        "assertion_result", "tests_run", "tests_passed", "tests_failed", "tests_skipped",
+        "baseline_failures", "new_failures", "limits", "error"
+      ],
+      "properties": {
+        "plan_digest": {"$ref": "#/$defs/digest"},
+        "observation_id": {"$ref": "#/$defs/id"},
+        "bug_id": {"$ref": "#/$defs/id"},
+        "baseline_or_patched": {"enum": ["baseline", "patched"]},
+        "target_called": {"type": "boolean"},
+        "assertion_result": {"type": ["boolean", "null"]},
+        "tests_run": {"type": "integer", "minimum": 0},
+        "tests_passed": {"type": "integer", "minimum": 0},
+        "tests_failed": {"type": "integer", "minimum": 0},
+        "tests_skipped": {"type": "integer", "minimum": 0},
+        "baseline_failures": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/id"}},
+        "new_failures": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/id"}},
+        "limits": {"$ref": "#/$defs/check_limits"},
+        "error": {"oneOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]}
+      }
+    },
+    "run_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "graph_id", "snapshot_digest", "profile_digest", "summary", "bugs", "failed_tasks",
+        "unsupported_ranges", "metrics", "source_revision", "report_revision", "artifact_refs"
+      ],
+      "properties": {
+        "graph_id": {"$ref": "#/$defs/id"},
+        "snapshot_digest": {"$ref": "#/$defs/digest"},
+        "profile_digest": {"$ref": "#/$defs/digest"},
+        "summary": {"$ref": "#/$defs/text"},
+        "bugs": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/bug_reference"}},
+        "failed_tasks": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/failed_task"}},
+        "unsupported_ranges": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/unsupported_range"}},
+        "metrics": {"type": "object", "maxProperties": 256, "additionalProperties": {"type": "number"}},
+        "source_revision": {"$ref": "#/$defs/id"},
+        "report_revision": {"$ref": "#/$defs/id"},
+        "artifact_refs": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/artifact_reference"}}
+      }
+    }
+  }
+}

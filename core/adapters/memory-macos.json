@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "memory-macos-leaks",
+  "platform": "memory",
+  "description": "使用 macOS leaks 对指定进程执行一次泄漏采样。",
+  "execution": {
+    "host_platforms": ["macos"],
+    "target_platform": "macos",
+    "target_kind": "process",
+    "target_fingerprint_variable": "pid"
+  },
+  "variables": {
+    "pid": {"required": true, "description": "待测进程 PID"}
+  },
+  "steps": [
+    {
+      "id": "leaks",
+      "command": ["leaks", "{pid}"],
+      "timeout_seconds": 120,
+      "capture_stdout": "leaks.txt",
+      "evidence_paths": ["leaks.txt"]
+    }
+  ]
+}
