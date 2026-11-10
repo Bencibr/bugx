@@ -1,5 +1,4 @@
 ---
-title: BugX
 audience: 开发者、安全工程师与 AI 编程宿主
 status: DOCUMENTATION_UNVERIFIED
 version: 0.1.0

@@ -1,5 +1,4 @@
 ---
-title: BugX
 audience: Developers, security engineers, and AI coding agents
 status: DOCUMENTATION_UNVERIFIED
 version: 0.1.0
