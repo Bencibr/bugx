@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
+from .agent_targets import _strip_dot_prefix
 
 
 DEFAULT_OUTPUT_LIMIT_BYTES = 1024 * 1024
