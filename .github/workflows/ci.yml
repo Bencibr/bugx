@@ -46,6 +46,9 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check \
             'ruff==0.12.10' 'bandit==1.8.6' 'pip-audit==2.9.0'
+      # runner 基础环境自带的 setuptools 有已知 CVE（79.x < 84.1），先升级再审计：
+      - name: Upgrade runner setuptools
+        run: python -m pip install --disable-pip-version-check -U 'setuptools>=84.1.0'
       - name: Run Python lint gate
         run: >-
           ruff check core
