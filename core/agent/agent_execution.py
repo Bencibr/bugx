@@ -18,7 +18,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
-from .agent_targets import _strip_dot_prefix
 
 
 DEFAULT_OUTPUT_LIMIT_BYTES = 1024 * 1024
@@ -679,6 +678,8 @@ def _match_target_frame(
 ) -> TargetCallEvidence | None:
     normalized_frame = frame_path.replace("\\", "/")
     for target in targets:
+        # 延迟导入：agent_targets 反向依赖本模块，顶层 import 会成环
+        from .agent_targets import _strip_dot_prefix
         suffix = _strip_dot_prefix(target.module_path.replace("\\", "/"))
         if suffix.endswith(".py") or re.search(r"\.(?:[cm]?js|tsx?)$", suffix):
             expected = suffix
