@@ -62,7 +62,7 @@ graph TD
 ## 🌲 二、 权威全景目录层级树 (Directory Hierarchy)
 
 ```text
-bug-hunter/
+bugx/
 ├── 1. interfaces/                 # ★【交付与交互层】所有人机与终端呈现交互逻辑 (详情见 interfaces/README.md)
 │   ├── cli/                      #   - 统一命令行界面与命令分发树 (interfaces/cli/README.md)
 │   ├── bin/                      #   - Node CLI 跨平台包装器 (interfaces/bin/README.md)

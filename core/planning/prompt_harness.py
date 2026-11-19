@@ -1503,7 +1503,7 @@ def build_domain_specialized_prompt(
     # 4. 构建分段
     # A. 头部基础信息
     header_text = (
-        f"## BugHunter 领域专精 Worker JIT 提示词 (DOC-248)\n"
+        f"## BugX 领域专精 Worker JIT 提示词 (DOC-248)\n"
         f"- **专精角色**: {role_label} (亲和性: {affinity}, 建议模型等级: {tier_label})\n"
         f"- **目标形态**: {target_form_norm}\n"
         f"- **技术栈知识**: {tech_norm}\n"

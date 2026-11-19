@@ -34,12 +34,11 @@ from ..common import (
 
 
 # ZCode 官方规范（plugin-creator plugin-json-spec）要求 icon 必须是「可达的
-# HTTPS URL；资产缺失时宁可省略也不得伪造」。此前硬编码的
-# raw.githubusercontent.com/bencibro/bug-hunter 镜像地址不成立：本仓库托管在
-# 私有 Gitea（仅 LAN 可达），GitHub 上并无该资产，实测 404，
-# ZCode 渲染器加载失败后回退为通用拼图图标。brand-mark.svg 是 bugx.dev 常驻
-# 的 512×512 官方品牌图标（Cloudflare 分发、content-type 正确），作为插件
-# 图标的权威来源；如后续把 bugx-avatar-512.png 上架官网，只需替换本常量。
+# HTTPS URL；资产缺失时宁可省略也不得伪造」。仓库 raw 路径会随仓库迁移/私有化
+# 变得不可达（实测 404 后 ZCode 渲染器回退为通用拼图图标），因此不使用仓库
+# 相对地址。brand-mark.svg 是 bugx.dev 常驻的 512×512 官方品牌图标（Cloudflare
+# 分发、content-type 正确），作为插件图标的权威来源；如后续把
+# bugx-avatar-512.png 上架官网，只需替换本常量。
 ZCODE_PLUGIN_ICON_URL = "https://bugx.dev/brand-mark.svg"
 
 
