@@ -1,283 +1,284 @@
 <p align="center">
-  <strong>BugX · AI writes the code. BugX hunts the bugs.</strong>
+  <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/bugx-hero-en.svg" alt="BugX — effortless audits of AI-written code" width="1000">
 </p>
 
-> **Version ${BUGX_VERSION}** | **Updated: 2026-11-19**
+# BugX — AI Code Audit Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
 
-<p align="center">
-  <strong>The autonomous, evidence-driven code auditing and vulnerability-hunting agent for modern AI programming tools.</strong>
-  <br>
-  <em>AI writes the code. BugX hunts the bugs. · 面向主流 AI 编程助手的自主闭环、证据驱动型深度代码审计智能体。</em>
-</p>
+BugX is an autonomous code-audit agent that runs inside your AI coding assistant or on the command line. It audits AI-written code end to end: it builds a coverage list of your project, dispatches concurrent audit workers, verifies every candidate finding with real executions, and produces a report where each finding ships with a command you can run yourself to reproduce it.
+
+If you use AI coding tools to write production code, BugX is the security audit and code review layer that checks what the model actually delivered — not what it claims to have delivered.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/npm/v/bugx-cli.svg?style=flat&color=0284c7&label=npm" alt="npm version"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-334155.svg?style=flat&logo=nodedotjs&logoColor=white" alt="Node.js Version"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-334155.svg?style=flat" alt="Node.js"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-334155.svg?style=flat" alt="License: BSL-1.1"></a>
-  <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/badge/install-Zero--Config%20%2F%20npx-0284c7.svg?style=flat" alt="Zero Config"></a>
-  <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/badge/security-AST--Redacted%20%26%20Local--First-334155.svg?style=flat" alt="Security"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-334155.svg?style=flat" alt="Platform">
+  <a href="https://bugx.dev"><img src="https://img.shields.io/badge/website-bugx.dev-08b7d4.svg?style=flat" alt="Website"></a>
 </p>
-
----
 
 <p align="center">
-  <a href="#-english-documentation">English Documentation</a> •
-  <a href="#-简体中文说明">简体中文说明</a>
+  <a href="#-english-documentation">English</a> •
+  <a href="#简体中文说明">简体中文</a>
 </p>
 
 ---
 
-## 🌐 English Documentation
+## English Documentation
 
-### ⚡ What is BugX?
+### Why AI-written code needs an audit
 
-**BugX** seamlessly embeds deep adversarial security inspection into your modern AI coding workflow (Claude Code, OpenAI Codex, OpenCode, Cursor, Windsurf, DeepSeek Harness, WorkBuddy, Pi).
+AI writes code faster than any human can review it, and the model carries a training-level bias toward sounding done rather than being done:
 
-Rather than dumping hundreds of noisy, unverified regex alerts, BugX implements an **evidence-based closed verification loop**:
+1. **The grader rewards confidence.** Human raters score "I checked it carefully, nothing found" higher than "I haven't finished reading the files." The model learns to report good news.
+2. **Checking is expensive; claiming is cheap.** Reading hundreds of files takes real work. Replying "no issues found" takes a few words.
+3. **It doesn't know what it hasn't checked.** The model cannot see its own coverage gaps and will not say "half done."
 
-```mermaid
-flowchart LR
-    A[Source Code] --> B[AST & Route Discovery]
-    B --> C[Mutation & Race Fuzzing]
-    C --> D[Executable PoC Script]
-    D --> E[TDD Red-to-Green Patch]
-```
+BugX counters this with a ledger and four hard rules: a per-unit coverage list (checked / blocked / pending), mandatory reproduction (the same attack input must trigger the finding twice and a clean input must trigger nothing), crash-resumable audits, and hash-chained records that keep every verdict reviewable.
 
-- **Zero Speculation**: An issue is only confirmed when an executable, self-contained reproduction script (PoC) succeeds in isolating it.
-- **Red-Green Patch Synthesis**: BugX automatically synthesizes minimal fixes and verifies them with dual test runs before closing findings.
-- **Host-Neutral Architecture**: BugX never hijacks LLM execution. Your AI coding agent drives the actual code analysis and testing natively.
+### What BugX does
 
----
+- **AI code review** — bugs and defects classified by logic, state, boundary, exception, concurrency, performance, and resource handling.
+- **Functionality review** — a behavior diff: the same inputs go to your implementation and a reference implementation, and the differences are reported.
+- **Performance and memory checks** — performance and resource defects, plus dedicated memory inspection for native, Python, JVM, Electron, Android, and Apple targets.
+- **UI audit** — layout, contrast, keyboard paths, and design tokens on a running web page (`bugx probe ui`).
+- **Reproducible findings** — every vulnerability ships with a command or input you can run yourself; all three verification runs (two positive, one negative control) stay on record.
+- **Mutation-verified tests** — `bugx test-verify` mutates your code to check whether the tests actually catch the bugs.
+- **Patch bundles** — `bugx patch-forge` builds a patch with static checks and hands it to you for review; it never commits on its own.
+- **Lessons base and unattended runs** — `bugx lesson` / `bugx knowledge` accumulate project and global experience; `bugx autonomous` and `bugx goal` run end-to-end audits without supervision.
 
-### 📦 Quick Start
+### BugX Studio
 
-#### Requirements
-- **Node.js**: `>= 18.0.0`
-- **Python**: `>= 3.11` (The BugX core engine is Python-powered; the npm package serves as a lightweight, zero-dependency global wrapper that automatically interfaces with your local Python environment).
+BugX ships with a built-in web console. Run `bugx report serve` and open http://127.0.0.1:8080:
 
-The npm tarball includes the integrity-checked BugX core payload, its catalog, and the bundled Web UI static shell. It has no native `sqlite3` npm dependency; MCP registry storage uses the Node runtime's built-in `node:sqlite` path where applicable.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/webui-studio.jpg" alt="BugX Studio workbench" width="860">
+</p>
 
-The repository keeps `package.json` as a `${BUGX_VERSION}` build template. To build locally, render a temporary staging tree with `python3 scripts/package_dist.py --version <version>`; do not run `npm pack` directly against the source checkout.
+Every connected host keeps its own audit sessions (ChatGPT, ZCode, Claude, Codex, DSH, OpenCode, Pi, and more):
 
----
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/webui-chatgpt.jpg" alt="ChatGPT workspace" width="420">
+  <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/webui-zcode.jpg" alt="ZCode workspace" width="420">
+</p>
 
-#### 1. Instant Execution with `npx` (Zero Installation)
+The skill marketplace ships with `/audit` (one-shot full-surface audit with a dual-track report), `/review` (structured findings for branch changes), `/mining` (attack-surface survey and hardening), `/fix` (defensive patches with sandboxed regression), and `/test` (AAA tests with mutation-kill scoring):
 
-Run BugX commands directly in any project without installing anything globally:
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/webui-skills.jpg" alt="Skill marketplace" width="860">
+</p>
 
-```bash
-# Check system readiness and AI tool connectivity
-npx bugx-cli doctor
+### Quick start
 
-# Initialize current repository (.bugx/)
-npx bugx-cli init
+Requires Node.js `>=18`. Python `>=3.11` is detected and managed by the wrapper.
 
-# Auto-configure local AI assistants (Claude, Codex, OpenCode, etc.)
-npx bugx-cli install
-```
-
----
-
-#### 2. Global Installation (Recommended for Daily Use)
-
-Install globally via your preferred package manager:
+**Run without installing (zero-config):**
 
 ```bash
-# npm
+npx bugx-cli doctor --strict    # check system readiness and AI tool connectivity
+npx bugx-cli init               # initialize the current repository (.bugx/)
+npx bugx-cli install            # register local AI assistants
+```
+
+**Or install globally** (pick your package manager):
+
+```bash
 npm install -g bugx-cli
-
-# pnpm
-pnpm add -g bugx-cli
-
-# yarn
-yarn global add bugx-cli
-
-# bun
-bun add -g bugx-cli
+# pnpm add -g bugx-cli
+# yarn global add bugx-cli
+# bun add -g bugx-cli
 ```
 
-Once installed, use the unified `bugx` command directly:
+After installing, run this once from any directory:
 
 ```bash
-# Initialize workspace
-bugx init
-
-# Discover and register local AI tools
-bugx install
-
-# Run health diagnostics
-bugx doctor
+bugx install          # lists detected AI hosts and registers the BugX MCP servers
+bugx doctor --strict  # health diagnostics
 ```
 
----
+To install everywhere at once: `bugx install --agent all`.
 
-### 🤖 Supported AI Coding Ecosystem
+**Option 1 — inside your AI assistant (recommended).** Open Claude Code, Codex, Cline, OpenCode, or ZCode in any project and just tell it what to check:
 
-BugX automatically detects and configures Model Context Protocol (MCP) servers and skill configurations across your tools:
+**ZCode**
+![Running a BugX audit in ZCode](https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/zcode.png)
 
-| AI Coding Assistant | Integration Mechanism | Setup Command |
-| :--- | :--- | :--- |
-| **Claude Code** | Native MCP / Autonomous Protocol | `bugx install --agent claude` |
-| **OpenAI Codex** | Workspace Subagent / Native Plugin | `bugx install --agent codex` |
-| **OpenCode** | Headless ACP / Native MCP | `bugx install --agent opencode` |
-| **DeepSeek Harness (DSH)** | Official Web UI Extension & MCP | `bugx install --agent dsh` |
-| **WorkBuddy** | Official IDE Connector Bundle | `bugx install --agent workbuddy` |
-| **Cline / Roo Code** | MCP; interactive single-claim or CLI process-pool execution | `bugx install --agent cline` |
-| **ChatGPT** | Project MCP / interactive host integration | `bugx install --agent chatgpt` |
-| **ZCode** | Native MCP / host integration | `bugx install --agent zcode` |
-| **Pi** | Native MCP / host integration | `bugx install --agent pi` |
-| **Qoder AI** | Native MCP / host integration | `bugx install --agent qoder` |
-| **Trea** | Native MCP / host integration | `bugx install --agent trea` |
-| **FunIDE** | Native MCP / host integration | `bugx install --agent funide` |
-| **Cursor / Windsurf** | Standard MCP Server | `bugx mcp serve --role host` |
+**Codex**
+![Running a BugX audit in Codex](https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/codex.png)
 
-Run `bugx hosts` to see all supported and detected environments on your system.
+**DSH**
+![Running a BugX audit in DSH](https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/dsh.png)
 
----
+> "Audit this project"
+> "Check the login module for vulnerabilities"
+> "Review the changes on this branch for security issues"
 
-### 🛠️ Essential Commands
+**Option 2 — from the terminal.** The AI still comes from your installed hosts: BugX reuses the model and credentials you already configured there and never takes over your API keys.
 
-| Command | Description |
+```bash
+bugx auth login                # sign in to the cloud account (lesson and experience sync)
+bugx init --cloud-sync sync    # enable cloud sync so the project works across devices
+
+bugx engine pre                # build the coverage list and audit plan
+bugx engine status             # follow progress
+bugx engine post               # settle: cross-check coverage, evidence, and verdicts
+
+bugx autonomous --host opencode    # full audit without supervision
+bugx goal --host opencode "audit this project's login and payment flows"
+
+bugx report serve              # live web console at http://127.0.0.1:8080
+bugx report both --format html --out report.html   # offline archive
+```
+
+### Essential commands
+
+| Command | What it does |
 | :--- | :--- |
-| `bugx init` | Initialize repository audit workspace and configuration (`.bugx/`) |
-| `bugx install` | Automatically register BugX with local AI assistants and editors |
-| `bugx doctor` | Diagnostic suite for MCP servers, environment binaries, and project configuration |
-| `bugx autonomous` | Run unattended, multi-round autonomous audit sessions; Cline supports `--workers 2..6` (or `0` for adaptive capacity) |
-| `bugx stats` | Global cross-project governance, token economy, and audit velocity metrics |
-| `bugx test-generate` | Generate standardized AAA unit tests or minimal reproduction PoCs |
-| `bugx test-audit` | Four-dimensional quality audit for existing test suites |
-| `bugx test-verify` | Verify test suite defect-catching effectiveness via AST mutation |
-| `bugx patch-forge` | Synthesize minimal self-healing patches and run red-green verification |
-| `bugx uninstall` | Cleanly remove host integrations while safely retaining audit findings |
-| `bugx update` | Check and upgrade BugX to the latest release |
+| `bugx install` | register the BugX MCP servers with detected AI hosts |
+| `bugx hosts` | list every AI environment detected on this machine |
+| `bugx doctor --strict` | health diagnostics for installation and connectivity |
+| `bugx engine pre / status / post` | run and settle a structured audit lifecycle |
+| `bugx autonomous --host <host>` | full unattended audit through your host |
+| `bugx goal --host <host> "<target>"` | audit toward a stated target |
+| `bugx report serve` | live web console (BugX Studio) |
+| `bugx report both --format html` | export the formal + visual report |
+| `bugx probe ui --url <url>` | audit a running web UI |
+| `bugx test-generate` | generate AAA tests or a self-contained PoC |
+| `bugx test-verify` | prove your tests catch real bugs via mutation |
+| `bugx patch-forge` | build a reviewed patch bundle |
+| `bugx lesson` / `bugx knowledge` | project and global experience base |
+| `bugx daemon` | resident watchdog for unattended audits |
 
-Autonomous sessions keep their host, execution mode, worker capacity, and dispatch settings in the current project’s `.bugx/bugx-runtime.json`. Each workspace has its own runtime context, so concurrent hosts do not share global scheduling state. Use `bugx autonomous --host cline --workers 4` to select an explicit Cline process-pool capacity; `0` keeps adaptive capacity.
+### Supported AI coding tools
 
----
-
-### 🛡️ Security & Privacy Guarantees
-
-- **Local-First Execution**: AST parsing, mutation runs, reproduction scripts, and local audit artifacts remain on your disk in `.bugx/`.
-- **No Unsolicited Source Upload**: BugX does not transmit proprietary source code without explicit cloud-sync or reporting authorization. Finding/report behavior follows the configured cloud and redaction settings; `BUGX_REPORT_REDACTION=standard` enables credential/path redaction.
-- **Deterministic Bounds**: Concurrency budgets, timeout thresholds, and execution sandboxes ensure your host system remains stable.
-
----
-
-## 🇨🇳 简体中文说明
-
-### ⚡ 什么是 BugX？
-
-**BugX** 是一款专为现代主流 AI 编程助手（Claude Code、OpenAI Codex、OpenCode、Cursor、Windsurf、DeepSeek Harness 等）打造的**自主闭环、证据驱动型深度代码审计与漏洞挖掘智能体**。
-
-与传统的静态代码分析工具（仅产生大量未经证实的告警和噪音）不同，BugX 严格遵循**“事实证据闭环验证协议”**：
-
-```mermaid
-flowchart LR
-    A[项目源码] --> B[白盒 AST 与接口遍历]
-    B --> C[变异测试与并发竞态扰动]
-    C --> D[自包含独立可执行 PoC]
-    D --> E[TDD 红绿双跑最小安全补丁]
-```
-
-- **拒绝口头推测**：每一个被确认的缺陷，系统都必须自动合成可独立执行验证的最小复现代码（Proof-of-Concept）；
-- **红绿测试自愈合成**：通过本地隔离沙箱执行 Red-to-Green 差异双跑，在确认补丁精准修复且不引入任何回归前，绝不虚假结案；
-- **宿主无关，零侵入性**：不争夺模型执行权，代码阅读、测试执行与修复方案全部由开发者信任的 AI 宿主原生驱动。
-
----
-
-### 📦 快速上手
-
-#### 环境依赖要求
-- **Node.js**：`>= 18.0.0`
-- **Python**：`>= 3.11`（BugX 底层核心引擎由 Python 驱动，npm 包作为轻量 CLI 封装，启动时会自动无缝对接本机 Python 环境）
-
-npm tarball 会完整携带经过完整性清单校验的 BugX 核心载荷、目录清单和 Web UI 静态资源；不依赖原生 `sqlite3` npm 包，MCP 注册表在适用运行时使用 Node 内置的 `node:sqlite` 路径。
-
----
-
-#### 1. 使用 `npx` 免安装直接执行（零安装成本）
-
-无需全局安装，在任意工程目录下即可直接执行：
-
-```bash
-# 检查系统与 AI 工具连通就绪状态
-npx bugx-cli doctor
-
-# 在当前项目初始化审计工作空间 (.bugx/)
-npx bugx-cli init
-
-# 自动发现并接入本机已安装的主流 AI 工具
-npx bugx-cli install
-```
-
----
-
-#### 2. 全局安装（推荐日常开发）
-
-使用你习惯的包管理器进行全局安装：
-
-```bash
-# npm
-npm install -g bugx-cli
-
-# pnpm
-pnpm add -g bugx-cli
-
-# yarn
-yarn global add bugx-cli
-
-# bun
-bun add -g bugx-cli
-```
-
-全局安装后，在任意代码仓库根目录下直接使用 `bugx` 命令：
-
-```bash
-# 初始化
-bugx init
-
-# 一键接入全部 AI 工具
-bugx install
-
-# 诊断与健康检查
-bugx doctor
-```
-
-安装完成后，直接在你的 AI 编程助手（如 Claude Code 或 OpenCode）中对话即可：
-> *“使用 BugX 对本项目的 API 边界与数据持久化逻辑进行深度审计。”*
-
----
-
-### 🤖 支持的 AI 编程宿主
-
-| AI 编程助手 | 接入机制 | 快速安装命令 |
+| AI coding tool | Integration | Install |
 | :--- | :--- | :--- |
-| **Claude Code** | 原生 MCP / 自治生命周期 | `bugx install --agent claude` |
-| **OpenAI Codex** | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
-| **OpenCode** | Headless ACP / 原生 MCP | `bugx install --agent opencode` |
-| **DeepSeek Harness (DSH)** | 官方 Web UI 扩展与 MCP | `bugx install --agent dsh` |
-| **WorkBuddy** | 官方 IDE 连接器拓展包 | `bugx install --agent workbuddy` |
-| **Cline / Roo Code** | 插件 MCP 交互会话（单 Claim 串行）/ CLI 多进程池自治并发 | `bugx install --agent cline` |
-| **ChatGPT** | 项目级 MCP / 交互式宿主接入 | `bugx install --agent chatgpt` |
-| **ZCode** | 原生 MCP / 宿主接入 | `bugx install --agent zcode` |
-| **Pi** | 原生 MCP / 宿主接入 | `bugx install --agent pi` |
-| **Qoder AI** | 原生 MCP / 宿主接入 | `bugx install --agent qoder` |
-| **Trea** | 原生 MCP / 宿主接入 | `bugx install --agent trea` |
-| **FunIDE** | 原生 MCP / 宿主接入 | `bugx install --agent funide` |
-| **Cursor / Windsurf** | 通用 MCP 服务协议 | `bugx mcp serve --role host` |
+| Claude Code | native MCP / autonomous lifecycle | `bugx install --agent claude` |
+| OpenAI Codex | workspace subagents / native plugin | `bugx install --agent codex` |
+| OpenCode | headless ACP / native MCP | `bugx install --agent opencode` |
+| Cline / Roo Code | MCP sessions (serial) / CLI process-pool concurrency | `bugx install --agent cline` |
+| ZCode | native MCP / user-level MCP registration | `bugx install --agent zcode` |
 
-运行 `bugx hosts` 可实时查看当前设备上支持与检测到的 AI 工具清单。
+DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted. Run `bugx hosts` to list everything detected on this machine.
+
+### Security and privacy
+
+- Project state lives in the project's `.bugx/` directory; the global engine, credentials, knowledge base, and caches live in a user-level BugX directory.
+- Credentials are written to a controlled sandbox when needed (readable only by the current user by default). `bugx auth status` reports whether credentials exist — it never prints them.
+- Cloud uploads, feedback, diagnostic log reporting, and sync are all explicit operations: each states its `--scope` before it runs.
+- `reset` / `uninstall` / `purge` / `--no-backup` delete data. Check each command's dry-run and backup behavior first.
+
+### FAQ
+
+**What is BugX?**
+An autonomous code-audit agent for AI-written code. It runs inside AI coding assistants (via MCP) or as a CLI, tracks audit coverage per unit, and verifies every finding by executing it.
+
+**How does BugX verify a vulnerability?**
+Every candidate runs through the engine's verification channel: the same attack input must reproduce the finding twice, and a clean input must produce nothing. All three executions are recorded with commands, exit codes, and artifact hashes.
+
+**Does BugX send my code to the cloud?**
+The audit itself runs locally. Cloud sync of lessons and experience is an explicit opt-in; nothing is uploaded unless you run it.
+
+**Does BugX replace human review?**
+No. It gives you a reviewable ledger — what was checked, what wasn't, and reproducible evidence per finding — so human review starts from facts instead of the model's self-report.
+
+**What languages does BugX audit?**
+Multi-language static and behavioral analysis (Python, JavaScript/TypeScript, Java, Go, Rust, and more via tree-sitter), plus dedicated memory checks for native, Python, JVM, Electron, Android, and Apple targets.
+
+### Keywords
+
+ai code audit · ai code review · code review agent · security audit · vulnerability scanner · sast · static analysis · mcp server · mcp security · claude code · openai codex · opencode · cline · roo code · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
 
 ---
 
-### 🛡️ 安全与隐私保障
+## 简体中文说明
 
-- **本地优先执行（Local-First）**：AST 解析、变异测试、PoC 脚本与本地审计产物保留在本地磁盘的 `.bugx/` 目录中。
-- **不擅自上传源码**：未经明确的云同步或报告授权，BugX 不会传输业务专有源代码；Finding/报告行为遵循当前云端与脱敏配置，设置 `BUGX_REPORT_REDACTION=standard` 可启用凭据和路径脱敏。
-- **沙盒自愈与资源有界防护**：严格限定最大并发度、单回合墙钟预算与文件资源锁，保障宿主系统的绝对稳定性。
+### 什么是 BugX？
 
----
+BugX 是装进 AI 编程助手的代码审计 Agent。它对 AI 写出的代码做端到端审计：把项目拆成覆盖清单、派发并发审计 Worker、对每条候选漏洞做真实执行验证，最终产出一份报告——每条漏洞都附带一条你可以亲手运行的复现命令。
 
-### 📄 许可证与商业授权
+如果你的生产代码来自 AI 编程工具，BugX 就是那个安全审计与代码审查层：它核查模型**实际交付了什么**，而不是模型**声称交付了什么**。
 
-基于 BSL 1.1 (Business Source License 1.1) 协议（见仓库根 [LICENSE](../../LICENSE) 或 npm 包内 LICENSE 文件），允许个人与企业免费用于内部研发与日常安全评估；发布 3 年后自动转为 Apache 2.0。BugX Cloud 云端服务采用商业授权，商务合作请联系 business@bugx.dev。
+### 为什么 AI 代码需要审计
+
+AI 写代码的速度远超人工审查，而且模型带着训练层面的偏差——听起来做完了，比真的做完了更容易：
+
+1. **评分机制奖励自信。** 人类评分员给「我仔细查过了，没发现问题」的分数高于「文件我还没看完」。模型学会的是报喜。
+2. **检查贵，声称便宜。** 读几百个文件是体力活，回一句「没发现问题」只要几个字。
+3. **它不知道自己没查完。** 模型看不见自己的覆盖盲区，也不会说「做了一半」。
+
+BugX 用一本账和四条硬规矩对抗这件事：逐单元覆盖清单（查完 / 卡住 / 未查）、强制复现（同一段攻击输入触发两次、正常输入触发零次）、审计可断点续跑、哈希链记录让每条结论都可复查。
+
+### 快速上手
+
+要求 Node.js `>=18`；Python `>=3.11` 由包装器自动检测管理。
+
+**免安装直接执行：**
+
+```bash
+npx bugx-cli doctor --strict    # 检查系统就绪与 AI 工具连通
+npx bugx-cli init               # 初始化当前仓库（.bugx/）
+npx bugx-cli install            # 注册本地 AI 助手
+```
+
+**或全局安装：**
+
+```bash
+npm install -g bugx-cli
+```
+
+装好后任意目录跑一次：
+
+```bash
+bugx install          # 列出检测到的 AI 宿主并注册 BugX MCP 服务
+bugx doctor --strict  # 健康自检
+```
+
+一次装全所有宿主：`bugx install --agent all`。
+
+**方式一：在 AI 助手里用（推荐）。** 在任意项目里打开 Claude Code、Codex、Cline、OpenCode 或 ZCode，直接说：
+
+> 「审计一下这个项目」
+> 「查一下登录模块有没有漏洞」
+
+宿主里的 AI 会自动调用 BugX：建覆盖清单、派发并发 Worker、跑探针、验证漏洞、出报告。想实时看，终端跑 `bugx report serve`，浏览器打开 http://127.0.0.1:8080。
+
+**方式二：命令行直接跑。** AI 同样来自你已装好的宿主——模型和凭据直接复用，不接管你的 Key。
+
+```bash
+bugx auth login                # 登录云端账号（错题/经验同步用）
+bugx init --cloud-sync sync    # 开启云端同步
+
+bugx engine pre                # 建立覆盖清单与审计计划
+bugx engine status             # 看进度
+bugx engine post               # 结账：核对覆盖、证据与裁决
+
+bugx autonomous --host opencode    # 无人值守完整审计
+bugx report serve                  # 实时 Web 报告 http://127.0.0.1:8080
+```
+
+### 支持的 AI 编程宿主
+
+| AI 编程助手 | 接入方式 | 安装命令 |
+| :--- | :--- | :--- |
+| Claude Code | 原生 MCP / 自治生命周期 | `bugx install --agent claude` |
+| OpenAI Codex | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
+| OpenCode | Headless ACP / 原生 MCP | `bugx install --agent opencode` |
+| Cline / Roo Code | MCP 会话（串行）/ CLI 多进程池并发 | `bugx install --agent cline` |
+| ZCode | 原生 MCP / 用户级注册 | `bugx install --agent zcode` |
+
+DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。运行 `bugx hosts` 查看本机检测到的宿主。
+
+### 安全与隐私
+
+- 项目状态存放在项目内 `.bugx/` 目录；全局引擎、凭据、知识库与缓存在用户级 BugX 目录。
+- 凭据按需写入受控沙箱（默认仅当前用户可读）；`bugx auth status` 只报告是否存在，不输出内容。
+- 云端上传、反馈、诊断上报与同步都是显式操作，执行前明确 `--scope`。
+- `reset` / `uninstall` / `purge` / `--no-backup` 会删除数据，注意各自的 dry-run 与备份行为。
+
+### 关键词
+
+AI 代码审计 · AI 代码审查 · 代码审查 Agent · 安全审计 · 漏洞扫描 · 静态分析 · MCP 服务 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全
+
+## License
+
+[Business Source License 1.1](https://github.com/Bencibr/bugx/blob/main/LICENSE)

@@ -16,6 +16,7 @@ BugX is a code-audit agent that lives inside your AI coding assistant. **When yo
   <img src="https://img.shields.io/badge/python-%E2%89%A53.11-334155.svg?style=flat" alt="Python">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-334155.svg?style=flat" alt="Platform">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-334155.svg?style=flat" alt="License"></a>
+  <a href="https://bugx.dev"><img src="https://img.shields.io/badge/website-bugx.dev-08b7d4.svg?style=flat" alt="Website"></a>
 </p>
 
 ## Contents
