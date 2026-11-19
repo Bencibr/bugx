@@ -4,7 +4,7 @@
 为什么独立成模块（架构收敛，2026-10-26）：``host_registry`` 与 ``supervisor_host``
 此前互为依赖——``host_registry`` 在探测分支里 `import supervisor_host`，而
 ``supervisor_host`` 顶层 `import host_registry`。这类双向依赖把「模块依赖方向」从
-静态可分析变成运行期才发现（`tests/test_import_graph_acyclic.py` 明确禁止）。
+静态可分析变成运行期才发现（导入图无环约束，人工核查为准）。
 
 探测原语本身只依赖 ``startup_environment``（进程祖先链 + 可执行段识别），与
 宿主适配器注册表无关，因此可以下沉到本模块：

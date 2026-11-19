@@ -1,0 +1,628 @@
+/* ==========================================================================
+   BugX Modern Workspace / CWD Switcher Modal Polish
+   ========================================================================== */
+
+/* 1. Bottom composer trigger pill (.input-cwd) */
+.input-cwd {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.04) !important;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: var(--bx-text-main, #334155) !important;
+  font-size: var(--fs-label);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.input-cwd:hover {
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+  border-color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.14);
+}
+.input-cwd .input-cwd-icon {
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  transition: transform 0.2s ease !important;
+}
+.input-cwd:hover .input-cwd-icon {
+  transform: scale(1.15) !important;
+}
+.input-cwd .input-cwd-path {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.input-cwd .input-cwd-chevron {
+  opacity: 0.6 !important;
+  font-size: var(--fs-caption);
+}
+
+/* 2. CWD Modal Backdrop & Card */
+.modal-overlay:has(.modal-card) {
+  backdrop-filter: blur(12px);
+  background: rgba(15, 23, 42, 0.55) !important;
+  animation: bxOverlayFadeIn 0.2s ease-out;
+}
+@keyframes bxOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-card {
+  width: min(720px, 95vw) !important;
+  min-height: 520px;
+  max-height: 88vh !important;
+  border-radius: 18px;
+  background: var(--bx-modal-bg, var(--bx-white)) !important;
+  border: 1px solid var(--bx-modal-border, var(--bx-slate-200));
+  box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column;
+  animation: bxModalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-header {
+  padding: var(--sp-8) var(--sp-11) !important;
+  background: var(--bx-header-bg, var(--bx-white)) !important;
+  border-bottom: 1px solid var(--bx-header-border, var(--bx-slate-100)) !important;
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-5) !important;
+  flex-shrink: 0;
+}
+.modal-header h3 {
+  margin: 0 !important;
+  font-size: var(--fs-display-sm) !important;
+  font-weight: 600 !important;
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  letter-spacing: -0.015em !important;
+}
+.modal-sub {
+  margin-left: auto !important;
+  font-size: var(--fs-caption) !important;
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-pill);
+  background: var(--bx-sky-a08) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  border: 1px solid rgba(2, 132, 199, 0.2);
+  font-weight: 500;
+}
+
+/* Segmented Control (Tabs) */
+.bx-cwd-segmented {
+  display: flex !important;
+  padding: var(--sp-2);
+  background: var(--bx-mini-card-bg, var(--bx-slate-100)) !important;
+  border-radius: var(--radius-xl);
+  margin: var(--sp-7) var(--sp-11) 0 var(--sp-11) !important;
+  gap: var(--sp-2);
+  border: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  flex-shrink: 0;
+}
+.bx-cwd-seg-btn {
+  flex: 1;
+  height: 38px !important;
+  border-radius: var(--radius-lg);
+  border: none;
+  background: transparent !important;
+  font-size: var(--fs-body-lg);
+  font-weight: 500;
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+.bx-cwd-seg-btn.active {
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px var(--bx-black-08);
+}
+.bx-seg-badge {
+  padding: var(--sp-1) var(--sp-4);
+  border-radius: var(--radius-pill);
+  background: rgba(2, 132, 199, 0.12) !important;
+  color: var(--bx-link-ink) !important;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: var(--sp-8) var(--sp-11) !important;
+  gap: var(--sp-7);
+  background: var(--bx-modal-bg, var(--bx-white)) !important;
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  display: flex !important;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+}
+
+/* Tab Switching Visibility */
+.modal-card.bx-tab-recent .bx-path-group,
+.modal-card.bx-tab-recent .dir-browser {
+  display: none !important;
+}
+.modal-card.bx-tab-recent .bx-recent-group {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.modal-card.bx-tab-recent .bx-recent-group > .modal-label {
+  display: none !important;
+}
+
+.modal-card.bx-tab-browse .bx-recent-group {
+  display: none !important;
+}
+.modal-card.bx-tab-browse .bx-path-group {
+  display: block !important;
+  flex-shrink: 0;
+}
+.modal-card.bx-tab-browse .dir-browser {
+  display: flex !important;
+  flex-direction: column;
+  flex: 1;
+  min-height: 280px;
+}
+
+/* 3. Field labels & inputs */
+.modal-label {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  margin-bottom: var(--sp-3) !important;
+  display: block !important;
+}
+
+.field-row {
+  display: flex !important;
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.field-row input.menu-input,
+.cwd-newfolder input.menu-input {
+  flex: 1;
+  height: 38px !important;
+  padding: 0 var(--sp-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bx-select-border, #cbd5e1);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--fs-body);
+  transition: all 0.2s ease !important;
+  box-sizing: border-box;
+}
+.field-row input.menu-input:focus,
+.cwd-newfolder input.menu-input:focus {
+  outline: none;
+  border-color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.bx-path-pills {
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4) !important;
+  font-size: var(--fs-label-sm);
+}
+.bx-pill-label {
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+.bx-path-pill {
+  height: 24px !important;
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  color: var(--bx-text-main, #334155) !important;
+  font-size: var(--fs-caption);
+  cursor: pointer !important;
+  transition: all 0.14s ease !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.bx-path-pill:hover {
+  background: rgba(2, 132, 199, 0.1) !important;
+  border-color: rgba(2, 132, 199, 0.3) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+}
+
+.field-hint {
+  font-size: var(--fs-label-sm);
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  margin: var(--sp-3) 0 0 0 !important;
+  line-height: 1.5;
+}
+.field-hint code {
+  background: rgba(2, 132, 199, 0.1) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  padding: 1px var(--sp-3) !important;
+  border-radius: var(--radius-xs) !important;
+  font-family: ui-monospace, SFMono-Regular, monospace !important;
+}
+
+/* 4. Directory Browser Box */
+.dir-browser {
+  border-radius: 14px;
+  border: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column;
+  flex: 1;
+  min-height: 260px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.dir-breadcrumb {
+  padding: var(--sp-5) var(--sp-7);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  border-bottom: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-label);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  overflow-x: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dir-crumb {
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-sm);
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  cursor: pointer !important;
+  transition: all 0.14s ease !important;
+}
+.dir-crumb:hover {
+  background: rgba(2, 132, 199, 0.1) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+}
+.dir-crumb.current {
+  background: rgba(2, 132, 199, 0.15) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  font-weight: 600 !important;
+}
+
+/* 5. Subdirectory Grid List */
+.dir-list {
+  flex: 1;
+  min-height: 180px;
+  max-height: 280px !important;
+  padding: var(--sp-6);
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--sp-4);
+  overflow-y: auto !important;
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+}
+.dir-item {
+  height: 38px !important;
+  width: auto !important;
+  padding: 0 var(--sp-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-4);
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden !important;
+}
+.dir-item:hover {
+  background: var(--bx-sky-a08) !important;
+  border-color: rgba(2, 132, 199, 0.35) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.12);
+}
+.dir-note {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: var(--sp-12) var(--sp-6);
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  font-size: var(--fs-body);
+}
+
+.cwd-newfolder {
+  padding: var(--sp-5) var(--sp-7);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  border-top: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-shrink: 0;
+}
+
+/* 6. Recent Projects Cards (.list-row) */
+.bx-recent-group {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+  max-height: 440px !important;
+  padding-right: var(--sp-1);
+}
+.bx-recent-search-row {
+  margin-bottom: var(--sp-6) !important;
+  flex-shrink: 0;
+}
+.bx-search-inner {
+  position: relative !important;
+  display: flex !important;
+  align-items: center;
+}
+.bx-search-icon {
+  position: absolute !important;
+  left: 12px !important;
+  font-size: var(--fs-body-lg);
+  opacity: 0.55 !important;
+  pointer-events: none;
+}
+.bx-recent-search-input {
+  width: 100% !important;
+  height: 38px !important;
+  padding: 0 var(--sp-7) 0 var(--sp-18);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bx-select-border, #cbd5e1);
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  font-size: var(--fs-body);
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  transition: all 0.16s ease !important;
+  box-sizing: border-box;
+}
+.bx-recent-search-input:focus {
+  outline: none;
+  border-color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  background: var(--bx-white) !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.14);
+}
+.bx-recent-empty {
+  text-align: center;
+  padding: var(--sp-12) var(--sp-6);
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  font-size: var(--fs-body);
+}
+
+.modal-card .list-row {
+  padding: var(--sp-6) var(--sp-7);
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--sp-4) !important;
+  border: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  background: var(--bx-card-bg, var(--bx-white)) !important;
+  display: flex !important;
+  align-items: center;
+  gap: var(--sp-6);
+  cursor: pointer !important;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.modal-card .list-row[data-hidden="1"] {
+  display: none !important;
+}
+.modal-card .list-row:hover {
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  border-color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+.modal-card .list-row.active {
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  background: rgba(16, 185, 129, 0.05) !important;
+}
+.bx-proj-row-content {
+  flex: 1;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.bx-proj-name {
+  font-size: var(--fs-emphasis);
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bx-proj-path {
+  font-size: var(--fs-label-sm);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--bx-text-muted, var(--bx-slate-500)) !important;
+  white-space: nowrap;
+  overflow: hidden !important;
+  text-overflow: ellipsis;
+}
+.bx-quick-switch-btn {
+  height: 28px !important;
+  padding: 0 var(--sp-5);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  background: var(--bx-sky-a08) !important;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  font-size: var(--fs-label-sm);
+  font-weight: 600;
+  cursor: pointer !important;
+  transition: all 0.14s ease !important;
+  opacity: 0.85 !important;
+  flex-shrink: 0;
+}
+.modal-card .list-row:hover .bx-quick-switch-btn {
+  opacity: 1 !important;
+  background: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  color: var(--bx-white) !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);
+}
+
+.modal-card .list-row .badge {
+  background: rgba(16, 185, 129, 0.14) !important;
+  color: var(--bx-success-ink) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.bx-recent-browse-link {
+  margin-top: var(--sp-5) !important;
+  text-align: center;
+  padding: var(--sp-3) 0;
+  flex-shrink: 0;
+}
+.bx-link-action-btn {
+  background: none !important;
+  border: none;
+  color: var(--bx-accent-cyan, var(--bx-sky-600)) !important;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  cursor: pointer !important;
+  padding: var(--sp-3) var(--sp-7);
+  border-radius: var(--radius-md);
+  transition: all 0.16s ease !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.bx-link-action-btn:hover {
+  background: var(--bx-sky-a08) !important;
+  text-decoration: underline;
+}
+
+/* 7. Action Buttons (.btn, .btn-primary) */
+.modal-card .btn-primary,
+.modal-card .btn.btn-primary {
+  height: 36px !important;
+  background: linear-gradient(135deg, var(--bx-sky-600) 0%, #0369a1 100%) !important;
+  color: var(--bx-white) !important;
+  border: none;
+  font-weight: 500;
+  font-size: var(--fs-body);
+  padding: 0 var(--sp-8);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.28);
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.modal-card .btn-primary:hover,
+.modal-card .btn.btn-primary:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.38);
+  transform: translateY(-1px) !important;
+}
+
+.modal-card .btn:not(.btn-primary) {
+  height: 36px !important;
+  background: var(--bx-mini-card-bg, var(--bx-slate-50)) !important;
+  color: var(--bx-text-main, #334155) !important;
+  border: 1px solid var(--bx-card-border, var(--bx-slate-200));
+  padding: 0 var(--sp-8);
+  border-radius: var(--radius-md);
+  cursor: pointer !important;
+  font-weight: 500;
+  font-size: var(--fs-body);
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s ease !important;
+}
+.modal-card .btn:not(.btn-primary):hover {
+  background: var(--bx-card-border, var(--bx-slate-200)) !important;
+  color: var(--bx-text-main, var(--bx-slate-900)) !important;
+}
+
+.modal-footer {
+  padding: var(--sp-7) var(--sp-11) !important;
+  background: var(--bx-header-bg, var(--bx-white)) !important;
+  border-top: 1px solid var(--bx-header-border, var(--bx-slate-100)) !important;
+  display: flex !important;
+  justify-content: flex-end;
+  gap: var(--sp-5);
+  flex-shrink: 0;
+}
+
+/* Sidebar Quick Dropdown Footer Link (Direct Bridge to Skills/MCP Marketplace) */
+.bx-menu-footer-link {
+  position: sticky !important;
+  bottom: -4px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--sp-3) !important;
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--app-menu-border, rgba(148, 163, 184, 0.2));
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--bx-brand, var(--bx-sky-600)) !important;
+  cursor: pointer !important;
+  background: var(--app-menu-background, var(--bx-slate-800)) !important;
+  border-radius: 0 0 var(--corner-radius-small, var(--radius-xs)) var(--corner-radius-small, var(--radius-xs));
+  transition: all 0.15s ease !important;
+  user-select: none;
+  z-index: var(--z-menu-item);
+}
+
+.bx-menu-footer-link:hover {
+  background: var(--app-list-hover-background, rgba(2, 132, 199, 0.15)) !important;
+  color: var(--bx-sky-400) !important;
+}
+
+.bx-menu-footer-link .bx-link-arrow {
+  font-size: var(--fs-body);
+  opacity: 0.75 !important;
+  transition: transform 0.15s ease !important;
+}
+
+.bx-menu-footer-link:hover .bx-link-arrow {
+  transform: translateX(3px) !important;
+  opacity: 1 !important;
+}
+
+/* =========================================================================
+   Skills Center View & Marketplace (Right-side Full View)
+   ========================================================================= */
+
+.main-column.bx-skills-view-active #bx-skills-view-container {
+  display: flex !important;
+}
+
+.main-column.bx-skills-view-active .session-body,
+.main-column.bx-skills-view-active .session-header {
+  display: none !important;
+}
+
+.sidebar-action[data-bx-skills-tab="1"] .sidebar-action-caret {
+  display: none !important;
+}
+
+.sidebar-action.bx-skills-active {
+  background: var(--app-list-active-background, rgba(2, 132, 199, 0.15)) !important;
+  color: var(--bx-brand, var(--bx-sky-600)) !important;
+  font-weight: 600;
+}
+

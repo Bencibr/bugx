@@ -838,8 +838,14 @@ def _first_path_in_syntax_error(output: str) -> str:
     return ""
 
 
+def _strip_dot_prefix(path: str) -> str:
+    """剥 "./" 前缀（F-029）：str.lstrip("./") 是字符集剥离，会吃掉
+    点前缀文件名（.bugx/.tests/.github）的开头点——symbol_index.py:198
+    已记载该坑，本仓其余站点此番统一对齐。"""
+    return path[2:] if path.startswith("./") else path
+
 def _is_under_roots(path: str, roots: Sequence[str]) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = _strip_dot_prefix(path.replace("\\", "/"))
     if not normalized:
         return False
     parts = PurePosixPath(normalized).parts
@@ -851,7 +857,7 @@ def _is_under_roots(path: str, roots: Sequence[str]) -> bool:
 
 
 def _looks_like_test_path(path: str) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = _strip_dot_prefix(path.replace("\\", "/"))
     return any(part in {"test", "tests", "spec"} for part in PurePosixPath(normalized).parts) or bool(_NODE_TEST_NAME.fullmatch(PurePosixPath(normalized).name))
 
 

@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from .. import __version__
 from ..common import (
     CliError,
     _atomic_write_global_file,
@@ -326,7 +327,7 @@ def _funide_cloud_request(
         "X-Device-Id": "bugx-cli-funide",
         "X-Device-Name": "bugx-cli",
         "X-Platform": sys.platform,
-        "X-Client-Version": "0.1.0",
+        "X-Client-Version": __version__,
     }
     encoded = None
     if body is not None:

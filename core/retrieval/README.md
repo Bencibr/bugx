@@ -1,7 +1,8 @@
 # BugX Retrieval Engine (代码切片、拓扑与混合检索增强引擎)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 2: 分析、切片与探测引擎`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/retrieval/` 构成了 BugX 在海量代码工程中实现精准上下文检索的核心能力。它融合了图拓扑自我中心网（Graph Ego-Network）、代码依赖切片（Slicing）、以及倒数排名融合（RRF, Reciprocal Rank Fusion），为大模型攻防决策提供信噪比最高的上下文。
 

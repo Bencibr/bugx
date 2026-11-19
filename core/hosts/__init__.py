@@ -59,11 +59,15 @@ __all__ = [
 ]
 
 #: 注册表 schema 版本：``HostPlugin`` 字段/面语义变化时递增。
-REGISTRY_VERSION = 2
+#: v3: ``WorkerRuntimeFacet.worker_timeout_seconds``（单 claim 墙钟预算基数）。
+#: v4: ``McpWriteFacet.config_format`` 新增 ``yaml_patch`` 取值（dsh 用户级 YAML
+#:     patch 的解析器声明：探针/诊断按它分派 ``yaml.safe_load``，通用 JSON 骨架
+#:     不得接管；导入期校验强制 bootstrap/remove/inspect 三件套插件自有）。
+REGISTRY_VERSION = 4
 
 #: 显式登记为「尚未迁移到插件模型」的受支持宿主（DOC-239 逐宿主切片）：
 #: 它们仍能被**识别**（走既有实现），但不得被当成插件 ``ready`` 消费。
-#: 账目一致性由 ``tests/test_host_plugins.py`` 双向守护。
+#: 账目一致性契约以本注释为准（ready/todo/unavailable 与 SUPPORTED_HOSTS 双向核对）。
 TODO_HOSTS: tuple[str, ...] = (
     "chatgpt",
     "workbuddy",

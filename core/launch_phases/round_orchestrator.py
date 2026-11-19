@@ -60,6 +60,8 @@ from core.launch_phases.common import (
     diagnostic_logger,
     run_verify_life,
     format_duration,
+    option_value as _option_value,
+    require_project_layout as _require_project_layout,
     isolated_runtime_scope,
     bugx_paths,
     bugx_logging,
@@ -277,19 +279,6 @@ def run_in_process(
     )
 
 
-def _require_project_layout() -> bool:
-    """Refuse stateful commands when the project runtime scope is unavailable."""
-    if uses_project_layout():
-        return True
-    if os.environ.get("BUGX_AIR_GAP") == "1":
-        return True
-    print(
-        "[launch_bugx] ✗ 缺少有效的 .bugx 项目运行布局；"
-        "拒绝向全局引擎写入运行态。请先在项目根执行 `bugx init`。"
-    )
-    return False
-
-
 def _resume_ticket_handoff(
     project_root: Path, resume_ticket_module, ticket: dict[str, Any],
 ) -> int | None:
@@ -456,13 +445,16 @@ _ci_detection_report = ci_detection_report
 _legacy_supervisor_state = legacy_supervisor_state
 _print_help = print_help
 
-def _option_value(args: list[str], option: str) -> str | None:
-    for i, arg in enumerate(args):
-        if arg == option:
-            return args[i + 1] if i + 1 < len(args) else None
-        if arg.startswith(f"{option}="):
-            return arg.split("=", 1)[1]
-    return None
+#: engine 子命令单一真值源（F-RSI-20261112-083）：main() 的 argv 归一化与
+#: _main_impl() 的重复归一化共用同一清单——历史双份手抄已漂移一次（F-020
+#: 只补了 main() 侧的 coverage）。dispatch 链新增子命令时只改这里。
+_KNOWN_CMDS = frozenset({
+    "pre", "post", "status", "polling", "heartbeat", "pause", "resume",
+    "abort", "bootstrap-coverage", "fix-review", "audit", "control",
+    "workers", "judge", "findings-confirm", "revalidate-candidates", "prompt", "daemon", "help", "--help", "-h",
+    "coverage",
+})
+
 
 def _reject_legacy_share_policy(argv: list[str]) -> int | None:
     """Reject the removed pre flag before any project/runtime side effect."""
@@ -481,12 +473,7 @@ def _reject_legacy_share_policy(argv: list[str]) -> int | None:
 def main(argv: list[str]) -> int:
     """Bind one context-local attempt around CLI post dispatch."""
     values = list(argv)
-    known = {
-        "pre", "post", "status", "polling", "heartbeat", "pause", "resume",
-        "abort", "bootstrap-coverage", "fix-review", "audit", "control",
-        "workers", "judge", "findings-confirm", "revalidate-candidates", "prompt", "daemon", "help", "--help", "-h",
-        "coverage",
-    }
+    known = _KNOWN_CMDS
     if values and (values[0] in known or values[0].startswith("-")):
         values = ["launch_bugx.py", *values]
     legacy_share_policy = _reject_legacy_share_policy(values)
@@ -525,11 +512,6 @@ def main(argv: list[str]) -> int:
 def _main_impl(
     argv: list[str], *, _post_attempt_token: object | None = None,
 ) -> int:
-    _KNOWN_CMDS = {
-        "pre", "post", "status", "polling", "heartbeat", "pause", "resume",
-        "abort", "bootstrap-coverage", "fix-review", "audit", "control",
-        "workers", "judge", "findings-confirm", "revalidate-candidates", "prompt", "daemon", "help", "--help", "-h",
-    }
     if argv and (argv[0] in _KNOWN_CMDS or argv[0].startswith("-")):
         argv = ["launch_bugx.py"] + list(argv)
     cmd = argv[1] if len(argv) > 1 else "status"
@@ -1034,7 +1016,8 @@ def _main_impl(
             print(
                 f"[launch_bugx] 未知命令: {cmd}"
                 "（可选 pre/post/status/polling/heartbeat/pause/resume/abort/"
-                "bootstrap-coverage/fix-review/revalidate-candidates/audit/control/workers/prompt/daemon）"
+                "bootstrap-coverage/fix-review/revalidate-candidates/audit/control/workers/"
+                "judge/findings-confirm/coverage/prompt/daemon）"
             )
             result = 2
     except BudgetExhausted as exc:

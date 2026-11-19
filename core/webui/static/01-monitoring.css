@@ -1,0 +1,802 @@
+/* =========================================================================
+   Dynamic Live Monitoring & Animated Charts (Build 152)
+   ========================================================================= */
+
+/* 1. Live Monitoring Status Bar */
+.bx-live-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-7);
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.08), rgba(6, 182, 212, 0.08));
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-8);
+  backdrop-filter: blur(4px);
+}
+
+.bx-live-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.bx-live-pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-circle);
+  background: var(--bx-emerald-500);
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: bx-live-pulse 1.8s infinite;
+  display: inline-block;
+}
+
+@keyframes bx-live-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.bx-live-label {
+  font-weight: 700;
+  font-size: var(--fs-body);
+  color: #34d399;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bx-ecg-svg {
+  width: 60px;
+  height: 20px;
+  overflow: hidden;
+}
+
+.bx-ecg-path {
+  stroke: var(--bx-emerald-500);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-dasharray: 80;
+  stroke-dashoffset: 80;
+  animation: bx-ecg-anim 2.4s linear infinite;
+}
+
+@keyframes bx-ecg-anim {
+  0% { stroke-dashoffset: 80; }
+  50% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -80; }
+}
+
+.bx-live-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+}
+
+.bx-live-btn {
+  background: var(--bx-select-bg);
+  border: 1px solid var(--bx-select-border);
+  color: var(--bx-text-main);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  transition: all 0.2s;
+}
+
+.bx-live-btn:hover {
+  background: var(--bx-mini-card-bg);
+  border-color: var(--bx-accent-green);
+  color: var(--bx-text-main);
+}
+
+.bx-live-btn.spinning .bx-spin-icon {
+  animation: bx-spin 0.8s linear infinite;
+}
+
+@keyframes bx-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 2. Flowing Pipeline Topology */
+.bx-flowing-pipeline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  margin: var(--sp-7) 0 var(--sp-9) 0;
+  padding: var(--sp-6) var(--sp-7);
+  background: var(--bx-mini-card-bg);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--bx-mini-card-border);
+}
+
+.bx-pipeline-node {
+  flex: 1;
+  background: var(--bx-modal-bg);
+  border: 1px solid var(--bx-card-border);
+  box-shadow: var(--bx-card-shadow);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-6);
+  position: relative;
+  transition: all 0.3s ease;
+  min-width: 0;
+}
+
+.bx-pipeline-node.done {
+  border-color: rgba(6, 182, 212, 0.4);
+  background: rgba(6, 182, 212, 0.06);
+}
+
+.bx-pipeline-node.done .bx-node-badge {
+  background: rgba(6, 182, 212, 0.2);
+  color: var(--bx-link-ink);
+}
+
+.bx-pipeline-node.active {
+  border-color: rgba(16, 185, 129, 0.7);
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.2);
+  animation: bx-node-glow 2s infinite alternate;
+}
+
+@keyframes bx-node-glow {
+  from { border-color: rgba(16, 185, 129, 0.4); box-shadow: 0 0 8px rgba(16, 185, 129, 0.15); }
+  to { border-color: rgba(16, 185, 129, 0.9); box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+}
+
+.bx-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-2);
+}
+
+.bx-node-badge {
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  padding: 1px var(--sp-3);
+  border-radius: var(--radius-xs);
+  background: var(--bx-count-bg);
+  color: var(--bx-text-muted);
+}
+
+.bx-pipeline-node.active .bx-node-badge {
+  background: var(--bx-emerald-500);
+  color: var(--bx-white);
+}
+
+.bx-node-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--bx-text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bx-node-sub {
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bx-pipeline-link {
+  width: 32px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.bx-flow-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bx-flow-track {
+  stroke: var(--bx-border-subtle);
+  stroke-width: 2;
+  fill: none;
+}
+
+.bx-flow-particles {
+  stroke: var(--bx-emerald-500);
+  stroke-width: 2.5;
+  stroke-dasharray: 6, 8;
+  stroke-linecap: round;
+  fill: none;
+  animation: bx-dash-flow 0.8s linear infinite;
+}
+
+@keyframes bx-dash-flow {
+  from { stroke-dashoffset: 14; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* 3. Dynamic Charts Layout */
+.bx-charts-grid {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: var(--sp-7);
+  margin-bottom: var(--sp-8);
+}
+
+.bx-chart-box {
+  background: var(--bx-card-bg);
+  border: 1px solid var(--bx-card-border);
+  box-shadow: var(--bx-card-shadow);
+  border-radius: var(--radius-xl);
+  padding: var(--sp-7);
+  position: relative;
+  overflow: hidden;
+}
+
+.bx-chart-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-5);
+}
+
+.bx-chart-title {
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+  color: var(--bx-text-main);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bx-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+}
+
+.bx-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.bx-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+}
+
+/* 4. Round Trend Area Chart */
+.bx-trend-chart-wrap {
+  width: 100%;
+  height: 190px;
+  position: relative;
+}
+
+.bx-trend-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.bx-grid-line {
+  stroke: var(--bx-glass-05);
+  stroke-dasharray: 3, 3;
+}
+
+.bx-axis-label {
+  fill: #6b7280;
+  font-size: var(--fs-micro);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.bx-area-fill {
+  transition: d 0.5s ease;
+}
+
+.bx-chart-line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: d 0.5s ease;
+}
+
+.bx-chart-dot {
+  cursor: pointer;
+  transition: r 0.2s, stroke-width 0.2s;
+}
+
+.bx-chart-dot:hover {
+  r: 6;
+  stroke-width: 3;
+}
+
+.bx-chart-tooltip {
+  position: absolute;
+  background: rgba(18, 20, 24, 0.95);
+  border: 1px solid var(--bx-accent-cyan);
+  padding: var(--sp-4) var(--sp-6);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label-sm);
+  color: #fff;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: translate(-50%, -100%) translateY(-10px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+  z-index: var(--z-tooltip);
+}
+
+.bx-chart-tooltip.show {
+  opacity: 1;
+  transform: translate(-50%, -100%) translateY(-16px);
+}
+
+.bx-chart-crosshair {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-dasharray: 3, 3;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+/* 5. Modern High-Precision Dynamic Radar Chart */
+.bx-radar-chart-wrap {
+  width: 100%;
+  height: 220px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--sp-2) 0;
+}
+
+.bx-radar-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Concentric Grid Rings */
+.bx-radar-grid-ring {
+  fill: none;
+  stroke: var(--bx-radar-grid, rgba(148, 163, 184, 0.28));
+  stroke-width: 1;
+}
+
+.bx-radar-grid-ring.dash {
+  stroke-dasharray: 3, 3;
+}
+
+.bx-radar-grid-ring.outer {
+  stroke: var(--bx-radar-grid-strong, rgba(100, 116, 139, 0.45));
+  stroke-width: 1.2;
+}
+
+.bx-radar-scale-text {
+  font-size: var(--fs-micro);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+  font-weight: 500;
+  fill: var(--bx-text-muted, var(--bx-apple-gray-500));
+  opacity: 0.75;
+  user-select: none;
+}
+
+/* Radial Axes */
+.bx-radar-grid-axis {
+  stroke: var(--bx-radar-axis, rgba(148, 163, 184, 0.32));
+  stroke-width: 1;
+}
+
+.bx-radar-center-hub {
+  fill: var(--bx-text-muted, var(--bx-apple-gray-500));
+  opacity: 0.8;
+}
+
+/* Data Polygon */
+.bx-radar-poly {
+  fill: url(#bx-radar-poly-grad);
+  stroke: var(--bx-radar-poly-stroke, var(--bx-emerald-600));
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Data Points */
+.bx-radar-point-outer {
+  fill: var(--bx-white);
+  stroke: var(--bx-emerald-500);
+  stroke-width: 2;
+  transition: r 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease;
+}
+
+html.dark .bx-radar-point-outer,
+body.dark .bx-radar-point-outer {
+  fill: var(--bx-slate-900);
+  stroke: #34d399;
+}
+
+.bx-radar-point-inner {
+  fill: var(--bx-emerald-500);
+  transition: r 0.2s ease;
+}
+
+.bx-radar-point-group:hover .bx-radar-point-outer {
+  r: 6.5;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6));
+}
+
+.bx-radar-point-group:hover .bx-radar-point-inner {
+  r: 3.5;
+}
+
+/* Labels */
+.bx-radar-label {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  cursor: default;
+  user-select: none;
+  dominant-baseline: central;
+}
+
+.bx-radar-label-name {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  fill: var(--bx-radar-label, #334155);
+}
+
+.bx-radar-label-score {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+}
+
+.bx-radar-label-score.good {
+  fill: var(--bx-emerald-600);
+}
+
+html.dark .bx-radar-label-score.good,
+body.dark .bx-radar-label-score.good {
+  fill: #34d399;
+}
+
+.bx-radar-label-score.normal {
+  fill: var(--bx-sky-600);
+}
+
+html.dark .bx-radar-label-score.normal,
+body.dark .bx-radar-label-score.normal {
+  fill: var(--bx-sky-400);
+}
+
+.bx-radar-label-score.warn {
+  fill: #ea580c;
+}
+
+html.dark .bx-radar-label-score.warn,
+body.dark .bx-radar-label-score.warn {
+  fill: #fb923c;
+}
+
+/* Micro Metrics Bar under Radar */
+.bx-radar-metrics-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--bx-card-border, var(--bx-black-06));
+}
+
+.bx-radar-metric-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-3) var(--sp-2);
+  background: var(--bx-mini-card-bg, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--bx-mini-card-border, var(--bx-black-04));
+  border-radius: var(--radius-md);
+}
+
+.bx-radar-metric-label {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--bx-text-muted, var(--bx-apple-gray-500));
+  margin-bottom: var(--sp-1);
+}
+
+.bx-radar-metric-val {
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--bx-text-main, var(--bx-apple-gray-900));
+}
+
+.bx-radar-metric-val.good {
+  color: var(--bx-success-ink);
+}
+
+.bx-radar-metric-val.warn {
+  color: #ea580c;
+}
+
+html.dark .bx-radar-metric-val.good,
+body.dark .bx-radar-metric-val.good {
+  color: #34d399;
+}
+
+html.dark .bx-radar-metric-val.warn,
+body.dark .bx-radar-metric-val.warn {
+  color: #fb923c;
+}
+
+/* 6. Radial Coverage Gauge */
+.bx-radial-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-5) var(--sp-7);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bx-glass-05);
+  margin-bottom: var(--sp-7);
+}
+
+.bx-gauge-svg {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+
+.bx-gauge-bg {
+  fill: none;
+  stroke: var(--bx-glass-08);
+  stroke-width: 6;
+}
+
+.bx-gauge-val {
+  fill: none;
+  stroke: url(#bx-gauge-grad);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+/* 7. Architecture Mode Flow Diagram */
+.bx-arch-flow-section {
+  margin-top: var(--sp-9);
+  border-top: 1px solid var(--bx-card-border);
+  padding-top: var(--sp-8);
+}
+
+.bx-arch-flow-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-6);
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+}
+
+.bx-arch-flow-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.bx-arch-flow-title {
+  font-size: var(--fs-emphasis);
+  font-weight: 600;
+  color: var(--bx-text-main);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bx-arch-flow-sub {
+  font-size: var(--fs-label-sm);
+  color: var(--bx-text-muted);
+}
+
+.bx-arch-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+}
+
+.bx-arch-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--bx-mini-card-bg);
+  padding: var(--sp-2) var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bx-mini-card-border);
+}
+
+.bx-arch-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--bx-text-muted);
+  font-size: var(--fs-label-sm);
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bx-arch-mode-btn:hover {
+  color: var(--bx-text-main);
+  background: var(--bx-table-row-hover);
+}
+
+.bx-arch-mode-btn.active {
+  background: var(--bx-modal-bg);
+  color: var(--bx-link-ink);
+  border-color: var(--bx-card-border);
+  box-shadow: 0 1px 3px var(--bx-black-08);
+  font-weight: 600;
+}
+
+.bx-arch-theme-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--bx-mini-card-bg);
+  padding: var(--sp-2) var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bx-mini-card-border);
+}
+
+.bx-arch-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--bx-text-muted);
+  font-size: var(--fs-label-sm);
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bx-arch-theme-btn:hover {
+  color: var(--bx-text-main);
+  background: var(--bx-table-row-hover);
+}
+
+.bx-arch-theme-btn.active {
+  background: var(--bx-modal-bg);
+  color: var(--bx-text-main);
+  border-color: var(--bx-card-border);
+  box-shadow: 0 1px 3px var(--bx-black-08);
+  font-weight: 600;
+}
+
+.bx-arch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  display: inline-block;
+}
+
+.bx-arch-diagram-card {
+  width: 100%;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid var(--arch-border);
+  background: var(--arch-bg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+/* Paper Ivory Theme (ByteByteGo / Alex Xu Gold-Standard Archetype) */
+.bx-arch-diagram-card.theme-paper {
+  --arch-bg: #faf9f5;
+  --arch-border: #e4e4e7;
+  --arch-card-bg: var(--bx-white);
+  --arch-card-border: #d4d4d8;
+  --arch-text-primary: #18181b;
+  --arch-text-secondary: #71717a;
+  --arch-text-muted: #a1a1aa;
+  --arch-eyebrow: #71717a;
+  --arch-focal-border: #2563eb;
+  --arch-focal-bg: #f8faff;
+  --arch-focal-badge-bg: #2563eb;
+  --arch-focal-badge-text: var(--bx-white);
+  --arch-badge-bg: #f4f4f5;
+  --arch-badge-border: #e4e4e7;
+  --arch-badge-text: #52525b;
+  --arch-container-bg: rgba(244, 244, 245, 0.65);
+  --arch-container-border: #d4d4d8;
+  --arch-container-label: #71717a;
+  --arch-edge-primary: #2563eb;
+  --arch-edge-secondary: #71717a;
+  --arch-edge-badge-bg: var(--bx-white);
+  --arch-edge-badge-border: #d4d4d8;
+  --arch-edge-badge-text: #3f3f46;
+  --arch-divider: #e4e4e7;
+}
+
+/* Cyber Dark Theme (BugX Studio Integrated Dark Mode) */
+.bx-arch-diagram-card.theme-dark {
+  --arch-bg: #10141d;
+  --arch-border: var(--bx-glass-08);
+  --arch-card-bg: #18202d;
+  --arch-card-border: var(--bx-glass-12);
+  --arch-text-primary: #f3f4f6;
+  --arch-text-secondary: var(--bx-slate-400);
+  --arch-text-muted: var(--bx-slate-500);
+  --arch-eyebrow: var(--bx-slate-400);
+  --arch-focal-border: var(--bx-sky-400);
+  --arch-focal-bg: rgba(56, 189, 248, 0.08);
+  --arch-focal-badge-bg: var(--bx-sky-600);
+  --arch-focal-badge-text: var(--bx-white);
+  --arch-badge-bg: var(--bx-glass-06);
+  --arch-badge-border: var(--bx-glass-10);
+  --arch-badge-text: #cbd5e1;
+  --arch-container-bg: rgba(255, 255, 255, 0.02);
+  --arch-container-border: var(--bx-glass-12);
+  --arch-container-label: var(--bx-slate-500);
+  --arch-edge-primary: var(--bx-sky-400);
+  --arch-edge-secondary: var(--bx-slate-500);
+  --arch-edge-badge-bg: var(--bx-slate-800);
+  --arch-edge-badge-border: rgba(255, 255, 255, 0.14);
+  --arch-edge-badge-text: #cbd5e1;
+  --arch-divider: var(--bx-glass-08);
+}
+
+.bx-arch-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.bx-arch-node {
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.bx-arch-node:hover {
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.15));
+}
+
+.bx-arch-node:hover rect.bx-arch-node-box {
+  stroke-width: 1.5;
+}
+
+.bx-arch-focal:hover rect.bx-arch-node-box {
+  stroke-width: 2.5;
+}
+

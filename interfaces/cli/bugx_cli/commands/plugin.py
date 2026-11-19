@@ -727,6 +727,11 @@ def _host_supervisor_server_definitions(
 
     每个宿主的配置只写在当前项目中，server 命令统一以 ``--root .``
     绑定宿主打开的工作区。
+
+    例外：宿主插件声明 ``mcp_write.requires_absolutize=True`` 时（pi/claude 等，
+    写入分支见 :func:`write_host_mcp_config`），落盘前由
+    :func:`_absolutize_server_definitions` 把 ``--root``/``--db``/command 绝对化——
+    这类宿主由宿主进程 spawn MCP，cwd 不可依赖。
     """
     if shape not in _mcp_shape_names():
         raise CliError(_i18n_exc("plugin.unknown_mcp_shape", f"未知宿主 MCP 配置形态: {shape}", shape=shape))
@@ -853,6 +858,33 @@ def _absolutize_server_definitions(
                     and str(args[index + 1]).startswith(".bugx/"):
                 args[index + 1] = str(root / str(args[index + 1]))
     return desired
+
+
+def _mcp_entry_has_relative_paths(entry: object) -> bool:
+    """宿主 MCP 条目 argv 是否仍携带相对 ``--root`` / ``--db`` 路径 token。
+
+    ``mcp_write.requires_absolutize=True`` 宿主的**声明性过期**判据：这类宿主的
+    stdio MCP server 由宿主进程 spawn，cwd 不是工作区，相对 ``--root .`` 会解析
+    到宿主自己的目录而不是本项目（dsh/pi 实测同一陷阱，D3 遗留修复的过期语义）。
+    磁盘条目只要还是相对形态就判过期，触发重写为绝对根；绝对形态交给
+    ``_host_mcp_entry_is_current`` 按 root 感知的 pinned 语义比对（幂等判定）。
+    """
+    if not isinstance(entry, dict):
+        return False
+    args = entry.get("args")
+    if not isinstance(args, list):
+        return False
+    for index, token in enumerate(args):
+        if index + 1 >= len(args):
+            continue
+        value = args[index + 1]
+        if not isinstance(value, str):
+            continue
+        if token == "--root" and not Path(value).is_absolute():
+            return True
+        if token == "--db" and value.startswith(".bugx/"):
+            return True
+    return False
 
 
 def _zcode_mcp_container_key() -> str:
@@ -1303,17 +1335,13 @@ def write_host_mcp_config(
         desired = _host_supervisor_server_definitions(
             shape=str(host_name).strip().casefold(), optional_names=optional_names,
         )
-    elif host_name == "claude":
-        target = root / ".mcp.json"
-        payload = _load_json_object(target, "Claude Code")
-        servers_key = "mcpServers"
-        servers = payload.get(servers_key)
-        if servers is None:
-            servers = {}
-            payload[servers_key] = servers
-        if not isinstance(servers, dict):
-            raise CliError(_i18n_exc("plugin.claude_servers_not_object", f"Claude Code 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
-        desired = _host_supervisor_server_definitions(shape="claude", optional_names=optional_names)
+        if migrated.requires_absolutize:
+            # 宿主声明 ``requires_absolutize=True`` 时按契约落盘**绝对**根（D3
+            # 遗留修复：通用骨架此前无视该声明写相对 ``--root .``）。这类宿主的
+            # stdio MCP server 由宿主进程 spawn，cwd 不是工作区，相对根会解析到
+            # 宿主目录。语义与 dsh/pi bootstrap 一致：绝对化后同根重跑逐字段
+            # 相等 ⇒ changed=False；换根则按本次根重写。
+            _absolutize_server_definitions(desired, root)
     elif host_name == "funide":
         target = root / ".mcp.json"
         payload = _load_json_object(target, "FunIDE")
@@ -1325,10 +1353,10 @@ def write_host_mcp_config(
         if not isinstance(servers, dict):
             raise CliError(_i18n_exc("plugin.funide_servers_not_object", f"FunIDE 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
         desired = _host_supervisor_server_definitions(shape="funide", optional_names=optional_names)
-    elif host_name in {"pi", "dsh", "chatgpt", "workbuddy", "codebuddy"}:
+    elif host_name in {"chatgpt", "workbuddy", "codebuddy"}:
+        # pi / dsh 已迁移为插件：分别走上方通用 JSON 骨架分支（requires_absolutize
+        # 声明绝对化）与全局分支（project_relpath=None），这里的遗留路径已不可达。
         target = root / {
-            "pi": ".pi/mcp.json",
-            "dsh": ".dsh/mcp.json",
             "chatgpt": ".agents/mcp.json",
             "workbuddy": ".workbuddy/mcp.json",
             "codebuddy": ".codebuddy/mcp.json",
@@ -1379,7 +1407,17 @@ def write_host_mcp_config(
         def _entry_is_current(name: str, current: object) -> bool:
             return _absolute_entry_is_current(name, current, desired)
     else:
-        _entry_is_current = _host_mcp_entry_is_current
+        _absolutize_facet = engine_host_mcp_write(host_name)
+        if _absolutize_facet is not None and _absolutize_facet.requires_absolutize:
+            def _entry_is_current(name: str, current: object) -> bool:
+                # 声明绝对化的宿主（pi/claude…）：相对 --root/--db 是声明性过期，
+                # 必须重写为绝对根；绝对形态按 root 感知的 pinned 语义比对——
+                # 同根重跑逐字段相等 ⇒ unchanged（幂等，不依赖 CLI 进程 cwd）。
+                if _mcp_entry_has_relative_paths(current):
+                    return False
+                return _host_mcp_entry_is_current(name, current, root)
+        else:
+            _entry_is_current = _host_mcp_entry_is_current
     optional_managed = {"playwright", "postmcp"}
     for name in optional_managed - set(optional_names or set()):
         current = servers.get(name)
@@ -2051,14 +2089,11 @@ def _host_project_mcp_config_target(root: Path, host_name: str) -> tuple[Path, s
     migrated = engine_host_mcp_write(host_name)
     if migrated is not None and migrated.project_relpath and not migrated.custom_writer:
         return root / migrated.project_relpath, migrated.container_key
-    if host_name == "claude":
-        return root / ".mcp.json", "mcpServers"
     if host_name == "funide":
         return root / ".mcp.json", "mcpServers"
-    if host_name in {"pi", "dsh", "chatgpt", "workbuddy", "codebuddy"}:
+    if host_name in {"chatgpt", "workbuddy", "codebuddy"}:
+        # pi / dsh 已迁移（上方插件分支接管），遗留映射仅剩未迁移宿主。
         rel_map = {
-            "pi": ".pi/mcp.json",
-            "dsh": ".dsh/mcp.json",
             "chatgpt": ".agents/mcp.json",
             "workbuddy": ".workbuddy/mcp.json",
             "codebuddy": ".codebuddy/mcp.json",

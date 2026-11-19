@@ -157,11 +157,10 @@ def _get_models_list(self, provider: Optional[str] = None) -> list[dict[str, Any
     reg = get_adapter_registry()
     real_models = self._discover_host_real_models()
 
-    home = Path.home()
     host_specs = [
         ("cline", "Cline", "auto", False, shutil.which("cline") or Path("/opt/homebrew/bin/cline").is_file()),
-        ("codex", "Codex", "openai", True, shutil.which("codex") or (home / ".nvm/versions/node/v24.18.1/bin/codex").is_file()),
-        ("claude", "Claude Code", "anthropic", False, shutil.which("claude") or (home / ".local/bin/claude").is_file()),
+        ("codex", "Codex", "openai", True, bool(shutil.which("codex"))),
+        ("claude", "Claude Code", "anthropic", False, bool(shutil.which("claude"))),
         ("opencode", "OpenCode", "auto", False, shutil.which("opencode") or Path("/opt/homebrew/bin/opencode").is_file()),
         ("pi", "Pi Agent", "auto", False, shutil.which("pi") or (Path.home() / ".pi/agent/bin/pi").is_file() or Path("/opt/homebrew/bin/pi").is_file()),
         ("zcode", "ZCode", "zhipu", False, bool(shutil.which("zcode") or Path("/Applications/ZCode.app").is_dir() or (Path.home() / "Applications/ZCode.app").is_dir() or (Path.home() / ".zcode").is_dir() or Path("/opt/homebrew/bin/zcode").is_file())),

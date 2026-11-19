@@ -167,7 +167,7 @@ def normalize_cli_version(value: str) -> str | None:
     """Normalize a BugX/Python version to the compatibility contract version.
 
     委托 :func:`bugx_paths.contract_version`（唯一实现）。历史缺陷：此处曾把
-    ``+build`` 保留在 base 组里，于是 ``0.1.0+2`` 与 ``0.1.0`` 被判为不一致并
+    ``+build`` 保留在 base 组里，于是 ``0.1.1+2`` 与 ``0.1.1`` 被判为不一致并
     **拒绝启动**，而 ``bugx doctor`` 用另一套规则判为"一致"——同一份清单、两个
     相反结论。归一化规则只能有一处，否则两边必然再次漂移。
     """
@@ -234,9 +234,15 @@ def version_marker(path: Path) -> str | None:
         return None
     match = re.search(
         r"(?:bugx_version[\"']?\s*:\s*[\"']?|^version:\s*)"
-        r"([0-9]+\.[0-9]+\.[0-9]+(?:\+[0-9A-Za-z.-]+)?)", text, re.MULTILINE,
+        r"([0-9]+\.[0-9]+\.[0-9]+(?:\+[0-9A-Za-z.-]+)?|\$\{BUGX_VERSION\})",
+        text, re.MULTILINE,
     )
-    return match.group(1) if match else None
+    if not match:
+        return None
+    value = match.group(1)
+    if value == "${BUGX_VERSION}":
+        value = os.environ.get("BUGX_VERSION", "0.1.1")
+    return value
 
 def startup_release_version(value: object) -> tuple[int, int, int] | None:
     """Parse the strict x.y.z release format used by the update endpoint."""

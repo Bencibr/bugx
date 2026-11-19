@@ -955,7 +955,7 @@ python3 scripts/verify.py
         manifest = {
             "schema_version": 1,
             "skill_id": skill_id,
-            "version": "0.1.0",
+            "version": "1.0.0",
             "scope": "workspace",
             "applies_if": {
                 "forms": ["backend", "web"],

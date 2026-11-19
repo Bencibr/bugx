@@ -1,7 +1,8 @@
 # BugX 微内核与核心领域系统 (Core Microkernel & Domain Architecture)
 
-> **版本契约**: `0.1.0` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../docs/02_architecture/01_ARCHITECTURE.md) 与 [`docs/02_architecture/03_BUGX_AUDIT_FLOW.md`](../docs/02_architecture/03_BUGX_AUDIT_FLOW.md)。
+> **版本契约**: `0.1.1` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 索引对齐防漂移)
 
 本文档为 BugX `core/` 目录的唯一权威架构全景与物理文件索引字典。记录了微内核分层架构、34 个专业领域子系统、核心底层资产及全部物理文件索引。
 
@@ -214,7 +215,7 @@ flowchart TD
 
 ## 5. 架构演进与防平铺架构红线 (Architecture Guardrails)
 
-为了长期保持 `core/` 目录的整洁度与高内聚，确立以下**四项工程级不可违背硬约束**：
+为了长期保持 `core/` 目录的整洁度与高内聚，确立以下**四项工程级不可违背硬约束**（详见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)）：
 
 1. **严禁在 `core/` 根目录随意新建平铺文件**：
    - 任何新增的探针必须放入 `core/probes/`；

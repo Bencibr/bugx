@@ -481,20 +481,38 @@ def _merge_fingerprint_variants(state: Any, findings: list[dict[str, Any]]) -> i
         return out
 
     def slug_tokens(fingerprint: str) -> set[str]:
-        """指纹最后一段短 slug 的语义词集合（≥3 字符；过滤通用词）。"""
+        """指纹最后一段短 slug 的语义词集合（≥3 字符；过滤通用词）。
+
+        F-RSI-20261110-019 v2：通用词表补 app/web/ui/api/lib/util——这些词
+        在骨架型 slug（app-crash-loop / api-key-leak / web-socket-timeout）
+        里精确共享会造成「不同缺陷同词」误并，与 src/core/py 同性质。
+        """
         slug = fingerprint.rsplit("::", 1)[-1]
-        generic = {"src", "core", "py", "test", "tests", "main", "module"}
+        generic = {"src", "core", "py", "test", "tests", "main", "module",
+                   "app", "web", "ui", "api", "lib", "util"}
         return {
             tok.lower() for tok in re.split(r"[-_]", slug)
             if len(tok) >= 3 and tok.lower() not in generic
         }
 
     def tokens_related(t1: set[str], t2: set[str]) -> bool:
-        """两词集合存在前缀关系 token 对（sql/sqli、eval/evaluate 同源变体）。"""
-        return any(
-            a.startswith(b) or b.startswith(a)
-            for a in t1 for b in t2
+        """F-RSI-20261110-019 v2 误并向修复：判据从「任意前缀对」收紧为
+        「精确共享 token」或「≥2 个前缀关系 token 对」。
+
+        - 精确共享：同缺陷变体几乎必然共享缺陷名词（injection/traversal/
+          fstring）——sql-injection vs sqli-injection 精确共享 injection。
+        - ≥2 前缀对：纯缩写变体（path-traversal-read vs pth-traversal-write
+          的 pth/path + traversal）仍归并。
+        - 单一 3 字符前缀对不再归并：sqlite/sql、auth/author、eval/evaluator
+          是**不同缺陷**共享字母偶然前缀（红探针 A1-A3 实锤误并）。
+        """
+        if t1 & t2:
+            return True
+        prefix_pairs = sum(
+            1 for a in t1 for b in t2
+            if a.startswith(b) or b.startswith(a)
         )
+        return prefix_pairs >= 2
 
     merged = 0
     existing = [
@@ -518,6 +536,27 @@ def _merge_fingerprint_variants(state: Any, findings: list[dict[str, Any]]) -> i
     return merged
 
 
+def _roundup_package(slug: str, judge_dir: Path) -> dict[str, Any] | None:
+    """取该单元最新的 roundup 增广包（F-RSI-20261115-120）。
+
+    无 round_no 的历史包不参与一跳判定（视为历史数据跳过）；同 slug 多包
+    时取目录时间戳最新的一个。目录不可读或解析失败返回 None。"""
+    best: tuple[float, Path] | None = None
+    for p in judge_dir.glob(f"roundup-*/{slug}.json"):
+        try:
+            ts = float(p.parent.name.split("-", 1)[1])
+        except (IndexError, ValueError):
+            ts = p.stat().st_mtime
+        if best is None or ts > best[0]:
+            best = (ts, p)
+    if best is None:
+        return None
+    try:
+        return json.loads(best[1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def settle(verdicts_path: Path) -> int:
     """裁决收口：复现实跑取证 + 机械 checkpoint。"""
     root = resolve_project_root()
@@ -531,6 +570,14 @@ def settle(verdicts_path: Path) -> int:
     state = supervisor.status()
     fingerprint = state.target_fingerprint or supervisor.target_fingerprint
     accepted = rejected = 0
+    # F-RSI-20261112-079：无合法 verdict 条目时旧实现返回 rc=0（accepted=0
+    # rejected=0 的「假成功」）——输入垃圾文件与全部成功不可区分，宿主会
+    # 把结账失败当完成。诚实 rc：零合法条目=结账未发生=rc 1。
+    if not any(
+        isinstance(v, Mapping) and v.get("unit_id") for v in verdicts
+    ):
+        print(f"[judge] ✗ {verdicts_path} 内没有可结算的 verdict 条目（缺 unit_id 或非对象），拒绝假成功")
+        return 1
     for verdict in verdicts:
         if not isinstance(verdict, Mapping) or not verdict.get("unit_id"):
             continue
@@ -559,10 +606,16 @@ def settle(verdicts_path: Path) -> int:
         battery_evidence = _battery_evidence_for(root, claim_state)
         requests = verdict.get("probe_requests")
         slug_u = judge_pipeline.unit_parts(unit_id)[0].replace("/", "_") or "unit"
-        already_roundup = any(
-            p.stem == slug_u for p in _judge_dir().glob("roundup-*/*.json"))
-        if already_roundup:
-            requests = None  # 服务端一跳上限：该单元已定向探针过，禁止二跳
+        current_round = int(getattr(state, "round_no", 1) or 1)
+        # F-RSI-20261115-120：一跳上限绑定当前轮（用户裁决 2026-11-15：每轮
+        # 全量重测，上轮忽视细节轮间必须可再探）——旧实现 glob 全部历史
+        # roundup 目录使禁令跨轮永续。轮内仍保持一跳（防 judge 反复要探针失控）。
+        round_pkg = _roundup_package(slug_u, _judge_dir())
+        if (round_pkg is not None
+                and int(round_pkg.get("round_no") or 0) == current_round):
+            requests = None  # 本轮已定向探针过，禁止本轮内二跳
+            print(f"[judge] ⛔ {unit_id} 本轮已定向探针过（一跳上限），剥除重复探针请求")
+            _judge_log("hop_cap_stripped", unit=unit_id, round_no=current_round)
         if (verdict.get("verdict") == "insufficient_data"
                 and requests and not verdict.get("probe_round")):
             # 定向探针一跳：宿主执行 judge 指定的探针，把增广证据打包回给
@@ -580,6 +633,7 @@ def settle(verdicts_path: Path) -> int:
                     unit_id, root, battery_evidence + probe_evidence)
                 if augmented is not None:
                     augmented["probe_round"] = 1
+                    augmented["round_no"] = current_round  # F-RSI-20261115-120：一跳判定按轮
                     augmented["_claim"] = {
                         "worker_id": worker_id,
                         "lease_id": claim_state.lease_id,
@@ -614,10 +668,14 @@ def settle(verdicts_path: Path) -> int:
             verdict, battery_evidence, reproduction,
         )
         if payload is None:
+            # F-RSI-20261112-079：防御分支（上游唯一 None 条件=unit_ids 空，
+            # 与 claim_state 命中条件互斥，常态不可达）——保留兜底但 id 必须
+            # 与正常路径同构含 uuid 段，防止同 worker 多次 blocked 撞
+            # checkpoint 幂等分支的「payload 不一致拒绝重放」。
             print(f"[judge] {unit_id}：无可绑定证据，标 blocked")
             supervisor.submit_checkpoint(
                 worker_id,
-                checkpoint_id=f"judge-{worker_id}-blocked",
+                checkpoint_id=f"judge-{worker_id}-blocked-{uuid.uuid4().hex[:8]}",
                 coverage={unit_id: "blocked"},
                 notes={unit_id: "judge battery produced no bindable evidence"},
             )
@@ -731,13 +789,13 @@ def settle_dir(path: Path) -> int:
                 continue
         if data is None:
             continue
-            continue
         entries = data if isinstance(data, list) else [data]
         for entry in entries:
-            # 目录收割只认显式 verdict 字段。带 unit_id 但缺
+            # PE-20261109-003：目录收割只认显式 verdict 字段。带 unit_id 但缺
             # verdict 的 JSON 是判读包/包片段等噪声——此前 parse_verdict 会把
             # 缺省裁决兜成 insufficient_data 并按 0 findings 关单，目录里残留
-            # 的陈旧包按文件序先消费就抢走真裁决的单元；因此不得复用旧目录。
+            # 的陈旧包按文件序先消费就抢走真裁决的单元（实测 bugx-audit-zcode
+            # 2026-11-09：/tmp 复用目录致 5 单元被错误关单 + 同轮围栏卡死）。
             if isinstance(entry, dict) and entry.get("unit_id"):
                 if not entry.get("verdict"):
                     skipped_no_verdict.append(str(entry.get("unit_id")))

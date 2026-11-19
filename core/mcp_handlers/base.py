@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 from pathlib import Path
@@ -29,9 +30,19 @@ MAX_INLINE_COVERAGE_UNITS = 32
 class McpProtocolError(RuntimeError):
     """Invalid MCP request or unsupported operation."""
 
-    def __init__(self, message: str, code: int = -32602) -> None:
+    def __init__(
+        self,
+        message: str,
+        code: int = -32602,
+        *,
+        data: Mapping[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        # DEF-2 残余缺口：结构化拒绝原因（如 evidence_feedback）随异常携带，
+        # 供 rpc_server 的 _call_failure_data 透传到回包 data 字段。默认 None
+        # 保持既有调用零破坏；用独立属性名避免与第三方异常的 data 属性混淆。
+        self.mcp_error_data = dict(data) if data else None
 
 
 def i18n_exc(key: str, fallback: str, locale: str | None = None, **kwargs: Any) -> str:
@@ -302,7 +313,16 @@ def format_result(value: object, *, is_error: bool = False, summary: str | None 
 
 def serialize_value(value: object) -> object:
     if hasattr(value, "to_dict"):
-        return value.to_dict()  # type: ignore[no-any-return]
+        # F-RSI-20261110-030：to_dict() 结果必须继续递归序列化。原实现
+        # 直接返回 to_dict() 产物——嵌套的 Path/tuple/Mapping 原样穿透，
+        # 下游 compact_json 直接 TypeError；而同函数的 _asdict 分支是
+        # 递归的，双标不对称。领域对象的 to_dict 现在返回 JSON 净形，
+        # 但序列化契约不能依赖「今天恰好都是干净类型」。
+        return serialize_value(value.to_dict())  # type: ignore[no-any-return]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        # F-RSI-20261110-030 补：无 to_dict 的 dataclass 领域对象同样
+        # 原样穿透（SimpleNamespace 实测无 _asdict，namedtuple 才有）。
+        return serialize_value(dataclasses.asdict(value))
     if hasattr(value, "_asdict"):
         return serialize_value(value._asdict())
     if isinstance(value, Path):
@@ -374,7 +394,7 @@ def project_state(
 #
 # 规则：
 #   1. `_next_action` 的每个取值都必须在 `RECOVERY_CHAIN_BY_ACTION` 中出现
-#      （空元组 = 明确「无需恢复」），由测试穷举守卫；
+#      （空元组 = 明确「无需恢复」），穷举契约以本表为准；
 #   2. 每步的角色归属只在本表声明，禁止在 `_recovery_chain` 内硬编码
 #      （BX-ENGINE-16：工具表 / handler / 恢复链三源漂移曾导致「虚假可用性」）；
 #   3. 步骤顺序即拓扑序（BX-R4-04）：一次只干一件，前置互相打架的三岔路口不再出现。

@@ -365,6 +365,53 @@ def sha256_file(path: Path) -> str:
 _sha256 = sha256_file
 
 
+def record_authority_check(
+    record: EvidenceRecord, workspace_root: Path, *,
+    require_current_fingerprint: bool = False,
+) -> tuple[bool, str]:
+    """读取侧证据权威性校验（OQ-5 用户裁决 2026-11-18：补 sha/stale）。
+
+    形状校验（:meth:`EvidenceRecord.from_dict`）只证明记录完整，不证明
+    记录可信。读取判定路径（DIM3 R-1 P1 归属、沿链逐跳）在把一条记录
+    当作「本地权威」之前，须补齐与 store/validate 同口径的两层校验：
+
+    1. **sha 完整性**：``artifact_sha256`` 与实际 artifact 文件一致
+       （``_resolve_artifact`` + ``sha256_file``，含越界/符号链接/缺失防
+       御）——防已落盘证据被离线篡改后按形状放行为伪权威；
+    2. **stale 标志**：Supervisor 已标记 ``target_drifted`` 的记录是非
+       current 收容产物，不构成任何方向的权威（既不证明覆盖、也不构成
+       推翻——证据产生于漂移执行窗口，对新旧 target 都无裁决力）；
+    3. （可选）**当前指纹一致性**：``target_fingerprint`` 与当前 workspace
+       指纹一致（supervisor ``invalidate_coverage`` L1-ADV-D4 同语义：目标
+       字节一变旧证据即失效）。仅在判定**本地**记录权威时启用；沿链跳的
+       祖先记录必然来自不同会话的指纹，绝不可启用（否则跨 Session 继承
+       机制整体被杀）。
+
+    返回 ``(ok, reason)``：``ok=False`` 时 ``reason`` 说明拒绝原因（调用方
+    必须留痕，不得静默丢弃）。记录本身不做任何修改。
+    """
+    if record.target_drifted:
+        return False, "supervisor 已标记 target_drifted（非 current 收容产物）"
+    if not SHA256_RE.fullmatch(str(record.artifact_sha256 or "")):
+        return False, "artifact_sha256 不是合法 sha256 形态"
+    try:
+        artifact = _resolve_artifact(record.artifact_path, workspace_root)
+    except EvidenceError as exc:
+        return False, f"artifact 不可达: {exc}"
+    actual = _sha256(artifact)
+    if actual.lower() != str(record.artifact_sha256).lower():
+        return False, (
+            f"artifact_sha256 不匹配（疑似离线篡改）: expected={record.artifact_sha256} actual={actual}"
+        )
+    if require_current_fingerprint:
+        from core.supervisor_types.target_fingerprint import workspace_fingerprint
+        if str(record.target_fingerprint) != workspace_fingerprint(workspace_root):
+            return False, (
+                f"target_fingerprint 已漂移（target 漂移后未 rebind）: record={record.target_fingerprint}"
+            )
+    return True, ""
+
+
 def _parse_timestamp(value: Any) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise EvidenceError("observed_at 必须是非空 ISO-8601 字符串")

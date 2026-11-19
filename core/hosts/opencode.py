@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 from typing import Iterator
 
+from core.infra.json_utils import unique_json_object
+
 from .base import (
     AcpFacet,
     EngineRunFacet,
@@ -131,12 +133,10 @@ def _strip_jsonc_comments_and_trailing_commas(source: str) -> str:
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate key: {key}")
-        result[key] = value
-    return result
+    return unique_json_object(
+        pairs,
+        error_factory=lambda key: ValueError(f"duplicate key: {key}"),
+    )
 
 
 def _read_opencode_config(path: Path) -> dict[str, object]:

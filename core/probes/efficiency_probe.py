@@ -164,5 +164,69 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if args.allow_degraded else 2
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活基础效率工具是否在 PATH（零子进程，不跑 --version）。
+
+    只做 ``shutil.which`` 枚举；版本下限校验（含 ast-grep 身份识别）仍归
+    ``inspect()`` 的 ``_command``。环境不满足时返回 False，调用方必须走
+    ``run_static_degraded``，禁止伪装效率工具链就绪。
+    """
+    environment = _probe_environment()
+    path = environment.get("PATH")
+    found: list[str] = []
+    missing: list[str] = []
+    for names, label in ((("rg",), "ripgrep"), (("ast-grep", "sg"), "ast-grep"), (("jq",), "jq")):
+        resolved = None
+        for name in names:
+            resolved = shutil.which(name, path=path)
+            if resolved:
+                break
+        (found if resolved else missing).append(label)
+    if missing:
+        return False, f"缺失工具: {', '.join(missing)}；回退 Python 标准库 + symbol_index/project_graph"
+    return True, f"基础工具就绪: {', '.join(found)}"
+
+
+def run_static_degraded(root: Path | None = None) -> dict:
+    """降级契约：效率工具缺失时的降级输出，绝不伪装 READY。
+
+    输出与成功路径（``inspect()`` 的 READY 报告）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason``；只声明
+    机械探活事实与回退路径，不执行 ``--version`` 子进程，也不替用户决定安装。
+    """
+    available, availability_detail = is_available()
+    resolved_root = Path(root).resolve() if root else None
+    tools = []
+    environment = _probe_environment()
+    for names, label in ((("rg",), "ripgrep"), (("ast-grep", "sg"), "ast-grep"), (("jq",), "jq")):
+        resolved = None
+        for name in names:
+            resolved = shutil.which(name, path=environment.get("PATH"))
+            if resolved:
+                break
+        tools.append({"name": label, "ok": bool(resolved), "path": resolved})
+    return {
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "efficiency_tools_missing"
+        ),
+        "probe_mode": "static_degraded",
+        "required": False,
+        "recommended": True,
+        "root": str(resolved_root) if resolved_root else None,
+        "base_tools": tools,
+        "findings": [],
+        "evidence": {"availability_detail": availability_detail},
+        "fallback": "Python 标准库 + 内置 symbol_index/project_graph + 官方文档搜索",
+        "metadata": {
+            "degraded_mode": "mechanical_which_only",
+            "version_validation": "deferred_to_inspect",
+        },
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

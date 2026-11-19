@@ -35,6 +35,7 @@ from core.launch_phases.common import (
     child_environment,
     run_child,
     run_bounded,
+    sync_codebase_memory_env as _sync_codebase_memory_env,
     bugx_paths,
 )
 import hashlib
@@ -272,6 +273,25 @@ def auto_recover_supervisor(
     current = dict(snapshot) if isinstance(snapshot, Mapping) else {}
     if not current.get("parallel_gate") or "next_action" not in current:
         current = _supervisor_recovery_snapshot(supervisor)
+    # F-RSI-20261110-035：外部快照必须带 state 子对象——预算重置的参数
+    # 继承（max_rounds/max_wall_seconds/...）从 current["state"]["budget"]
+    # 读取；缺 state 时旧实现静默用默认值重置（红探针实测预算键全部丢失，
+    # 返回 "recovered" 伪装健康）。内部路径经 _supervisor_recovery_snapshot
+    # 构造（缺 state/gate 会 ValueError fail-closed），只有外部传入的
+    # snapshot 需要这道闸。
+    if isinstance(snapshot, Mapping) and not isinstance(current.get("state"), Mapping):
+        detail = (
+            "外部快照缺少 state 子对象：预算参数继承无法保证，"
+            "拒绝自动恢复（fail-closed）"
+        )
+        print(f"[supervisor] ✗ 自动恢复拒绝: {detail}")
+        return {
+            "status": "blocked",
+            "reason": "recovery_snapshot_missing_state",
+            "detail": detail,
+            "snapshot": current,
+            "events": [],
+        }
 
     gate = current.get("parallel_gate")
     gate = gate if isinstance(gate, Mapping) else {}
@@ -741,15 +761,6 @@ def _preflight_probe_summary(report: dict) -> str:
     return f"{status}{suffix}{detail}"
 
 
-def _sync_codebase_memory_env(profile: dict) -> None:
-    """把 codebase-memory 探针结论同步到进程环境变量。"""
-    cb_probe = (profile.get("probes") or {}).get("codebase-memory")
-    if isinstance(cb_probe, dict):
-        os.environ["BUGX_USE_CODEBASE_MEMORY"] = (
-            "1" if cb_probe.get("status") == "READY" else "0"
-        )
-
-
 # DES-13：启动前探针的执行真源已收敛到 probe_registry.preflight_probes()，
 # 下列名称不再包含任何手写探针逻辑。它们仅为保持历史导入方
 # （round_orchestrator 仍在 import 这些名字）可用而保留；一旦被真正调用，
@@ -991,6 +1002,31 @@ def host_entry_gate() -> int:
     return RESTART_REQUIRED
 
 
+def _map_supervisor_mcp_answer(value: str | None, *, allow_manual: bool = True) -> str | None:
+    """supervisor_mcp 选择值→动作映射单一真源（TTY / 信箱两通道共用）。
+
+    TTY 文本菜单经 ``ask_interaction`` 返回选项序号（"1"/"2"/"3"）；信箱通道
+    （``bugx interaction answer supervisor_mcp``）经 ``take_answer`` 返回结构化
+    门禁的语义 value（"install"/"manual"/"later"）。两通道必须落到同一动作，
+    否则语义答案会在 ask 内被消费（consumed_at 已置位）却被映射丢弃，门禁
+    无限重发。
+    """
+    low = (value or "").strip().lower()
+    if low in {"1", "install"}:
+        return "install"
+    if low == "2":
+        # 序号是位置语义：两选项形状（无 manual）的 "2" 就是 later。
+        return "manual" if allow_manual else "later"
+    if low == "manual":
+        # 语义值只在三选项形状存在；两选项门禁收到过期 manual 必须 fail-closed。
+        return "manual" if allow_manual else None
+    if low == "3":
+        return "later" if allow_manual else None
+    if low == "later":
+        return "later"
+    return None
+
+
 def _prompt_supervisor_mcp(
     status: dict[str, object], *, allow_manual: bool = True,
 ) -> str | None:
@@ -1009,14 +1045,7 @@ def _prompt_supervisor_mcp(
             + "。完成后必须重启宿主，再在新会话重新启动 BugX。"
         ),
     )
-    value = answered_value(result)
-    if value == "1":
-        return "install"
-    if allow_manual and value == "2":
-        return "manual"
-    if value == ("3" if allow_manual else "2"):
-        return "later"
-    return None
+    return _map_supervisor_mcp_answer(answered_value(result), allow_manual=allow_manual)
 
 def supervisor_mcp_gate(*, review_mode: str | None,
                          autonomous: bool = False) -> str:

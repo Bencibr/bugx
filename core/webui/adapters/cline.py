@@ -40,10 +40,14 @@ class ClineHostAdapter(BaseHostAdapter):
         if w:
             cand_paths.append(Path(w).resolve().parent / ".cline")
         cand_paths.extend([
-            Path.home() / ".nvm/versions/node/v24.18.1/lib/node_modules/cline/bin/.cline",
             Path("/usr/local/lib/node_modules/cline/bin/.cline"),
             Path("/opt/homebrew/lib/node_modules/cline/bin/.cline"),
         ])
+        # nvm 多版本泛化：任何 node 版本下的 cline 都可作为候选（禁止个人绝对路径）。
+        for nvm_cline in sorted(Path.home().glob(
+            ".nvm/versions/node/*/lib/node_modules/cline/bin/.cline"
+        )):
+            cand_paths.append(nvm_cline)
         for p in cand_paths:
             if p.is_file():
                 return p
@@ -285,9 +289,11 @@ class ClineHostAdapter(BaseHostAdapter):
         auto_approve: bool = True,
         target_files: list[str] | None = None,
     ) -> tuple[list[str], dict[str, str]]:
-        bin_path = shutil.which("cline") or str(
-            Path.home() / ".nvm/versions/node/v24.18.1/bin/cline"
-        )
+        bin_path = shutil.which("cline")
+        if not bin_path:
+            raise RuntimeError(
+                "cline CLI 未在 PATH 中找到；请先安装 Cline 并确认 cline 可执行"
+            )
         clean_msg = prompt.strip()
 
         env = os.environ.copy()

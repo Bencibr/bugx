@@ -378,12 +378,13 @@ def command_cloud(args: argparse.Namespace) -> int:
     if act == "upload":
         try:
             bundle = _read_sync_bundle(Path(args.input).expanduser().absolute())
-            # DOC-211：upload 与 sync 同吃一档敏感策略（配置缺省 allow 透传）。
+            # DOC-211：upload 与 sync 同吃一档敏感策略；配置缺失/非法取
+            # 安全默认 redact（F-025：原样出网必须显式 allow）。
             try:
                 from core.cloud_sync.cloud_client import load_cloud_config
-                upload_policy = load_cloud_config().get("sensitive_policy") or "allow"
+                upload_policy = load_cloud_config().get("sensitive_policy") or "redact"
             except Exception:  # noqa: BLE001
-                upload_policy = "allow"
+                upload_policy = "redact"
             result = client.import_knowledge_bundle(
                 bundle, mode=args.mode, sensitive_policy=upload_policy)
         except (OSError, ValueError, RuntimeError) as exc:

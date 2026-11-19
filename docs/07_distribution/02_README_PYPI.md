@@ -1,10 +1,4 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/stablyai/bug-hunter/main/core/assets/bugx-hero-en.png" alt="BugX - AI writes the code. BugX hunts the bugs." width="800" style="max-width: 100%; height: auto;" />
-</p>
-
-> **Version 0.1.0** | **Updated: 2026-10-09**
-
-> **Search summary** — BugX is a local-first Python CLI for evidence-driven AI code auditing, security code review, vulnerability hunting, and reproducible bug verification. It records project-scoped coverage, Findings, execution evidence, artifacts, and recovery state for supported MCP/ACP coding hosts.
+> **Version ${BUGX_VERSION}** | **Updated: 2026-11-19**
 
 <p align="center">
   <strong>Host-neutral, evidence-driven autonomous code auditing and vulnerability-hunting agent for AI-assisted software engineering.</strong>
@@ -35,7 +29,7 @@
 
 Traditional static code analyzers and security linters flood developers with hundreds of theoretical warnings, unverified regex alerts, and false positives. 
 
-**BugX** is different. It is an **evidence-driven, host-neutral auditing agent** that embeds deep adversarial inspection directly into your favorite AI programming assistants (Claude Code, OpenAI Codex, OpenCode, Cursor, Windsurf, DeepSeek Harness, WorkBuddy, Pi).
+**BugX** is different. It is an **evidence-driven, host-neutral auditing agent** that embeds deep adversarial inspection directly into your favorite AI programming assistants (Claude Code, OpenAI Codex, OpenCode, Cursor, Windsurf, DeepSeek Harness, WorkBuddy, Pi, ZCode).
 
 ```
 Traditional Scanners (Noisy & Speculative):
@@ -132,6 +126,7 @@ Once installed, simply open your target project in your AI coding tool (e.g. Cla
 | **DeepSeek Harness (DSH)** | Official Web UI Extension & MCP | `bugx install --agent dsh` |
 | **WorkBuddy** | Official IDE Connector Bundle | `bugx install --agent workbuddy` |
 | **Cline / Roo Code** | MCP; interactive single-claim or CLI process-pool execution | `bugx install --agent cline` |
+| **ZCode** | Native MCP / host integration | `bugx install --agent zcode` |
 | **Cursor / Windsurf** | Standard MCP Server | `bugx mcp serve --role host` |
 
 Run `bugx hosts` to inspect all detected AI environments on your machine.
@@ -171,7 +166,7 @@ Autonomous sessions persist their host, execution mode, worker capacity, and dis
 
 传统静态代码扫描工具（SAST）往往依靠正则或死板规则进行匹配，产生成百上千条未经证实的“口头报警”和噪音，让开发者疲于甄别。
 
-**BugX** 专为大模型协同编程时代而设计。它是一款**宿主中立、对抗式、证据闭环驱动的深度代码审计与漏洞挖掘智能体**，原生集成在主流 AI 编程助手（Claude Code、OpenAI Codex、OpenCode、Cursor、Windsurf、DeepSeek Harness 等）中运转。
+**BugX** 专为大模型协同编程时代而设计。它是一款**宿主中立、对抗式、证据闭环驱动的深度代码审计与漏洞挖掘智能体**，原生集成在主流 AI 编程助手（Claude Code、OpenAI Codex、OpenCode、Cursor、Windsurf、DeepSeek Harness、ZCode 等）中运转。
 
 ```
 传统静态扫描（海量噪音）：
@@ -268,6 +263,7 @@ bugx doctor
 | **DeepSeek Harness (DSH)** | 官方 Web UI 扩展与 MCP | `bugx install --agent dsh` |
 | **WorkBuddy** | 官方 IDE 连接器拓展包 | `bugx install --agent workbuddy` |
 | **Cline / Roo Code** | 插件 MCP 交互会话（单 Claim 串行）/ CLI 多进程池自治并发 | `bugx install --agent cline` |
+| **ZCode** | 原生 MCP / 宿主集成（用户级 MCP 注册） | `bugx install --agent zcode` |
 | **Cursor / Windsurf** | 通用 MCP 服务协议 | `bugx mcp serve --role host` |
 
 运行 `bugx hosts` 可实时查看当前设备上支持与检测到的 AI 工具清单。

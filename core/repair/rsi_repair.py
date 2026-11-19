@@ -83,8 +83,8 @@ def _case_golden_desync(root: Path) -> list[str]:
 
     这类不一致正是「只写 case 不写 golden」留下的痕迹，已经实测踩过两次。
     """
-    cases_path = root / "evals" / "cases.json"
-    golden_path = root / "evals" / "golden-findings.json"
+    cases_path = root / "verification" / "evals" / "cases.json"
+    golden_path = root / "verification" / "evals" / "golden-findings.json"
     if not cases_path.is_file() or not golden_path.is_file():
         return []
     try:
@@ -105,8 +105,8 @@ def _case_golden_desync(root: Path) -> list[str]:
 
 def _orphan_fixtures(root: Path) -> list[str]:
     """找出没被任何 case 引用的 fixture 文件（语义不变的残留）。"""
-    cases_path = root / "evals" / "cases.json"
-    fixtures_dir = root / "evals" / "fixtures"
+    cases_path = root / "verification" / "evals" / "cases.json"
+    fixtures_dir = root / "verification" / "evals" / "fixtures"
     if not cases_path.is_file() or not fixtures_dir.is_dir():
         return []
     try:
@@ -125,7 +125,7 @@ def _orphan_fixtures(root: Path) -> list[str]:
 
 
 def _duplicate_case_ids(root: Path) -> list[str]:
-    cases_path = root / "evals" / "cases.json"
+    cases_path = root / "verification" / "evals" / "cases.json"
     if not cases_path.is_file():
         return []
     try:
@@ -250,7 +250,7 @@ def repair_noise(root: Path, *, dry_run: bool = False) -> dict[str, object]:
     for name in _orphan_fixtures(root):
         if not dry_run:
             try:
-                (root / "evals" / "fixtures" / name).unlink()
+                (root / "verification" / "evals" / "fixtures" / name).unlink()
             except OSError:
                 continue
         removed_fixtures.append(name)
@@ -259,7 +259,7 @@ def repair_noise(root: Path, *, dry_run: bool = False) -> dict[str, object]:
         if dry_run:
             removed_duplicates.append(case_id)
             continue
-        cases_path = root / "evals" / "cases.json"
+        cases_path = root / "verification" / "evals" / "cases.json"
         try:
             payload = json.loads(cases_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):

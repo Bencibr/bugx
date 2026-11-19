@@ -264,7 +264,12 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(result, dict):
             result.setdefault("ledger_path", str(args.ledger))
         print(json.dumps(result,ensure_ascii=False,indent=2)); return 0
-    except (LessonLedgerError,OSError,sqlite3.Error, json.JSONDecodeError) as exc: print(f"[lesson_ledger] ✗ {exc}",file=sys.stderr); return 2
+    except (LessonLedgerError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError) as exc:
+        # F-RSI-20261115-135：ValueError 兜底——四个域异常类（LifecycleError/
+        # VerificationError/ConfirmationError/SensitiveSyncError）与
+        # life_ledger.finding_identity 的裸 ValueError 全是 ValueError 子类，
+        # 旧表漏捕 → 宿主拿到 traceback + rc=1 而非干净 rc=2 + 语义消息。
+        print(f"[lesson_ledger] ✗ {exc}", file=sys.stderr); return 2
 
 
 if __name__ == "__main__": raise SystemExit(main())

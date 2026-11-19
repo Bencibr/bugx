@@ -1,0 +1,167 @@
+/* =========================================================================
+   Files Center View & Sidebar Quick Triggers
+   ========================================================================= */
+.main-column.bx-files-view-active #bx-files-view-container {
+  display: flex !important;
+}
+
+.main-column.bx-files-view-active .session-body,
+.main-column.bx-files-view-active .session-header {
+  display: none !important;
+}
+
+.sidebar-action.bx-files-active {
+  background: var(--app-list-active-background, rgba(2, 132, 199, 0.15)) !important;
+  color: var(--bx-brand, var(--bx-sky-600)) !important;
+  font-weight: 600;
+}
+
+.bx-files-view-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  flex-direction: column;
+  background: var(--bx-apple-gray-100);
+  color: var(--bx-apple-gray-900);
+  z-index: var(--z-view-container);
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.bx-fc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-7) var(--sp-12);
+  background: var(--bx-white);
+  border-bottom: 1px solid var(--bx-black-08);
+}
+
+.bx-fc-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.bx-fc-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.bx-fc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-8);
+  padding: var(--sp-5) var(--sp-12);
+  background: #fafafc;
+  border-bottom: 1px solid var(--bx-black-06);
+}
+
+.bx-fc-content {
+  flex: 1;
+  padding: var(--sp-8) var(--sp-12);
+  overflow-y: auto;
+}
+
+.bx-proj-files-quick-btn {
+  opacity: 0;
+  margin-left: auto;
+  font-size: var(--fs-body);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.sidebar-project-btn:hover .bx-proj-files-quick-btn {
+  opacity: 1;
+}
+
+.bx-proj-files-quick-btn:hover {
+  background: var(--bx-black-08);
+}
+
+.bx-group-files-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--app-primary-foreground, var(--bx-slate-500));
+  transition: background 0.15s ease;
+}
+
+.bx-group-files-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Ensure CWD trash button is permanently visible */
+.bx-cwd-item-del-btn {
+  opacity: 1 !important;
+  color: var(--bx-danger-ink);
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.2);
+  border-radius: var(--radius-xs);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.bx-cwd-item-del-btn:hover {
+  background: rgba(255, 59, 48, 0.2) !important;
+  border-color: var(--bx-danger-ink) !important;
+}
+
+/* Dark mode for FilesCenter */
+html.dark .bx-files-view-container,
+body.dark .bx-files-view-container {
+  background: #1c1c1e;
+  color: var(--bx-apple-gray-100);
+}
+
+html.dark .bx-fc-header,
+body.dark .bx-fc-header {
+  background: #252528;
+  border-bottom-color: var(--bx-glass-08);
+}
+
+html.dark .bx-fc-toolbar,
+body.dark .bx-fc-toolbar {
+  background: #1f1f22;
+  border-bottom-color: var(--bx-glass-06);
+}
+
+html.dark .bx-proj-files-quick-btn:hover,
+body.dark .bx-proj-files-quick-btn:hover {
+  background: var(--bx-glass-12);
+}
+
+html.dark .bx-group-files-btn:hover,
+body.dark .bx-group-files-btn:hover {
+  background: var(--bx-glass-08);
+}
+
+html.dark .bx-cwd-item-del-btn,
+body.dark .bx-cwd-item-del-btn {
+  color: #ff453a;
+  background: rgba(255, 69, 58, 0.15);
+  border-color: rgba(255, 69, 58, 0.3);
+}
+
+html.dark .bx-cwd-item-del-btn:hover,
+body.dark .bx-cwd-item-del-btn:hover {
+  background: rgba(255, 69, 58, 0.25) !important;
+  border-color: #ff453a !important;
+}
+

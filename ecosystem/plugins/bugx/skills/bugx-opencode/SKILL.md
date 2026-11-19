@@ -5,7 +5,7 @@ description: "BugX 对抗审计在 OpenCode 宿主的操作手册。当宿主发
 
 # BugX × OpenCode 使用手册（实战复盘版）
 
-本手册共性部分继承
+引擎源码仓库（本仓 dev 分支）。本手册共性部分继承
 `bugx-zcode` skill（判读式审计/确认协议/坑位），特性部分按 OpenCode 宿主契约
 （`core/contracts/bugx-opencode.md`）微调。所有坑位均实证。
 

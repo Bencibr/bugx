@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from bugx_cli import __version__
+from .. import __version__
 from .engine_installer import (
     RUNTIME_NAMES,
     _distribution_located_path,
@@ -123,6 +123,9 @@ def _plugin_manifest(
     if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", name):
         raise CliError(_i18n_exc("common.plugin_name_invalid", f"插件名称无效: {path}", path=path))
     version = payload.get("version")
+    if version == "${BUGX_VERSION}":
+        version = os.environ.get("BUGX_VERSION", __version__)
+        payload["version"] = version
     if not isinstance(version, str) or not PLUGIN_VERSION_RE.fullmatch(version):
         raise CliError(_i18n_exc("common.plugin_version_invalid", f"插件版本无效: {path}", path=path))
     if expected_name and name != expected_name:
@@ -301,7 +304,7 @@ def _shared_asset_records(root: Path, source: Path) -> list[dict[str, str]]:
 
 def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tuple[list[tuple[str, bool, str]], set[str]]:
     """Validate only host bundles explicitly installed by BugX in this project."""
-    from bugx_cli.host_adapters import get_adapter
+    from ..host_adapters import get_adapter
 
     def safe_file(relative: str) -> bool:
         candidate = root / relative
@@ -324,7 +327,7 @@ def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tup
         return [], set()
 
     def missing_registry(detail: str) -> tuple[list[tuple[str, bool, str]], set[str]]:
-        from bugx_cli.host_adapters import discover_hosts
+        from ..host_adapters import discover_hosts
 
         try:
             detected = discover_hosts(root)
@@ -369,7 +372,7 @@ def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tup
             # install_path 只是卸载清扫与旧副本比对的路径事实源，不再落盘，
             # 完整性改查用户级注册面的主/worker 两个文件。函数内延迟导入，
             # 避免 infra → commands 的模块级循环依赖。
-            from bugx_cli.commands.plugin_zcode import _zcode_user_agents_dir
+            from ..commands.plugin_zcode import _zcode_user_agents_dir
 
             user_agents_dir = _zcode_user_agents_dir()
             missing_user_agents = [
@@ -392,7 +395,7 @@ def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tup
                     f"缺少宿主入口：{adapter.install_path}",
                 ))
                 continue
-            from bugx_cli.commands.plugin_claude import _claude_user_agents_dir
+            from ..commands.plugin_claude import _claude_user_agents_dir
 
             user_agents_dir = _claude_user_agents_dir()
             missing_user_agents = [
@@ -419,7 +422,7 @@ def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tup
                     f"缺少宿主入口：{adapter.install_path}",
                 ))
                 continue
-            from bugx_cli.commands.plugin_qoder import _qoder_user_agents_dir
+            from ..commands.plugin_qoder import _qoder_user_agents_dir
 
             user_agents_dir = _qoder_user_agents_dir()
             missing_user_agents = [

@@ -68,11 +68,7 @@ def command_report(args: argparse.Namespace) -> int:
         # 自己的 ``verification/evals/oss/python_all_categories_audit.json``
         # 当成靶场收据，在靶场报告里写出「击杀 42,125 处变异 / 95.23% / ELITE」。
         # 那既不是靶场的测量值，也不是本轮的任何一次执行。
-        candidates = (
-            project_root / "verification" / "evals" / "oss",
-            project_root / "evals" / "oss",
-        )
-        eval_dir = next((c for c in candidates if c.is_dir()), candidates[-1])
+        eval_dir = project_root / "verification" / "evals" / "oss"
 
     out_arg = getattr(args, "out", None)
     out_dir = Path(out_arg).resolve() if out_arg else eval_dir
@@ -85,7 +81,7 @@ def command_report(args: argparse.Namespace) -> int:
 
     try:
         _ensure_core_importable()
-        from bugx_cli.infra.security import _find_repo_root
+        from ..infra.security import _find_repo_root
         repo_root = _find_repo_root(Path(__file__))
         core_root = repo_root / "core"
         if core_root.is_dir():

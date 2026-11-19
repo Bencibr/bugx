@@ -248,9 +248,13 @@ def _analyze_python_ast(raw_bytes: bytes | str, sloc: int = 1) -> dict[str, Any]
     try:
         tree = ast.parse(raw_bytes)
     except Exception:
+        # 解析失败必须可区分（F-RSI-20261115-276）：解析器失效/新语法等场景下
+        # 返回满分 mi=100.0 会把系统性解析失败伪装成最优健康度。mi 不可信时
+        # 返回 None 并携带 parse_status="failed"，由调用方与聚合层显式处理。
         return {
             "cc": 1, "cognitive": 0, "max_depth": 1, "functions": 0, "classes": 0,
-            "god_functions": 0, "taint_flows": [], "imports": [], "maintainability_index": 100.0,
+            "god_functions": 0, "taint_flows": [], "imports": [],
+            "maintainability_index": None, "parse_status": "failed",
         }
 
     class Visitor(ast.NodeVisitor):
@@ -646,6 +650,7 @@ def _analyze_python_ast(raw_bytes: bytes | str, sloc: int = 1) -> dict[str, Any]
         "imports": visitor.imports,
         "halstead_volume": round(halstead_v, 2),
         "maintainability_index": norm_mi,
+        "parse_status": "ok",
     }
 
 
@@ -895,8 +900,9 @@ def analyze_file_risk(
             return {
                 "cc": 1, "cognitive": 0, "max_depth": 1, "functions": 0, "classes": 0,
                 "god_functions": 0, "god_module": False, "sinks": 0,
-                "taint_flows": [], "critical_sinks": [], "mitigations": [], "secrets": [], "imports": [], "maintainability_index": 100.0,
-                "risk_score": 0.0, "tags": [],
+                "taint_flows": [], "critical_sinks": [], "mitigations": [], "secrets": [], "imports": [],
+                "maintainability_index": None, "parse_status": "unreadable",
+                "risk_score": 0.0, "tags": ["unreadable"],
             }
     text = raw_bytes.decode("utf-8", errors="ignore")
 
@@ -913,7 +919,8 @@ def analyze_file_risk(
     else:
         struct = {
             "cc": 1, "cognitive": 0, "max_depth": 1, "functions": 0, "classes": 0,
-            "god_functions": 0, "taint_flows": [], "critical_sinks": [], "mitigations": [], "imports": [], "maintainability_index": 100.0,
+            "god_functions": 0, "taint_flows": [], "critical_sinks": [], "mitigations": [], "imports": [],
+            "maintainability_index": None, "parse_status": "not_applicable",
         }
         non_code_mask = set()
 
@@ -925,7 +932,8 @@ def analyze_file_risk(
     cc = struct.get("cc", 1)
     cognitive = struct.get("cognitive", 0)
     max_depth = struct.get("max_depth", 1)
-    mi = struct.get("maintainability_index", 100.0)
+    mi = struct.get("maintainability_index")
+    parse_status = struct.get("parse_status", "ok")
 
     # God Module: only for production code
     is_god_module = False
@@ -953,8 +961,12 @@ def analyze_file_risk(
         tags.append("mitigated-control")
     if len(secrets) > 0:
         tags.append("hardcoded-secret")
-    if mi < 40.0:
+    if mi is not None and mi < 40.0:
         tags.append("low-maintainability")
+    if parse_status == "failed":
+        # 解析失败必须出现在标签面（F-RSI-20261115-276）：无结构的"满分"伪装
+        # 被移除后，文件级降级信号在 hotspots/tags 通道保持可见。
+        tags.append("parse-failed")
 
     # Composite Risk score calculation (0 ~ 100) - 彻底废除复杂度即风险，确立高危一票置顶
     if len(critical_sinks) > 0 or len(taints) > 0:
@@ -972,7 +984,7 @@ def analyze_file_risk(
             + (sinks * 3.0)
             + (len(secrets) * 6.0)
             + (max_depth * 1.5)
-            + (10.0 if mi < 40.0 else 0.0),
+            + (10.0 if (mi is not None and mi < 40.0) else 0.0),
         )
 
     risk_score = round(min(100.0, max(10.0, base_score)), 1)
@@ -992,6 +1004,7 @@ def analyze_file_risk(
         "secrets": secrets,
         "imports": struct.get("imports", []),
         "maintainability_index": mi,
+        "parse_status": parse_status,
         "risk_score": risk_score,
         "tags": tags,
     }
@@ -1397,6 +1410,7 @@ def analyze_codebase(
     all_critical_sinks: list[dict[str, Any]] = []
     all_secrets: list[dict[str, Any]] = []
     maintainability_scores: list[float] = []
+    maintainability_parse_failed_files = 0
     file_import_map: dict[str, list[str]] = {}
     prod_files_list: list[tuple[str, Path, int, str]] = []
     # Per-pass cache of decoded production source text.  ``count_file_lines``,
@@ -1457,7 +1471,14 @@ def analyze_codebase(
             if cog > max_cognitive:
                 max_cognitive = cog
 
-            maintainability_scores.append(risk_info.get("maintainability_index", 100.0))
+            file_mi = risk_info.get("maintainability_index")
+            if file_mi is None:
+                # 解析/读取失败的文件不进入均值（F-RSI-20261115-276）：假满分
+                # 会污染聚合，降级文件计数显式暴露给度量看板。
+                if risk_info.get("parse_status", "ok") in {"failed", "unreadable"}:
+                    maintainability_parse_failed_files += 1
+            else:
+                maintainability_scores.append(file_mi)
             if risk_info.get("critical_sinks"):
                 for cs in risk_info["critical_sinks"]:
                     all_critical_sinks.append({
@@ -1500,7 +1521,7 @@ def analyze_codebase(
                     "risk_score": risk_info["risk_score"],
                     "cyclomatic_complexity": cc,
                     "cognitive_complexity": cog,
-                    "maintainability_index": risk_info.get("maintainability_index", 100.0),
+                    "maintainability_index": risk_info.get("maintainability_index"),
                     "sensitive_sinks": risk_info["sinks"],
                     "max_depth": risk_info["max_depth"],
                     "sloc": sloc,
@@ -1601,8 +1622,20 @@ def analyze_codebase(
 
     avg_cc = round(total_cc / max(1, code_files), 1) if code_files > 0 else 1.0
     avg_cog = round(total_cognitive / max(1, code_files), 1) if code_files > 0 else 0.0
-    avg_mi = round(sum(maintainability_scores) / max(1, len(maintainability_scores)), 1) if maintainability_scores else 100.0
-    mi_grade = "🟢 良好" if avg_mi >= 65 else ("🟡 关注" if avg_mi >= 40 else "🔴 恶化")
+    # 聚合均值只取可解析文件（F-RSI-20261115-276）：无可解析文件时不得伪装
+    # 满分 100.0，以 None 表示"未测得"，输出层降级为 0.0 并携带降级计数。
+    avg_mi = (
+        round(sum(maintainability_scores) / len(maintainability_scores), 1)
+        if maintainability_scores else None
+    )
+    if avg_mi is None:
+        mi_grade = "⚪ 未测得（无可解析代码文件）"
+    elif avg_mi >= 65:
+        mi_grade = "🟢 良好"
+    elif avg_mi >= 40:
+        mi_grade = "🟡 关注"
+    else:
+        mi_grade = "🔴 恶化"
 
     health_grade = compute_health_grade(avg_cc, total_god_modules, test_to_code_ratio)
 
@@ -1650,9 +1683,11 @@ def analyze_codebase(
         "modules": modules_breakdown,
         "scale_estimation": scale,
         "maintainability": {
-            "maintainability_index": avg_mi,
-            "avg_maintainability_index": avg_mi,
+            "maintainability_index": avg_mi if avg_mi is not None else 0.0,
+            "avg_maintainability_index": avg_mi if avg_mi is not None else 0.0,
             "maintainability_grade": mi_grade,
+            "parse_failed_files": maintainability_parse_failed_files,
+            "measured_files": len(maintainability_scores),
             "avg_cognitive_complexity": avg_cog,
             "max_cognitive_complexity": max_cognitive,
         },
@@ -1674,7 +1709,8 @@ def analyze_codebase(
             "secrets": all_secrets,
             "critical_sinks": all_critical_sinks,
             "taint_flows": all_taints,
-            "maintainability_index": avg_mi,
+            "maintainability_index": avg_mi if avg_mi is not None else 0.0,
+            "maintainability_parse_failed_files": maintainability_parse_failed_files,
             "avg_cognitive_complexity": avg_cog,
             "duplication_percentage": duplication_info.get("duplication_percentage", 0.0),
             "circular_dependencies_count": architecture_info.get("total_cycles", 0),

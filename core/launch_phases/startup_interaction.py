@@ -483,6 +483,53 @@ def save_strategy_draft(plan: dict[str, Any]) -> None:
     secure_atomic.atomic_write_json(draft_file, plan, mode=0o600, parent_mode=0o700)
     print(f"[launch_bugx] 作战方案已暂存至 {draft_file}，本轮启动停止。")
 
+def _apply_strategy_choice(
+    choice: str | None, plan: dict[str, Any], *, cli_fix_mode: str | None = None,
+) -> tuple[int, str | None] | None:
+    """把 strategy_plan 选择值映射为统一动作（flag / TTY / 信箱三通道共用）。
+
+    返回 ``(code, decision)``；不匹配任何合法值时返回 ``None``（调用方继续
+    走发问路径）。值集与三个历史通道逐字保持一致，禁止在调用方再写第二份。
+    """
+    choice = (choice or "").strip().lower()
+    if choice in {"approve", "approve_and_start", "1"}:
+        target = _get_sg_attr("_apply_approved_strategy") or _apply_approved_strategy
+        target(plan, cli_fix_mode=cli_fix_mode)
+        return 0, "approved"
+    if choice in {"customize", "custom", "2"}:
+        target = _get_sg_attr("mark_strategy_customized") or mark_strategy_customized
+        target(plan)
+        return 0, "customized"
+    if choice in {"later", "save_and_later", "save", "3"}:
+        target = _get_sg_attr("_save_strategy_draft") or _save_strategy_draft
+        target(plan)
+        return POLLING_DECISION_REQUIRED, "later"
+    return None
+
+
+def _startup_mailbox_answer(gate: str) -> str | None:
+    """消费一条启动门禁的信箱答案（与 ``interaction.ask()`` 通道对称）。
+
+    仅 ``ANSWERED`` 返回 value；``NONE``/``INVALID``/``CANCELLED`` 一律返回
+    ``None``（INVALID 不消费、宿主可重新提交正确取值；CANCELLED 视为未回答，
+    门禁照常重发——契约是「停留在当前 gate」）。统一交互组件不可用时静默
+    返回 ``None``，不得抛错阻断启动。
+    """
+    try:
+        from core.runtime import interaction_store
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return None
+    if not interaction_store.is_available():
+        return None
+    try:
+        lookup = interaction_store.take_answer(gate, "startup")
+    except (OSError, ValueError, RuntimeError):
+        return None
+    if lookup.status == interaction_store.ANSWERED and isinstance(lookup.value, str):
+        return lookup.value
+    return None
+
+
 def strategy_plan_gate(
     strategy_choice: str | None = None,
     environment=None,
@@ -498,18 +545,9 @@ def strategy_plan_gate(
     plan = plan_data or compile_strategy_plan(root)
 
     choice = (strategy_choice or "").strip().lower()
-    if choice in {"approve", "approve_and_start", "1"}:
-        target = _get_sg_attr("_apply_approved_strategy") or _apply_approved_strategy
-        target(plan, cli_fix_mode=cli_fix_mode)
-        return 0, "approved"
-    if choice in {"customize", "custom", "2"}:
-        target = _get_sg_attr("mark_strategy_customized") or mark_strategy_customized
-        target(plan)
-        return 0, "customized"
-    if choice in {"later", "save_and_later", "save", "3"}:
-        target = _get_sg_attr("_save_strategy_draft") or _save_strategy_draft
-        target(plan)
-        return POLLING_DECISION_REQUIRED, "later"
+    applied = _apply_strategy_choice(choice, plan, cli_fix_mode=cli_fix_mode)
+    if applied is not None:
+        return applied
 
     runtime = load_runtime()
     saved_status = (runtime.get("strategy_plan") or {}).get("status")
@@ -561,6 +599,18 @@ def strategy_plan_gate(
             return POLLING_DECISION_REQUIRED, "later"
         return POLLING_DECISION_REQUIRED, None
 
+    # 信箱回灌（F-RSI-20261118-001）：无 TTY 宿主经 ``bugx interaction answer
+    # strategy_plan --value <v>`` 回灌的答案此前在 emit_startup_gate 直发路径上
+    # 永远无人消费（真机实证 consumed_at=null，宿主被迫用 --strategy-plan flag
+    # 绕过）。在此消费并复用与 flag/TTY 完全相同的值映射；非法值不消费
+    # （take_answer 契约），门禁照常重发（fail-closed）。
+    mailbox_value = _startup_mailbox_answer("strategy_plan")
+    if mailbox_value is not None:
+        mailbox_applied = _apply_strategy_choice(
+            mailbox_value, plan, cli_fix_mode=cli_fix_mode,
+        )
+        if mailbox_applied is not None:
+            return mailbox_applied
     emit_startup_gate(
         "strategy_plan",
         plan["summary"],
@@ -838,6 +888,12 @@ def report_policy_startup_gate(
         if policy is None:
             return POLLING_DECISION_REQUIRED, None
         return 0, policy
+    # 信箱回灌（F-RSI-20261118-001，与 strategy_plan 同型）：仅在非 blocked 的
+    # 非 TTY 路径消费——blocked 环境维持 F-RSI-20261110-004 的 local 最小权限
+    # 默认（report_policy 是隐私出口，陈旧信箱 submit 不得在无交互环境放大外发）。
+    mailbox_value = _startup_mailbox_answer("report_policy")
+    if mailbox_value in {"none", "local", "submit"}:
+        return 0, mailbox_value
     emit_startup_gate(
         "report_policy",
         "审计报告如何处置？",

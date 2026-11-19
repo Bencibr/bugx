@@ -115,6 +115,12 @@ def _oracle_case(value: object, field: str) -> dict[str, object]:
         normalized["text"] = _text(value.get("text"), f"{field}.text", max_length=1024)
     else:
         normalized["path"] = _text(value.get("path"), f"{field}.path", max_length=256)
+        if "equals" not in value:
+            # F-RSI-20261115-122：equals 漏配会被 _matches 的 value == None
+            # 误判为命中（JSON 路径值恰为 null 时 None == None），漏配与
+            # 「期望 null」不可区分——构造期 fail-fast；显式传 null 保留
+            # （期望 null 值是合法判据语义）。
+            raise VerificationError(f"{field}.equals 缺失（期望 null 请显式传 null）")
         normalized["equals"] = value.get("equals")
     return normalized
 
@@ -301,7 +307,18 @@ def verify_finding(root: Path, finding: Mapping[str, object], recipe: Mapping[st
         raise VerificationError("artifact_root 越界") from exc
     verification_id = str(uuid.uuid4())
     directory = base / verification_id
-    directory.mkdir(parents=True, exist_ok=False, mode=0o700)
+    records: list[dict[str, object]] = []
+    # F-RSI-20261110-021：artifact_root 不可写（只读挂载/磁盘满/权限收紧）时
+    # 目录创建与 BLOCKED receipt 落盘都会 OSError——此前裸异常冒出 verify_finding，
+    # 上游只能靠 dispatch 兜底丢结构化语义。降级为内存 BLOCKED receipt：
+    # receipt_path 置 None + degraded 标记，双跑照常执行（结果不落盘但可审计）。
+    degraded_storage = False
+    try:
+        directory.mkdir(parents=True, exist_ok=False, mode=0o700)
+    except OSError as exc:
+        degraded_storage = True
+        directory = None
+        storage_error = f"artifact_root 不可写（{type(exc).__name__}: {exc}）"
     records: list[dict[str, object]] = []
     try:
         for index in range(POSITIVE_RUNS_REQUIRED):
@@ -327,10 +344,20 @@ def verify_finding(root: Path, finding: Mapping[str, object], recipe: Mapping[st
             "request_id": request_id,
             "error": str(exc)[:512], "recipe_digest": spec.digest(),
         }
-        _atomic_json(directory / "receipt.json", receipt)
+        if directory is not None:
+            try:
+                _atomic_json(directory / "receipt.json", receipt)
+                receipt["receipt_path"] = str(directory / "receipt.json")
+            except OSError:
+                pass  # 落盘失败也返回内存 BLOCKED receipt（F-021 degraded）
+        else:
+            receipt["degraded"] = True
         return receipt
-    positives_ok = len(records) == 3 and all(bool(item.get("oracle_matched")) for item in records[:2])
-    negative_ok = bool(records[2].get("oracle_matched"))
+    positives_ok = (
+        len(records) == POSITIVE_RUNS_REQUIRED + 1
+        and all(bool(item.get("oracle_matched")) for item in records[:POSITIVE_RUNS_REQUIRED])
+    )
+    negative_ok = bool(records[POSITIVE_RUNS_REQUIRED].get("oracle_matched"))
     status = "CONFIRMED" if positives_ok and negative_ok else "CANDIDATE"
     receipt: dict[str, object] = {
         "protocol_version": PROTOCOL_VERSION,
@@ -347,14 +374,23 @@ def verify_finding(root: Path, finding: Mapping[str, object], recipe: Mapping[st
         "recipe_digest": spec.digest(),
         "oracle_reference": spec.oracle_reference,
         "oracle_hash": spec.oracle_hash,
-        "positive_runs": records[:2],
-        "negative_control": records[2],
+        "positive_runs": records[:POSITIVE_RUNS_REQUIRED],
+        "negative_control": records[POSITIVE_RUNS_REQUIRED],
         "raw_output_source": "engine",
-        "receipt_path": str(directory / "receipt.json"),
+        "receipt_path": str(directory / "receipt.json") if directory is not None else None,
         "created_at": time.time(),
     }
     receipt["verification_digest"] = _sha256(_canonical(receipt))
-    _atomic_json(directory / "receipt.json", receipt)
+    if directory is not None:
+        try:
+            _atomic_json(directory / "receipt.json", receipt)
+            receipt["receipt_path"] = str(directory / "receipt.json")
+        except OSError:
+            receipt["degraded"] = True
+            receipt["receipt_path"] = None
+    else:
+        receipt["degraded"] = True
+        receipt["receipt_path"] = None
     return receipt
 
 

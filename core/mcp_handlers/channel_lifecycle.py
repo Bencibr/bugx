@@ -120,6 +120,17 @@ _CHANNEL_IDLE_ENV = {
 _DEFAULT_CHANNEL_IDLE_SELF_EXIT_SECONDS = 1800.0
 _CHANNEL_IDLE_CHECK_INTERVAL_SECONDS = 30.0
 _TAKEOVER_GRACE_SECONDS = 5.0
+# 第四批修复（收尾空转治理）：owner（宿主）进程死亡的独立快速检查。
+# 实证（3 份 receipt）：会话 post/idle 后空转 30-64min 才自释放；宿主进程
+# 死亡后 controller 空转最长 48min——墙钟乘数 3-6.7× 的主源。空闲自退阈值
+# （1800s，设计值不放宽）只保护"宿主还活着但暂时不说话"的场景；宿主进程
+# 本身死亡是确定性信号，必须与 idle 周期解耦、快速收敛：
+#   * 检查节奏：每 _CHANNEL_OWNER_WATCH_INTERVAL_SECONDS 看一次孤儿化；
+#   * 触发条件：getppid 相对启动时父 PID 变化（孤儿化，PID 复用方向安全——
+#     复用会让 getppid 保持稳定不触发）+ 通道空闲 ≥ 60s + 无进行中调用。
+# 由此"宿主死亡 → controller 自释放"的延迟从 30-64min 收敛到 ≤75s。
+_CHANNEL_OWNER_WATCH_INTERVAL_SECONDS = 15.0
+_CHANNEL_ORPHAN_MIN_IDLE_SECONDS = 60.0
 
 
 def _idle_self_exit_seconds(role: str) -> float:
@@ -269,6 +280,36 @@ def _channel_self_retire(
     hook(0)
 
 
+def _orphaned_owner_reason(
+    activity: "_ChannelActivity", initial_parent_pid: int,
+) -> str | None:
+    """owner（宿主）进程死亡的快速自释放判据；不满足返回 ``None``（fail-safe）。
+
+    三个前置条件同时满足才自释放（宁可多活一轮，不可误退）：
+    1. 仅 host（controller）角色——worker 通道沿用空闲自退；
+    2. 无进行中的工具调用；
+    3. 父进程 PID 相对启动时发生变化（孤儿化）且通道已空闲
+       ≥ ``_CHANNEL_ORPHAN_MIN_IDLE_SECONDS``。
+    读不到 ppid 时按"不确定"处理，不自退。
+    """
+    if activity.role != "host":
+        return None
+    if activity.inflight:
+        return None
+    try:
+        current_ppid = os.getppid()
+    except OSError:
+        return None
+    if current_ppid == initial_parent_pid:
+        return None
+    if activity.idle_seconds() < _CHANNEL_ORPHAN_MIN_IDLE_SECONDS:
+        return None
+    return (
+        f"owner process dead (initial parent pid {initial_parent_pid},"
+        f" current ppid {current_ppid}); orphaned controller self-release"
+    )
+
+
 def _channel_idle_monitor_loop(
     service: "BugxMcpService",
     activity: "_ChannelActivity",
@@ -277,18 +318,54 @@ def _channel_idle_monitor_loop(
     lease: "_ControllerLease | None" = None,
     interval: float | None = None,
     exit_hook: "Callable[[int], None] | None" = None,
+    initial_parent_pid: int | None = None,
 ) -> None:
-    """后台检查线程：每 ``interval`` 秒判定一次是否应自退。"""
+    """后台检查线程：空闲自退与孤儿 owner 快速自释放**解耦**为双周期。
+
+    * 空闲自退：每 ``interval``（默认 _CHANNEL_IDLE_CHECK_INTERVAL_SECONDS）
+      秒按原前置条件判定一次；
+    * 孤儿自释放（第四批修复）：每 _CHANNEL_OWNER_WATCH_INTERVAL_SECONDS
+      秒独立判定一次（:func:`_orphaned_owner_reason`），宿主死亡后不再空转
+      满 1800s idle 超时。
+    """
     period = _CHANNEL_IDLE_CHECK_INTERVAL_SECONDS if interval is None else interval
+    try:
+        period = max(0.05, float(period))
+    except (TypeError, ValueError):
+        period = _CHANNEL_IDLE_CHECK_INTERVAL_SECONDS
+    idle_elapsed = 0.0
+    # 第四批修复（收尾空转治理）可达性：孤儿检测与 idle 自退各用独立计时器。
+    # 曾共用一个 idle_elapsed——它在 period（默认 30s）处被清零，永远够不到
+    # 孤儿门槛 60s，导致 _orphaned_owner_reason 不可达、宿主死亡后仍空转满
+    # 1800s idle（红证据：驱动 40 跳检测调用 0 次）。双计时器让 docstring
+    # 承诺的"解耦为双周期"成为事实。
+    owner_watch_elapsed = 0.0
     while not stop.is_set():
-        if stop.wait(period):
+        wait_slice = max(
+            0.05, min(_CHANNEL_OWNER_WATCH_INTERVAL_SECONDS, period),
+        )
+        if stop.wait(wait_slice):
             return
-        reason = _channel_idle_exit_reason(service, activity)
-        if reason is not None:
-            _channel_self_retire(
-                service, activity, reason, lease=lease, exit_hook=exit_hook,
-            )
-            return
+        idle_elapsed += wait_slice
+        owner_watch_elapsed += wait_slice
+        if (
+            initial_parent_pid is not None
+            and owner_watch_elapsed >= _CHANNEL_ORPHAN_MIN_IDLE_SECONDS
+        ):
+            reason = _orphaned_owner_reason(activity, initial_parent_pid)
+            if reason is not None:
+                _channel_self_retire(
+                    service, activity, reason, lease=lease, exit_hook=exit_hook,
+                )
+                return
+        if idle_elapsed >= period:
+            idle_elapsed = 0.0
+            reason = _channel_idle_exit_reason(service, activity)
+            if reason is not None:
+                _channel_self_retire(
+                    service, activity, reason, lease=lease, exit_hook=exit_hook,
+                )
+                return
 
 
 def _read_lease_holder(lock_path: Path) -> int | None:
@@ -667,28 +744,6 @@ def _host_session_heartbeat_loop(service: "BugxMcpService", stop: threading.Even
 
 
 # (compact_json, format_result, serialize_value imported from mcp_handlers)
-
-
-def _error_payload(error: BaseException) -> dict[str, object]:
-    return {
-        "error_type": type(error).__name__,
-        "message": str(error) or type(error).__name__,
-        "error_code": "MCP_CALL_FAILED",
-        "interactive_required": True,
-        "next_action": "PROMPT_USER",
-        "prompt": (
-            "MCP 调用失败，请立即询问用户：1) 立即重试 2) 本轮切换手动/回退 "
-            "3) 下次再说（停止本轮）"
-        ),
-        "choices": ["retry", "fallback", "later"],
-    }
-
-
-def _call_failure_data(operation: object, error: BaseException) -> dict[str, object]:
-    """为 tools/call 协议错误提供可被宿主直接呈现的交互门禁。"""
-    payload = _error_payload(error)
-    payload["operation"] = str(operation or "unknown")
-    return payload
 
 
 # (next_action imported from mcp_handlers)

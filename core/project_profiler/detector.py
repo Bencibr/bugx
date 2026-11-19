@@ -271,6 +271,7 @@ def detect_project_profile(root: str | os.PathLike[str], *, file_limit: int = DE
         cached.pop("observed_at", None)
         cached["generated_at"] = time.time()
         return cached
+    cache_corrupt = False
     if cache_file is not None and private_profile_cache(cache_file):
         try:
             cached_data = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -280,7 +281,9 @@ def detect_project_profile(root: str | os.PathLike[str], *, file_limit: int = DE
                 cached_data["generated_at"] = time.time()
                 return cached_data
         except Exception:
-            pass
+            # F-RSI-20261115-292: 缓存损坏不得静默吞掉后重新生成；留下结构化、
+            # 可区分信号，与 strategy 的 review_parse_status 对齐。
+            cache_corrupt = True
 
     try:
         scanner = sca_module()()
@@ -385,6 +388,10 @@ def detect_project_profile(root: str | os.PathLike[str], *, file_limit: int = DE
             )
         except (OSError, ValueError):
             pass
+    if cache_corrupt:
+        # 该字段在 profile_hash 计算与缓存落盘之后附加：不污染 profile_hash、
+        # 不写回缓存，仅本次「缓存损坏→重新生成」运行可见，下游可据此区分。
+        profile["profile_cache_status"] = "corrupt_recovered"
     return profile
 
 

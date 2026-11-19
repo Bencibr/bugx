@@ -174,7 +174,7 @@ def _snapshot_startup_git_dirty_paths(root: Path) -> list[str] | None:
     return sorted(paths)
 
 
-def _startup_policy_config(
+def startup_policy_config(
     root: Path, cli_overrides: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Resolve startup policy from system, user, project, then CLI scope."""
@@ -227,10 +227,10 @@ def _startup_policy_config(
 def startup_policy_explicit_keys(root: Path) -> frozenset[str]:
     """返回用户/项目 ``config.json`` 中**显式**声明的启动策略键集合。
 
-    ``_startup_policy_config`` 会用 ``_STARTUP_DEFAULTS`` 播种全部键，调用方
+    ``startup_policy_config`` 会用 ``_STARTUP_DEFAULTS`` 播种全部键，调用方
     因此无法区分「用户配置了 local」与「默认值就是 local」。需要区分二者的
     门禁（如 ``report_policy`` 三选一：未显式声明才询问）只能读原始配置文件。
-    非法/不可读配置在 ``_startup_policy_config`` 已 fail-closed，这里静默跳过
+    非法/不可读配置在 ``startup_policy_config`` 已 fail-closed，这里静默跳过
     仅用于判定「是否显式」，不承担校验职责。
     """
     keys: set[str] = set()

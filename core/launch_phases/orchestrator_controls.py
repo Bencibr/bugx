@@ -32,6 +32,7 @@ from core.launch_phases.common import (
     VERIFY,
     child_environment,
     format_duration,
+    option_value as _common_option_value,
     resolve_project_root,
     run_verify_life,
     uses_project_layout,
@@ -78,13 +79,7 @@ from core.launch_phases.supervisor_bridge import (
     get_supervisor,
 )
 
-def _option_value(args: list[str], option: str) -> str | None:
-    for i, arg in enumerate(args):
-        if arg == option:
-            return args[i + 1] if i + 1 < len(args) else None
-        if arg.startswith(f"{option}="):
-            return arg.split("=", 1)[1]
-    return None
+_option_value = _common_option_value
 
 
 #: 公开别名：同包延迟导入方（candidate_revalidation）必须用公开名——架构棘轮
@@ -653,6 +648,15 @@ def print_help() -> int:
                                 `name==version --hash=sha256:<64hex>`。安装强制
                                 --require-hashes --no-deps --only-binary=:all:，
                                 在中性临时目录执行且清空 PIP_*/PYTHON* 环境变量
+  judge [选项]                  对 pending 单元批量预占+电池取证并输出判读包
+                                （--all 按文件分组一次领完；--settle <verdicts.json>
+                                裁决收口；--settle-dir <dir> 收割目录统一结算）
+  findings-confirm [选项]       Finding 确认门禁：对已裁决候选做终态确认
+  coverage <子命令>             覆盖治理（review-packages/review-apply/status 等，
+                                见 bugx engine coverage --help）
+  audit [选项]                  在隔离副本中启动图审计或全息攻防渗透审计
+  prompt [--stage <name>]       输出指定阶段的 Stage Harness 任务包
+  daemon [选项]                 自治持续挖掘常驻守护进程管理
   help | --help | -h            显示本说明
 
 保护边界

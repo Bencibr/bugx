@@ -4,7 +4,6 @@ prune .bugx/pollings
 prune .bugx/knowledge
 prune interfaces/cli/bugx_agent.egg-info
 prune bugx_agent.egg-info
-prune tests
 prune scripts
 prune docs
 prune prd

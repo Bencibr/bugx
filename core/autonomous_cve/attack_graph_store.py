@@ -625,114 +625,159 @@ def _on_hypothesis_rejected(graph: LivingAttackGraph, payload: Mapping[str, Any]
     )
     # 2. 快照：此刻拓扑里还没有本次推测节点。
     snapshot_id = graph.create_snapshot(tag=f"pre-reflex:{hyp_id}")
-    # 3. 推测拓扑入图（worker 在失败尝试中声称的端点/汇点）。
-    speculative_routes = _texts(payload.get("speculative_routes"))
-    speculative_sinks = _texts(payload.get("speculative_sinks"))
-    for row in payload.get("speculative") or []:
-        if isinstance(row, str):
-            # 允许只给 id：sink: 前缀归汇点，其余按端点处理。
-            if row.startswith("sink:"):
-                speculative_sinks.append(row)
-            else:
-                speculative_routes.append(row)
-            continue
-        if not isinstance(row, Mapping):
-            continue
-        try:
-            if row.get("kind"):
-                result = _on_sink(graph, {**row, "speculative": True}, ctx)
-                speculative_sinks.append(result.get("sink_id", ""))
-            else:
-                result = _on_endpoint(graph, row, ctx)
-                node = graph.routes.get(result.get("route_id"))
-                if isinstance(node, dict):
-                    node["speculative"] = True
-                speculative_routes.append(result.get("route_id", ""))
-        except AttackGraphStoreError:
-            continue
-    for route_id in speculative_routes:
-        if route_id not in graph.routes:
-            graph.add_route(route_id, "GET", True, speculative=True, unit_id=_text(payload.get("unit_id")))
-    for sink_id in speculative_sinks:
-        if sink_id not in graph.sinks:
-            graph.add_sink(sink_id, _text(payload.get("kind")) or "unknown",
-                           speculative=True, unit_id=_text(payload.get("unit_id")))
-    # 4. 反思回溯：历史直接别名在 graph.reflex 上，因此天然跨 Round 存活。
-    engine = ReflexiveBacktrackingEngine(graph)
-    history_before = len(engine.backtrack_history.get(hyp_id, []))
-    decision = engine.record_attempt(
-        hyp_id,
-        status_code=int(payload.get("status_code") or 0),
-        response_body=str(payload.get("response_body") or payload.get("body_snippet") or ""),
-        is_exploit_successful=bool(payload.get("is_exploit_successful", False)),
-        has_negative_control=bool(payload.get("has_negative_control", False)),
-        request_context=payload.get("request_context") if isinstance(payload.get("request_context"), Mapping) else None,
-    )
-    attempts = len(engine.backtrack_history.get(hyp_id, [])) - history_before
-    # 5. 自动修包产物**只作为图谱属性/reflex 记录**，绝不回写证据文件。
-    #    节点级属性留到回滚之后再写，否则会被自己刚恢复的快照抹掉。
-    fix = decision.get("heuristic_fix")
-    if isinstance(fix, Mapping):
-        suggestions = graph.reflex.setdefault("auto_fix_suggestions", [])
-        suggestions.append({"hypothesis_id": hyp_id, **dict(fix), "recorded_at": time.time()})
-        del suggestions[:-_ag.MAX_ROLLBACK_LOG]
-        # 有可尝试的补丁头 → 记录就地重放计划，交给有网络能力的消费者执行。
-        headers = fix.get("patch_headers")
-        if isinstance(headers, Mapping) and headers:
-            pending = graph.reflex.setdefault("replay_pending", [])
-            pending.append({
-                "hypothesis_id": hyp_id,
-                "patch_headers": dict(headers),
-                "unit_id": _text(payload.get("unit_id")),
-                # A replay plan is only useful when a later network-capable
-                # caller can prove it is still bound to the same target.
-                "target_fingerprint": _text(payload.get("target_fingerprint")) or None,
-                "queued_at": time.time(),
-                "attempts": attempts,
-            })
-            del pending[:-_ag.MAX_ROLLBACK_LOG]
-    # 6. 终结性拒绝 → 回滚推测拓扑，然后重新落裁决（回滚会把假设状态一并带回
-    #    snapshot 时刻的 testing，所以终态必须在回滚之后再写一次）。
-    #
-    #    ``terminal`` 由结算门禁裁定，而不是只信引擎的 HTTP 启发式：finding 被
-    #    finding_confirmation 明确 rejected 时，即使响应里没有 403/404 签名特征，
-    #    这个假设也已经死了；否则回溯历史会永远停在 backtracking，回滚分支也从不触发。
-    final_status = _text(decision.get("status"))
-    terminal = decision.get("action") in {"close_hypothesis", "abort_exhausted"} or _as_bool(
-        payload.get("terminal"), False
-    )
-    if terminal and final_status not in {"refuted", "not_applicable"}:
-        final_status = "refuted"
+    speculative_routes: list[str] = []
+    speculative_sinks: list[str] = []
+    decision: dict[str, Any] = {}
+    attempts = 0
+    fix: Any = None
+    final_status = ""
+    terminal = False
     rolled_back = False
-    if terminal:
-        rolled_back = graph.rollback_to_snapshot(snapshot_id)
-        if rolled_back:
-            node = graph.hypotheses.get(hyp_id)
-            if node is None:
-                graph.add_hypothesis(
-                    hyp_id, kind, target, final_status or "refuted",
-                    status_reason="假设被反驳，推测拓扑已回滚",
-                )
-            else:
-                graph.update_hypothesis_status(
-                    hyp_id, final_status or "refuted",
-                    _text(payload.get("reason")) or "假设被反驳，推测拓扑已回滚",
-                )
-            survivor = graph.hypotheses.get(hyp_id)
-            if isinstance(survivor, dict):
-                survivor["reflex_backtrack_depth"] = attempts
-                survivor["reflex_snapshot_id"] = snapshot_id
-        rollbacks = graph.reflex.setdefault("rollbacks", [])
-        rollbacks.append({
-            "snapshot_id": snapshot_id,
-            "hypothesis_id": hyp_id,
-            "reason": _text(decision.get("action")) or "terminal_rejection",
-            "rolled_back": rolled_back,
-            "routes_dropped": max(0, len(speculative_routes)),
-            "sinks_dropped": max(0, len(speculative_sinks)),
-            "at": time.time(),
-        })
-        del rollbacks[:-_ag.MAX_ROLLBACK_LOG]
+    compensation_failed = False
+    pending_error: BaseException | None = None
+
+    try:
+        # 3. 推测拓扑入图（worker 在失败尝试中声称的端点/汇点）。
+        speculative_routes = _texts(payload.get("speculative_routes"))
+        speculative_sinks = _texts(payload.get("speculative_sinks"))
+        for row in payload.get("speculative") or []:
+            if isinstance(row, str):
+                # 允许只给 id：sink: 前缀归汇点，其余按端点处理。
+                if row.startswith("sink:"):
+                    speculative_sinks.append(row)
+                else:
+                    speculative_routes.append(row)
+                continue
+            if not isinstance(row, Mapping):
+                continue
+            try:
+                if row.get("kind"):
+                    result = _on_sink(graph, {**row, "speculative": True}, ctx)
+                    speculative_sinks.append(result.get("sink_id", ""))
+                else:
+                    result = _on_endpoint(graph, row, ctx)
+                    node = graph.routes.get(result.get("route_id"))
+                    if isinstance(node, dict):
+                        node["speculative"] = True
+                    speculative_routes.append(result.get("route_id", ""))
+            except AttackGraphStoreError:
+                continue
+        for route_id in speculative_routes:
+            if route_id not in graph.routes:
+                graph.add_route(route_id, "GET", True, speculative=True, unit_id=_text(payload.get("unit_id")))
+        for sink_id in speculative_sinks:
+            if sink_id not in graph.sinks:
+                graph.add_sink(sink_id, _text(payload.get("kind")) or "unknown",
+                               speculative=True, unit_id=_text(payload.get("unit_id")))
+        # 4. 反思回溯：历史直接别名在 graph.reflex 上，因此天然跨 Round 存活。
+        engine = ReflexiveBacktrackingEngine(graph)
+        history_before = len(engine.backtrack_history.get(hyp_id, []))
+        decision = engine.record_attempt(
+            hyp_id,
+            status_code=int(payload.get("status_code") or 0),
+            response_body=str(payload.get("response_body") or payload.get("body_snippet") or ""),
+            is_exploit_successful=bool(payload.get("is_exploit_successful", False)),
+            has_negative_control=bool(payload.get("has_negative_control", False)),
+            request_context=payload.get("request_context") if isinstance(payload.get("request_context"), Mapping) else None,
+        )
+        attempts = len(engine.backtrack_history.get(hyp_id, [])) - history_before
+        # 5. 自动修包产物**只作为图谱属性/reflex 记录**，绝不回写证据文件。
+        #    节点级属性留到回滚之后再写，否则会被自己刚恢复的快照抹掉。
+        fix = decision.get("heuristic_fix")
+        if isinstance(fix, Mapping):
+            suggestions = graph.reflex.setdefault("auto_fix_suggestions", [])
+            suggestions.append({"hypothesis_id": hyp_id, **dict(fix), "recorded_at": time.time()})
+            del suggestions[:-_ag.MAX_ROLLBACK_LOG]
+            # 有可尝试的补丁头 → 记录就地重放计划，交给有网络能力的消费者执行。
+            headers = fix.get("patch_headers")
+            if isinstance(headers, Mapping) and headers:
+                pending = graph.reflex.setdefault("replay_pending", [])
+                pending.append({
+                    "hypothesis_id": hyp_id,
+                    "patch_headers": dict(headers),
+                    "unit_id": _text(payload.get("unit_id")),
+                    # A replay plan is only useful when a later network-capable
+                    # caller can prove it is still bound to the same target.
+                    "target_fingerprint": _text(payload.get("target_fingerprint")) or None,
+                    "queued_at": time.time(),
+                    "attempts": attempts,
+                })
+                del pending[:-_ag.MAX_ROLLBACK_LOG]
+        # 6. 终结性拒绝的裁决数据。``terminal`` 由结算门禁裁定，而不是只信引擎的
+        #    HTTP 启发式；final_status 必须等回滚之后才写回节点（见 finally）。
+        final_status = _text(decision.get("status"))
+        terminal = decision.get("action") in {"close_hypothesis", "abort_exhausted"} or _as_bool(
+            payload.get("terminal"), False
+        )
+        if terminal and final_status not in {"refuted", "not_applicable"}:
+            final_status = "refuted"
+    except BaseException as exc:
+        # 事务中途的任何失败都强制补偿：推测拓扑绝不能跨异常留存。
+        pending_error = exc
+        terminal = False
+    finally:
+        # 事务补偿：只要事务本应回滚（终态拒绝）或中途失败，就无条件尝试回滚。
+        # rollback_to_snapshot 幂等/可重入——向同一快照重复回滚是 no-op 且返回 True，
+        # 因此此处执行是安全的；终态裁决一律在回滚之后再写。
+        if terminal or pending_error is not None:
+            try:
+                rolled_back = graph.rollback_to_snapshot(snapshot_id)
+            except Exception as exc:
+                # fail-closed：补偿失败时绝不静默留下"已完成拒绝"的假象。
+                # 把假设显式标记为未完成，并保留失败原因与快照锚。
+                rolled_back = False
+                compensation_failed = True
+                marker = {
+                    "status": "rollback_failed",
+                    "status_reason": (
+                        f"推测拓扑回滚补偿失败，假设未完成: {exc}"
+                    ),
+                    "speculative_cleanup_failed": True,
+                    "reflex_snapshot_id": snapshot_id,
+                }
+                survivor = graph.hypotheses.get(hyp_id)
+                if isinstance(survivor, dict):
+                    survivor.update(marker)
+                else:
+                    add_attrs = {k: v for k, v in marker.items() if k != "status"}
+                    graph.add_hypothesis(hyp_id, kind, target, "rollback_failed", **add_attrs)
+            if not compensation_failed and terminal and rolled_back:
+                # 回滚把假设状态带回 snapshot 时刻的 testing，
+                # 所以终态必须在回滚之后再写一次。
+                node = graph.hypotheses.get(hyp_id)
+                if node is None:
+                    graph.add_hypothesis(
+                        hyp_id, kind, target, final_status or "refuted",
+                        status_reason="假设被反驳，推测拓扑已回滚",
+                    )
+                else:
+                    graph.update_hypothesis_status(
+                        hyp_id, final_status or "refuted",
+                        _text(payload.get("reason")) or "假设被反驳，推测拓扑已回滚",
+                    )
+                survivor = graph.hypotheses.get(hyp_id)
+                if isinstance(survivor, dict):
+                    survivor["reflex_backtrack_depth"] = attempts
+                    survivor["reflex_snapshot_id"] = snapshot_id
+            rollbacks = graph.reflex.setdefault("rollbacks", [])
+            rollbacks.append({
+                "snapshot_id": snapshot_id,
+                "hypothesis_id": hyp_id,
+                "reason": _text(decision.get("action")) or "terminal_rejection",
+                "rolled_back": rolled_back,
+                "compensation_failed": compensation_failed,
+                "routes_dropped": max(0, len(speculative_routes)),
+                "sinks_dropped": max(0, len(speculative_sinks)),
+                "at": time.time(),
+            })
+            del rollbacks[:-_ag.MAX_ROLLBACK_LOG]
+
+    if pending_error is not None:
+        raise pending_error
+    if compensation_failed:
+        raise AttackGraphStoreError(
+            f"推测拓扑回滚补偿失败，假设 {hyp_id} 已标记未完成 (snapshot={snapshot_id})"
+        )
     survivor = graph.hypotheses.get(hyp_id)
     if isinstance(survivor, dict) and isinstance(fix, Mapping):
         survivor["auto_fix_action"] = _text(fix.get("action"))
@@ -750,6 +795,7 @@ def _on_hypothesis_rejected(graph: LivingAttackGraph, payload: Mapping[str, Any]
         "backtrack_depth": attempts,
         "terminal": terminal,
         "rolled_back": rolled_back,
+        "compensation_failed": compensation_failed,
         "snapshot_id": snapshot_id,
         "history_total": len(engine.backtrack_history.get(hyp_id, [])),
     }

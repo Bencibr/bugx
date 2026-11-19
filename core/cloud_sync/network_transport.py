@@ -24,6 +24,23 @@ from core.infra.client_metadata import tls_context as client_tls_context
 
 logger = logging.getLogger(__name__)
 
+# F-133：curl 子进程不得继承任何能改写 TLS 信任根的 env。
+# 这些变量会让攻击者用自有 CA 覆盖代码构造的信任上下文（--ca-native/--cacert
+# 或 --insecure 的显式决策），使 CA 固定被旁路。白名单只放行与此无关的 env；
+# 命中即被剔除，信任只来自本函数据 context/BUGX_CA_BUNDLE 构造的参数，绝不
+# 以“信任系统默认 + 残留 env”了事。
+_TLS_TRUST_ENV_VARS = frozenset({
+    "CURL_CA_BUNDLE",    # curl 读取的 CA bundle
+    "CURL_CA_PATH",      # curl 读取的 CA 目录
+    "SSL_CERT_FILE",     # OpenSSL/curl 默认 CA 文件
+    "SSL_CERT_DIR",      # OpenSSL/curl 默认 CA 目录
+    "REQUESTS_CA_BUNDLE",  # requests 信任根（同进程其他 HTTP 栈）
+    "NODE_EXTRA_CA_CERTS",  # Node 追加信任根
+    "GIT_SSL_CAINFO",    # git/curl 信任根
+    "GIT_SSL_CAPATH",    # git/curl 信任目录
+})
+
+
 def is_private_target_host(host: str) -> bool:
     """Check if host is a local/private network target (excluding loopback)."""
     if not host or host in {"localhost", "localhost.localdomain"}:
@@ -50,7 +67,7 @@ def is_private_target_host(host: str) -> bool:
     except ValueError:
         pass
 
-    # 自建云端服务经常采用私网域名，需通过 DNS 判定解析出的 IP
+    # 自建云端服务经常采用私网域名（如 bugx.mbp.dev），需通过 DNS 判定解析出的 IP
     try:
         infos = socket.getaddrinfo(host, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
         for _, _, _, _, sockaddr in infos:
@@ -240,9 +257,13 @@ def trusted_curl_request(req: urllib.request.Request, timeout: float) -> CurlRes
     command.extend(("--request", req.get_method(), "--dump-header", "/dev/stderr",
                     "--output", "-", req.full_url))
 
-    environment = {key: value for key, value in os.environ.items()
-                   if not key.startswith("DYLD_")}
-    environment.pop("CURL_CA_BUNDLE", None)
+    # 剔除注入向量：DYLD_*（动态库劫持）与全部 TLS 信任根 env（F-133）。
+    # 保留 BUGX_CA_BUNDLE：它是本函数上面显式读取并转成 --cacert 的代码构造锚，
+    # 不属于被污染的系统信任根注入面。
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith("DYLD_") and key not in _TLS_TRUST_ENV_VARS
+    }
     try:
         result = subprocess.run(
             command, input=req.data, capture_output=True, timeout=timeout,

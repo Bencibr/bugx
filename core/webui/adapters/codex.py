@@ -102,9 +102,11 @@ class CodexHostAdapter(BaseHostAdapter):
         auto_approve: bool = True,
         target_files: list[str] | None = None,
     ) -> tuple[list[str], dict[str, str]]:
-        bin_path = shutil.which("codex") or str(
-            Path.home() / ".nvm/versions/node/v24.18.1/bin/codex"
-        )
+        bin_path = shutil.which("codex")
+        if not bin_path:
+            raise RuntimeError(
+                "codex CLI 未在 PATH 中找到；请先安装 OpenAI Codex 并确认 codex 可执行"
+            )
         clean_msg = prompt.strip()
 
         env = os.environ.copy()

@@ -459,7 +459,7 @@ OpenCode v2 的直连 action 名包含 server ID，模式为 `<server-id>_<MCP �
 - **阶段 3：TDD 修复、补丁打包与结算复盘阶段（Repair & Settle Phase）**
   - **触发条件**：已捕获确认的 Bug 异常，或进入 Round 终局。
   - **装载动作**：执行 `bugx engine --root . prompt --stage repair`，或 MCP 调用 `bugx_get_stage_harness(stage="repair")`，或用 `bugx engine path --name prompts/stages/stage_repair.md` 定位全局卡片。
-  - **核心目标**：单文件自包含独立复现脚本合成、最小代码修复、定向回归验证、本地红绿沙箱复验（`bugx patch-forge --test-red-green`）及生命周期寿命结算；补丁只修复 BugX 自身代码，并受 BugX 命名空间白名单约束。
+  - **核心目标**：单文件自包含独立复现脚本合成、最小代码修复、定向回归验证、本地红绿沙箱复验（`bugx patch-forge --test-red-green`）及生命周期寿命结算；补丁只修复 BugX 自身代码（作用域为 BugX 命名空间白名单，见 `docs/08_internal/11_research/patch-engine/design/03-client-patch-forge.md`）。
 
 ## 4. 专项领域知识库（L2 按需查阅）
 在执行具体任务时，如涉及特定领域，请按需查看对应规则（优先通过 MCP `bugx_get_stage_harness(rule="...")` 获取，或阅读对应文件）：

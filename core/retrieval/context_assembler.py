@@ -50,6 +50,12 @@ TIER_SYMBOL_BUDGET = {"deep": 14, "standard": 8, "triage": 5}
 RULE_CORPUS_RELATIVE = "prompts/rules"
 
 
+def _strip_dot_prefix(path: str) -> str:
+    """剥 "./" 前缀（F-029）：str.lstrip("./") 是字符集剥离，会吃掉
+    点前缀文件名（.bugx/.tests/.github）的开头点——symbol_index.py:198
+    已记载该坑，本仓其余站点此番统一对齐。"""
+    return path[2:] if path.startswith("./") else path
+
 def _core_root(root: Path | None) -> Path:
     if root is not None:
         return Path(root).resolve()
@@ -63,7 +69,7 @@ def _core_root(root: Path | None) -> Path:
 
 def _unit_path(unit: str, root: Path) -> Path | None:
     """把 unit id（可能带 ::symbol 后缀）解析到真实文件。"""
-    rel = str(unit).split("::", 1)[0].replace("\\", "/").lstrip("./")
+    rel = _strip_dot_prefix(str(unit).split("::", 1)[0].replace("\\", "/"))
     if not rel:
         return None
     candidate = root / rel

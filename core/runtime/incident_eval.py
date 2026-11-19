@@ -25,7 +25,7 @@ import tempfile
 
 AGENT_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = AGENT_DIR.parent
-FIXTURE_ROOT = (REPO_ROOT / "verification" / "evals" / "incident-fixtures") if (REPO_ROOT / "verification" / "evals").is_dir() else (REPO_ROOT / "evals" / "incident-fixtures")
+FIXTURE_ROOT = REPO_ROOT / "verification" / "evals" / "incident-fixtures"
 
 
 def load_fixtures(root: Path = FIXTURE_ROOT) -> list[dict]:

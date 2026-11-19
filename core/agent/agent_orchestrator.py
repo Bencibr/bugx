@@ -412,7 +412,12 @@ class AgentOrchestrator:
             state: dict[str, Any] = {
                 "schema_version": SCHEMA_VERSION,
                 "graph_id": graph_id,
-                "source_root_sha256": hashlib.sha256(str(source).encode("utf-8")).hexdigest(),
+                # F-RSI-20261115-144：这是【源路径字符串】的指纹，不是源内容哈希——
+                # 源完整性由 snapshot manifest（逐文件 sha256）承载。旧名
+                # source_root_sha256 会误导为内容锚；全仓无校验消费（仅报告回显），
+                # 破坏性改名安全。
+                "source_root_path_fingerprint": hashlib.sha256(
+                    str(source).encode("utf-8")).hexdigest(),
                 "workspace": str(orchestrator.workspace),
                 "created_at": _now(),
                 "updated_at": _now(),
@@ -618,11 +623,7 @@ class AgentOrchestrator:
             from core.retrieval.slice_extractor import SliceExtractor
             from core.retrieval.slice_normalizer import SliceNormalizer
         except ImportError:
-            try:
-                from core.retrieval.slice_extractor import SliceExtractor
-                from core.retrieval.slice_normalizer import SliceNormalizer
-            except ImportError:
-                return content
+            return content
 
         try:
             extractor = SliceExtractor(
@@ -659,7 +660,12 @@ class AgentOrchestrator:
                 assembled_parts.append(part)
 
             return "\n\n---\n\n".join(assembled_parts)
-        except Exception:
+        except Exception as exc:
+            # F-RSI-20261115-148：增强失败允许降级回原文（不 fail 任务），
+            # 但必须 stderr 留痕——静默吞错会让 worker 拿到降级上下文而
+            # 挖掘质量下降零可观测（静默吞错红线系列第 5 处清零）。
+            print(f"[graph] ⚠ context slice 增强失败 {relative}: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
             return content
 
     def context(
@@ -1293,7 +1299,7 @@ class AgentOrchestrator:
                 "decision": decision,
                 "summary": summary,
                 "created_at": _now(),
-                "source_root_sha256": state["source_root_sha256"],
+                "source_root_path_fingerprint": state["source_root_path_fingerprint"],
                 "snapshot": state["snapshot"],
                 "tasks": [
                     {

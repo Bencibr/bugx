@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -170,8 +171,17 @@ def handle_extract_ego_subgraph(service: Any, arguments: Mapping[str, object]) -
         if root is not None:
             try:
                 graph_data = build_graph(Path(root))
-            except Exception:
+            except Exception as exc:
+                # F-RSI-20261115-160：build_graph 失败允许降级为单节点空图
+                # （拓扑提取不该 fail 整个调用），但必须 stderr 留痕——静默
+                # 吞错会让宿主拿到「合法但空」的子图而归因能力下降零可观测
+                # （静默吞错红线系列第 6 处清零）。
+                print(f"[mcp] ⚠ build_graph 失败，ego 子图降级为单节点 {root}: "
+                      f"{type(exc).__name__}: {exc}",
+                      file=sys.stderr)
                 graph_data = {"nodes": [{"id": center_node}], "edges": []}
+            else:
+                pass
         else:
             graph_data = {"nodes": [{"id": center_node}], "edges": []}
 

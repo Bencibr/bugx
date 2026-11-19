@@ -28,7 +28,7 @@ In the first second of receiving a task, classify which branch it belongs to:
 - **Reproduction and Mutation**: `bugx test-generate --root <ROOT> --scope <PATH::SYM> --out <FILE>` / `bugx test-verify verify --scope <SCOPE>`
 - **Supervisor and Concurrency**: `bugx supervisor status --root <ROOT>`
 - **Telemetry and Logs**: `bugx telemetry inspect` / `bugx log --root <ROOT> --errors`
-- **Dual Reports and Preview**: `bugx report both --eval-dir evals/oss --out evals/oss` / `bugx report serve --port 18991`
+- **Dual Reports and Preview**: `bugx report both --eval-dir verification/evals/oss --out verification/evals/oss` / `bugx report serve --port 18991`
 
 ### 4. Compact Command Radar (41 Top-level Commands Classified Index)
 To invoke any command below, inspect exact parameters dynamically via `bugx help <cmd>`; never guess:
@@ -39,4 +39,4 @@ To invoke any command below, inspect exact parameters dynamically via `bugx help
 
 ### 5. Mandatory Rules and Deprecated Command Redirection
 - **Gate Blockage Forbids Destructive Repairs**: `FATAL_BLOCKED` must never be bypassed using `init`, `reset`, or `--force`; preserve logs and state first.
-- **Deprecated Command Redirections**: `matrix` -> `bugx audit`; `console` -> `bugx report serve`; `watch` -> `bugx log --watch`; `test` is an internal script, use `scripts/test_selector.py` instead.
+- **Deprecated Command Redirections**: `matrix` -> `bugx audit`; `console` -> `bugx report serve`; `watch` -> `bugx log --watch`; `test` is not a public command. For development checks, create a minimal temporary verification script outside the repository or run tests owned by the target project, then delete the process file.

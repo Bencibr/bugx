@@ -54,11 +54,12 @@ def default_audit_path() -> Path:
     return Path(os.environ.get("BUGX_FLYWHEEL_AUDIT", str(_bugx_root() / "telemetry" / "egress_audit.log"))).expanduser()
 
 
-def _stored_data_sharing() -> bool:
+def _stored_data_sharing() -> bool | None:
     # 单一真源：与 cloud_onboard.sync_layers / auto_sync 共用 consent 判定，
     # 禁止在这里另写一套读取逻辑（双轨实现会让撤销在两处产生不同结论）。
-    from core.cloud_sync.consent import sharing_allowed
-    return sharing_allowed()
+    # 必须保留三态：撤销（False）要压过 BUGX_ACCEPT_DATA_SHARING 预同意入口。
+    from core.cloud_sync.consent import data_sharing_flag
+    return data_sharing_flag()
 
 
 def _stored_base_url() -> str | None:
@@ -406,10 +407,18 @@ class FlywheelUploader:
         self.audit_path = Path(audit_path or default_audit_path()).expanduser()
         self._urlopen = urlopen or urllib.request.urlopen
         self.auth_token = auth_token if auth_token is not None else _stored_auth_token()
-        self.data_sharing = (
-            os.environ.get("BUGX_ACCEPT_DATA_SHARING") == "1" or _stored_data_sharing()
-            if data_sharing is None else data_sharing
-        )
+        # F-024：撤销（显式 false）是硬闸门——BUGX_ACCEPT_DATA_SHARING 预同意
+        # 入口只对「未表态」生效，不得越过用户显式撤销（与 sync_push/pull 的
+        # require_sharing 硬闸门同策略）。
+        if data_sharing is not None:
+            self.data_sharing = data_sharing
+        elif _stored_data_sharing() is False:
+            self.data_sharing = False
+        else:
+            self.data_sharing = (
+                os.environ.get("BUGX_ACCEPT_DATA_SHARING") == "1"
+                or _stored_data_sharing() is True
+            )
         self.privacy_strict = (os.environ.get("BUGX_PRIVACY_STRICT") == "1") if privacy_strict is None else privacy_strict
         self.sleep = sleep
         self.timeout = timeout

@@ -1,12 +1,12 @@
 ---
 name: bugx-zcode
-description: BugX 漏洞挖掘引擎在 ZCode 宿主下的专属使用手册——新环境快速接入（构建/安装/doctor）、启动挖掘标准流程（pre 启动门禁→workers→checkpoint→post）、常见坑位与对策（MCP root 漂移、worker 误回收、findings 格式、死锁链、token 上报、云端面板、重置）。当用户要在 ZCode 里启动/排障/重置 BugX 审计、配置新环境、解释 BugX 报错或 token/报告不更新时使用本 skill。
+description: BugX 漏洞挖掘引擎在 ZCode 宿主下的专属使用手册——新环境快速接入（构建/安装/doctor）、启动挖掘标准流程（pre 启动门禁→workers→checkpoint→post）、本机实证过的坑位与对策（MCP root 漂移、worker 误回收、findings 格式、死锁链、token 上报、云端面板、重置）。当用户要在 ZCode 里启动/排障/重置 BugX 审计、配置新环境、解释 BugX 报错或 token/报告不更新时使用本 skill。
 ---
 
 # BugX × ZCode 使用手册（实战复盘版）
 
-本手册按当前 BugX CLI、生命周期协议和 ZCode 宿主适配器整理。示例中的项目路径均为
-占位符，不包含特定机器、分支或内部测试项目标识。
+本手册由 2026-11-01~04 在 bugxtest 项目的多轮真实审计复盘提炼。所有坑位都在
+本机实证过并已在引擎源码修复（源码仓库本仓 dev 分支）。
 
 
 ### 0.与通用 bugx skill 的关系（先读）
@@ -34,10 +34,10 @@ description: BugX 漏洞挖掘引擎在 ZCode 宿主下的专属使用手册—�
 ```bash
 # 1. 前置：Python >= 3.11（推荐 3.14）
 # 2. 获取引擎（二选一）
-pip install bugx-cli             # 官方 wheel
+pip install bugx_agent           # 官方 wheel
 # 或从源码仓库本地构建（维护者口径，不走 Jenkins 门禁）：
-cd <BUGX_SOURCE_ROOT> && python3 -m build --no-isolation --wheel --outdir dist . \
-  && python3 -m pip install --force-reinstall dist/bugx_cli-*.whl
+cd /path/to/bug-hunter && python3 -m build --no-isolation --wheel --outdir dist . \
+  && python3 -m pip install --force-reinstall dist/bugx_agent-*.whl
 
 # 3. 绑定项目 + 装宿主 agent（ZCode 走用户级）
 bugx install --root <项目绝对路径> --agent zcode --non-interactive
@@ -185,7 +185,8 @@ bugx engine --root . pre            # 门禁引擎，输出 BUGX_INTERACTION_REQ
 
 ## 三·六、判读式并发审计（judge，默认推荐路径）
 
-历史性能问题的根因修复：旧 worker 路径每个动作都可能消耗一个模型回合。判读式把「想」和「做」拆开：
+2026-11-03 性能复盘的根因修复：旧 worker 路径每个动作烧一个模型回合
+（35 回合≈18 分钟，探针本身仅 0.4 秒）。判读式把「想」和「做」拆开：
 
 - **机器做流程（宿主，毫秒级）**：claim→边界电池探针→artifact/sha256/
   execution_receipt→checkpoint 全部确定性完成；
@@ -205,8 +206,8 @@ bugx engine --root . findings-confirm --from-verdicts <verdicts.json>
 bugx engine --root . post               # 结算（log-only 模式允许保留待修复缺陷收口）
 ```
 
-在受控项目上可按上述步骤分别观察 collect、judge、settle 和 findings-confirm 的阶段耗时；
-这些耗时不构成通用性能承诺。
+实测（l4adv 对抗靶场 22 单元，3 个 Life 全轮闭环）：collect 3-13s/批 +
+6 判读员并行 7-37s + settle 2-4s；确认段一条命令 5.7s（旧手工 14 分钟）。
 
 - **机器初审**：静态平凡+动态全过（`print("hello")` 类）、或证据全为
   `symbol-missing` 伪影（artifact-only）→ 零模型关单；文件内按符号切分，
@@ -243,7 +244,7 @@ bugx engine --root . post               # 结算（log-only 模式允许保留�
   若见"无活动 judge claim（可能已过期）"说明该单元已在更早一轮结算。
 - findings.json 的 `run_binding.round` 必须等于当前 runtime round；轮次推进后
   由 `findings-confirm --from-verdicts` 自动对齐，勿手工改。
-- **判读包全文走文件不走 stdout**（当前实现）：`judge --all` 会把整包
+- **判读包全文走文件不走 stdout**（2026-11-08 实证）：`judge --all` 会把整包
   刷到 stdout，宿主用 `tail` 截取会丢包——必须 `> /tmp/judge-packages.txt`
   重定向后整读；包同时落盘 `state/judge/packages-<ts>.json`（collect 输出
   尾行就是该路径），丢失时直接读文件，不要重跑 collect。
@@ -251,7 +252,7 @@ bugx engine --root . post               # 结算（log-only 模式允许保留�
   collect 批凑与 file 互斥的调度残差，**结算本批后再跑一次 `judge --all`**
   即可收尾（第三轮会自动做业务链路组合关单），不要原地重试。
 
-## 三·七、findings-confirm 契约（当前引擎契约）
+## 三·七、findings-confirm 契约（2026-11-08 复盘实证，修复版引擎已内建）
 
 确认段是判读式链路此前最大的隐性耗时源（本轮实测 5 个宿主回合全烧在
 契约试错上）。修复后的契约——**旧引擎按"坑位"对照，修复版按"内建"理解**：
@@ -291,26 +292,26 @@ bugx engine --root . post               # 结算（log-only 模式允许保留�
   **直接重跑同一条 `pre --dev` 即续上**（第二次会完成基线+Supervisor）。
   ticket 的 `reload_workspace_and_resume` 是 ChatGPT 宿主语义，ZCode 不适用。
 
-## 三·八、会话提速纪律
+## 三·八、会话提速纪律（2026-11-09 实测 34 分钟复盘固化，build.423 引擎已配套加固）
 
 > 背景：判读式审计机器时间合计 <40s，其余全部是判读员推理墙钟 + 宿主回合延迟。
-> 本节五条纪律来自历史问题复盘；标注项表示当前引擎已有对应防护。
+> 本节五条纪律来自一次超时 3 倍的真实复盘；其中两条已由引擎配套修复（标注）。
 
 1. **判读产物一律全新目录**：`mktemp -d` 创建 verdicts 目录，settle 前目录内
    只允许 `verdict-*.json`。复用 `/tmp/bugx-verdicts` 曾让陈旧判读包按文件序
    先消费、把 5 个单元错误关单（insufficient_data）并触发同轮领取围栏，
    被迫 next_round + 二次 collect + 多派一轮判读员。
-   【引擎配套】当前 `settle_dir` 只认显式 `verdict` 字段，缺字段的
+   【引擎配套】build.423 起 `settle_dir` 只认显式 `verdict` 字段，缺字段的
    噪声文件跳过并计入 `settle_dir.skipped_no_verdict`——但全新目录仍是纪律。
 2. **verification 代码体由宿主预置模板**：judge 只填载荷参数，宿主按指纹类型
    （SQL 注入 / eval / 路径穿越 / 硬编码凭据）备好正负对照骨架。
-   【引擎配套】judge 提示词已明确"负对照必须在当前带缺陷代码上
+   【引擎配套】build.423 起 judge 提示词已明确"负对照必须在当前带缺陷代码上
    exit 0，禁止假设修复后行为/不存在的机制"；宿主模板仍是第一道防线。
    已知必败形态：为不存在的 env 覆盖写 reload 断言；`except: SystemExit(0)`
    吞异常；POS 里用 `subprocess.run(shell=True)` 兜底伪造哨兵。
 3. **写入通道先探 1 次再放量**：未验证的 MCP/CLI 通道并发批量调用，失败会
    成倍浪费回合（实测 fix_severity 因 schema 裸 const 被序列化问题连拒 6 次）。
-   【引擎配套】工具表中的布尔 const 必须带 `type: boolean`。
+   【引擎配套】build.423 起 tool_table 的布尔 const 均已带 `type: boolean`。
 4. **host 通道是单例**：宿主 MCP 已持项目 `controller.lock` 时，CLI
    `supervisor rpc --role host` 的 serve 子进程拿不到主控租约即退出
    （fail-closed 设计，非缺陷）——不要把 rpc 当 host 通道回退；host 写操作
@@ -349,9 +350,10 @@ bugx reset --scope project --root <项目> --yes
 ## 六、修复重放（升级 CLI 覆盖热修复时）
 
 `bugx update` / `pip install` 官方 wheel 会覆盖运行副本。重放：
-1. `cd <BUGX_SOURCE_ROOT> && python3 -m build --no-isolation --wheel --outdir dist .`
-2. `pip install --force-reinstall dist/bugx_cli-*.whl && bugx install --root <项目> --agent zcode`
-3. `bugx doctor` 全绿（完整性清单自动随包）；具体修复内容以当前发行说明和源码为准。
+1. `cd /path/to/bug-hunter && python3 -m build --no-isolation --wheel --outdir dist .`
+2. `pip install --force-reinstall dist/bugx_agent-*.whl && bugx install --root <项目> --agent zcode`
+3. `bugx doctor` 全绿（完整性清单自动随包）；详见记忆文件
+   `bugx-engine-patches-2026-11`（16+ 项修复逐条清单）。
 
 ## 七、验收基线（修复版应有的行为）
 
@@ -364,7 +366,7 @@ bugx reset --scope project --root <项目> --yes
 - Round 报告含真实 Token 消耗、调度侧/模型用量行；云端面板随 submit 策略更新
 - 任何环节失败输出**结构化原因**，无静默降级；`post` 退出码 0 即收口成功
 
-## 八、靶场快审配方
+## 八、靶场快审配方（2026-11-08 zcode 实战复盘固化）
 
 > 背景：桌面靶场（hello world + 5 种子缺陷，9 文件/117 行）zcode 轮实测
 > 16 分钟总时长，但 **bugx 引擎机器时间合计 <60s**，其余全部是宿主 Agent

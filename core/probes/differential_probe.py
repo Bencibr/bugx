@@ -41,20 +41,15 @@ from pathlib import Path
 
 from core.supervisor.worker_execution import run_bounded
 
-# QUA-03：shell argv 复用 core.fuzzing.fuzz_input 的唯一实现；本模块的 _split_argv 保留自己的
-# DifferentialError 语义（错误类型与文案与 fuzz_input 不同），因此不合并。
-from core.fuzzing.fuzz_input import shell_argv as _shell_argv
+# QUA-03：argv lexer 与 shell 运算符校验只保留一份；本模块仅适配
+# DifferentialError 语义，不能复制解析实现。
+from core.fuzzing.fuzz_input import shell_argv as _shell_argv, split_argv as _split_argv_shared
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_REPEAT = 1
 MAX_INPUTS = 2000
 MAX_CAPTURE = 65536
 MAX_INPUT_BYTES = 16 * 1024 * 1024
-_SHELL_PUNCTUATION = ";&|<>`$()"
-_SHELL_OPERATORS = frozenset({
-    ";", "&", "&&", "|", "||", "<", ">", ">>", "<<", "<&", ">&",
-    "`", "$(", "(", ")",
-})
 
 
 class DifferentialError(ValueError):
@@ -62,19 +57,14 @@ class DifferentialError(ValueError):
 
 
 def _split_argv(template: str) -> list[str]:
-    """解析 argv 模板，并拒绝未授权的 shell 语法。"""
-    lexer = shlex.shlex(template, posix=True, punctuation_chars=_SHELL_PUNCTUATION)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        argv = list(lexer)
-    except ValueError as exc:
-        raise DifferentialError(f"命令无法解析: {exc}") from exc
-    if not argv:
-        raise DifferentialError("命令不能为空")
-    if any(token in _SHELL_OPERATORS for token in argv):
-        raise DifferentialError("命令包含 shell 运算符；如确需使用，请显式传入 --allow-shell")
-    return argv
+    """复用全仓 argv 解析器，仅适配本模块的异常契约。"""
+    return _split_argv_shared(
+        template,
+        error_type=DifferentialError,
+        parse_error_prefix="命令无法解析",
+        empty_message="命令不能为空",
+        operator_message="命令包含 shell 运算符；如确需使用，请显式传入 --allow-shell",
+    )
 
 
 def check_readiness() -> dict:
@@ -350,6 +340,94 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[differential_probe] 报告: {args.out / 'report.json'}")
         print(f"[differential_probe] {summary['oracle_usage']}")
     return 0
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活差分执行前提，对齐既有 ``check_readiness()`` 先例。
+
+    只检查受限执行器与 argv 解析器是否已加载（纯属性/可调用性判定，零子进程）；
+    环境不满足时返回 False，调用方必须走 ``run_static_degraded``，禁止伪装
+    双侧执行完成。
+    """
+    readiness = check_readiness()
+    ok = readiness["status"] == "READY"
+    if ok:
+        return True, "受限执行器与 argv 解析器就绪"
+    failed = "；".join(
+        f"{check['name']}: {check['detail']}" for check in readiness["checks"] if not check["ok"]
+    )
+    return False, f"差分执行前提缺失: {failed}"
+
+
+def run_static_degraded(recorded_cases: list[dict] | None = None) -> dict:
+    """降级契约：不执行目标/参考命令，仅对已记录双侧 outcome 做静态比对。
+
+    输出与成功路径（``run_comparison`` 的 report.json 摘要，含真实双侧执行
+    工件）字段级可区分：``status="degraded"`` + ``degraded=True`` +
+    ``degraded_reason``；每个 case 显式声明 ``executed=False``，禁止把静态
+    比对结论伪装成 ``oracle.tier=differential`` 的真实执行工件。
+    """
+    available, availability_detail = is_available()
+    degraded_reason = (
+        "static_mode_forced" if available else "differential_execution_unavailable"
+    )
+    cases: list[dict] = []
+    divergent = 0
+    if recorded_cases:
+        for index, case in enumerate(recorded_cases, 1):
+            target = case.get("target")
+            reference = case.get("reference")
+            required_keys = {"exit", "stdout", "stderr"}
+            sides_valid = (
+                isinstance(target, dict) and isinstance(reference, dict)
+                and required_keys.issubset(target) and required_keys.issubset(reference)
+            )
+            if not sides_valid:
+                cases.append({
+                    "case_id": f"case-{index:04d}",
+                    "executed": False,
+                    "skipped_reason": "recorded_side_missing_or_invalid",
+                })
+                continue
+            outcome_pair = (
+                _outcome({**target, "stdout": _as_bytes(target["stdout"]), "stderr": _as_bytes(target["stderr"])}),
+                _outcome({**reference, "stdout": _as_bytes(reference["stdout"]), "stderr": _as_bytes(reference["stderr"])}),
+            )
+            kinds = _divergence_kinds(*outcome_pair)
+            if kinds:
+                divergent += 1
+            cases.append({
+                "case_id": f"case-{index:04d}",
+                "executed": False,
+                "target_exit": str(target.get("exit")),
+                "reference_exit": str(reference.get("exit")),
+                "kinds": kinds,
+                "stable": True,
+            })
+    return {
+        "schema_version": 1,
+        "success": bool(recorded_cases),
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": degraded_reason,
+        "probe_mode": "static_degraded",
+        "inputs_total": len(cases),
+        "divergences": divergent,
+        "flaky_divergences": 0,
+        "cases": cases,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "recorded_cases_present": bool(recorded_cases),
+        },
+        "metadata": {
+            "degraded_mode": "recorded_outcome_static_compare",
+            "target_executed": False,
+            "oracle_usage": (
+                "降级比对不产生 oracle.tier=differential 工件；正式确认仍需真实双侧执行"
+            ),
+        },
+    }
 
 
 if __name__ == "__main__":

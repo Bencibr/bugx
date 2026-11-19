@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import math
 import os
+import sys
 import time
 import contextvars
 from contextlib import contextmanager
@@ -313,7 +314,10 @@ def _default_runtime() -> dict:
         "host": None,
         "autonomous_mode": False,
         "execute": False,
-        "workers": 0,
+        # F-RSI-20261112-077 后继（轮 77）：校验层已统一正整数口径（0 拒绝），
+        # 默认态的「未声明」必须用 None 表达（与 worker_capacity 同构）——
+        # 默认值产 0 会让缺文件回退/reconcile 路径被自家校验炸掉。
+        "workers": None,
         "worker_capacity": None,
         "subagent_type": "bugx-worker",
         "stagger_seconds": 0.0,
@@ -528,8 +532,14 @@ def _reconcile_orphaned_state_locked(state: dict, now: float | None = None) -> b
                 operation="lifecycle", gate="owner_cancelled",
                 reason="宿主取消 agent：owner 进程死亡而心跳仍新鲜（D27 取消回传）",
             )
-        except Exception:  # noqa: BLE001 - 回传失败不阻断 ownership 释放
-            pass
+        except Exception as exc:  # noqa: BLE001 - 回传失败不阻断 ownership 释放
+            # F-RSI-20261113-106：不阻断但必须留痕——D27 取消回传是宿主
+            # 取消信号的引擎侧落账，静默丢失会让「宿主为何释放所有权」
+            # 在 supervisor 权威链上无迹可查（与 F-104 同款可观测性守卫）。
+            print(
+                f"[launch_bugx] ⚠ D27 owner_cancelled 回传失败（ownership 释放不受影响）: {exc}",
+                file=sys.stderr,
+            )
         return True
 
     if not is_dead:
@@ -702,6 +712,11 @@ def _read_runtime_state() -> dict:
                 "total_elapsed_seconds"):
         if not is_number(state.get(key)) or state[key] < 0:
             raise ValueError(f"运行计时文件 {key} 无效")
+    # F-RSI-20261112-087：segment_started_epoch 允许 None（默认/非运行态），
+    # 但出现必须是数字——垃圾值直通会在 orphan 恢复链的 _accrue 中裸崩。
+    seg = state.get("segment_started_epoch")
+    if seg is not None and (isinstance(seg, bool) or not is_number(seg)):
+        raise ValueError("运行计时文件 segment_started_epoch 无效（必须是数字或 null）")
     if not isinstance(state.get("sessions_completed"), int) \
             or isinstance(state["sessions_completed"], bool) \
             or state["sessions_completed"] < 0:
@@ -738,10 +753,22 @@ def _read_runtime_state() -> dict:
         raise ValueError("运行计时文件 execute 无效")
     for key in ("workers", "worker_capacity"):
         value = state.get(key)
-        if value is not None and (
-            not isinstance(value, int) or isinstance(value, bool) or value < 0
-        ):
-            raise ValueError(f"运行计时文件 {key} 无效")
+        if value is None:
+            continue
+        # F-RSI-20261112-077 后继（轮 77）：0 是旧默认态泄漏（_default_runtime
+        # 曾产 0 并被 reconcile 落盘；消费侧历来把 0 当未声明吞掉）——归一为
+        # None 自动迁移存量项目，而非拒绝造成 engine 命令全面 Unhandled
+        # exception。拒绝保留给负数/布尔/非整数等真实非法值。
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"运行计时文件 {key} 无效（必须是正整数或未声明）")
+        if value == 0:
+            state[key] = None
+            print(
+                f"[bugx] ⚠️ 运行计时文件 {key}=0 为旧默认态残留，已归一为未声明（下次保存落盘）"
+            )
+            continue
+        if value < 0:
+            raise ValueError(f"运行计时文件 {key} 无效（必须是正整数或未声明）")
     subagent_type = state.get("subagent_type")
     if not isinstance(subagent_type, str) or not subagent_type.strip():
         raise ValueError("运行计时文件 subagent_type 无效")
@@ -1044,9 +1071,21 @@ def append_runtime_event(state: dict, event: str, now: float,
 def _accrue_running_segment(state: dict, now: float) -> None:
     if state.get("state") != "running":
         return
-    started = float(state["segment_started_epoch"])
+    started = state.get("segment_started_epoch")
+    # F-RSI-20261112-087：默认态该键为 None，schema 校验此前也不覆盖它——
+    # orphan 恢复链（进程死亡后重入）里 running+null 组合会让裸
+    # float(state[...]) 抛 TypeError，中断会话无法恢复。无可累计起点时
+    # 跳过累计并留痕，起点从下一次 reset_segment_timer 重建。
+    if isinstance(started, bool) or not isinstance(started, (int, float)):
+        print(
+            "[launch_bugx] ⚠ segment_started_epoch 缺失或非法，跳过本段时长累计"
+            f"（值={started!r}）；起点将由下次会话活动重建",
+            file=sys.stderr,
+        )
+        state["segment_started_epoch"] = now
+        return
     state["session_elapsed_seconds"] = round(
-        float(state["session_elapsed_seconds"]) + max(0.0, now - started), 3
+        float(state["session_elapsed_seconds"]) + max(0.0, now - float(started)), 3
     )
     state["segment_started_epoch"] = now
 
@@ -1301,6 +1340,14 @@ def runtime_summary(now: float | None = None) -> dict:
 
 def close_runtime(outcome: str, now: float | None = None,
                    reason: str | None = None) -> tuple[dict, bool]:
+    # F-RSI-20261112-088：close_runtime 是公共 API 且 save_runtime 不做
+    # schema 校验——非法 outcome 会直接落盘为非法 state 值，下次
+    # load_runtime 必然抛「state 无效」，运行态整体变砖（只能手工修文件）。
+    # close 的合法终态只有 completed/aborted，入口 fail-fast。
+    if outcome not in ("completed", "aborted"):
+        raise ValueError(
+            f"close_runtime outcome 必须是 completed/aborted，收到 {outcome!r}"
+        )
     with runtime_lock():
         state = load_runtime()
         if not state["active"]:

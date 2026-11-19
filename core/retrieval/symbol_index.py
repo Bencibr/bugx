@@ -44,7 +44,7 @@ _LEGACY_HOST_RUNTIME_DIRS = {
 }
 
 
-def _is_engine_namespace_segment(part: str) -> bool:
+def is_engine_namespace_segment(part: str) -> bool:
     """任一目录分量是否属于 BugX 引擎自己的运行态命名空间。
 
     ``_LEGACY_HOST_RUNTIME_DIRS`` 只登记了确切的 ``.bugx``，而引擎与宿主 AI
@@ -52,7 +52,7 @@ def _is_engine_namespace_segment(part: str) -> bool:
     脚本）、``.bugx-patches``（PE 工单补丁包）、``.bugx-cache`` ……。这些全部
     是审计产物而不是被审产品材料。
 
-    实际后果：宿主在项目根写下
+    实测后果（bugx-audit-dsh 靶场）：宿主在项目根写下
     ``.bugx-audit-artifacts/repro.py`` 后，它被当成 3 个新内部单元
     （``probe_sqli.py``、``repro.py::record``、``repro.py::__module__``）并入
     清单，``post`` 随即报「符号索引不完整」；宿主删掉文件后单元又变
@@ -94,7 +94,8 @@ DEPENDENCY_OR_GENERATED_DIRS = {
     ".gradle", "vendor", "third_party", ".pytest_cache", ".ruff_cache",
 }
 # Keep the old public name for callers that used it, but do not use it as a
-# blunt ``any path segment`` filter: src/build/rule.py is product code.
+# blunt ``any path segment`` filter: product code may legitimately contain a
+# directory named ``build``.
 EXCLUDED_DIRS = HOST_RUNTIME_DIRS | DEPENDENCY_OR_GENERATED_DIRS | {
     "build", "tests", "test", "__tests__", "docs", "examples", "evals",
 }
@@ -105,10 +106,10 @@ TOP_LEVEL_SOURCE_EXCLUDED_DIRS = {
     ".bugx-patches",
 }
 # 资产发现（include_test_assets=True）额外排除的顶层目录：BugX 双轨报告/
-# 收据默认输出到 ``evals/oss``（HTML/JSON 均在资产扩展名清单内）——审计
+# 收据默认输出到 ``verification/evals/oss``（HTML/JSON 均在资产扩展名清单内）——审计
 # 产物喂回覆盖清单是自增强污染（实测 evals 报告被列为审计单元）。
 TOP_LEVEL_ASSET_EXCLUDED_DIRS = {
-    "evals",
+    "verification",
     ".bugx-patches",
 }
 SOURCE_EXTS = {
@@ -281,7 +282,7 @@ def _directory_is_excluded(
 ) -> bool:
     parts = set(relative.parts)
     if parts & (HOST_RUNTIME_DIRS | DEPENDENCY_OR_GENERATED_DIRS) \
-            or any(_is_engine_namespace_segment(part) for part in parts) \
+            or any(is_engine_namespace_segment(part) for part in parts) \
             or _generated_directory(relative):
         return True
     if include_test_assets and relative.parts and relative.parts[0] in TOP_LEVEL_ASSET_EXCLUDED_DIRS:
@@ -939,8 +940,15 @@ def index_repository(
         except OSError as exc:
             if strict:
                 raise SourceDiscoveryError(f"源码读取失败 {path}: {exc}") from exc
+            # 宽松模式必须让读失败在索引输出层可区分（F-RSI-20261115-284）：
+            # digest_status 与 parse 的 error 字段正交，二者可在同一文件共存，
+            # 避免"空 digest 文件"静默从索引消失、下游产生盲区。模式对齐
+            # code_analyzer._analyze_python_ast 的 parse_status（F-RSI-20261115-276）。
             digest = ""
             size = 0
+            digest_status = "error"
+        else:
+            digest_status = "ok"
         file_id = f"file:{relative}"
         nodes.append({"id": file_id, "type": "file", "path": relative})
         symbol_payload = []
@@ -966,6 +974,7 @@ def index_repository(
             "error": error,
             "content_hash": digest,
             "size": size,
+            "digest_status": digest_status,
             "symbols": symbol_payload,
         })
     return {
@@ -978,6 +987,9 @@ def index_repository(
             "files": len(files),
             "symbols": sum(len(item["symbols"]) for item in files),
             "parse_errors": sum(bool(item["error"]) for item in files),
+            "digest_errors": sum(
+                1 for item in files if item["digest_status"] == "error"
+            ),
         },
     }
 
@@ -999,6 +1011,11 @@ def audit_units(
             if strict:
                 raise SourceDiscoveryError(f"源码读取失败 {path}: {exc}") from exc
             digest = ""
+            # F-RSI-20261115-284 同型输出面：与 index_repository 的 digest_status
+            # 对齐，避免读失败单元以空 content_hash 静默进入下游审计/覆盖清单。
+            digest_status = "error"
+        else:
+            digest_status = "ok"
         leaves = _leaf_symbols(symbols)
         if leaves and all(symbol.kind == "module" for symbol in leaves):
             # A file containing only constants/configuration remains a useful
@@ -1015,6 +1032,7 @@ def audit_units(
                 "error": error,
                 "end_line": symbol.end_line,
                 "content_hash": digest,
+                "digest_status": digest_status,
                 "language": language,
             } for symbol in leaves)
         else:
@@ -1028,6 +1046,7 @@ def audit_units(
                 "error": error,
                 "language": language,
                 "content_hash": digest,
+                "digest_status": digest_status,
             })
     return result
 

@@ -99,6 +99,25 @@ def is_runtime_started_this_process() -> bool:
     return RUNTIME_STARTED_THIS_PROCESS
 
 
+def option_value(args: list[str], option: str) -> str | None:
+    """读取 ``--option value`` 或 ``--option=value`` 的轻量 CLI 参数。"""
+    for index, arg in enumerate(args):
+        if arg == option:
+            return args[index + 1] if index + 1 < len(args) else None
+        if arg.startswith(f"{option}="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def sync_codebase_memory_env(profile: dict[str, Any]) -> None:
+    """把 codebase-memory 探针结论同步到当前进程环境变量。"""
+    cb_probe = (profile.get("probes") or {}).get("codebase-memory")
+    if isinstance(cb_probe, dict):
+        os.environ["BUGX_USE_CODEBASE_MEMORY"] = (
+            "1" if cb_probe.get("status") == "READY" else "0"
+        )
+
+
 def set_runtime_started_this_process(value: bool = True) -> None:
     _set_runtime_started_for_loaded_modules(value)
 
@@ -559,7 +578,7 @@ del _missing_gate_phases, _extra_gate_phases
 # DES-18：仅保留 ``host_registry.SUPPORTED_HOSTS`` 中真实声明且可被识别的宿主。
 # 历史清单混入 ``roo`` / ``windsurf`` / ``cursor`` / ``kline``——四者既不在
 # 宿主声明内，也没有任何适配实现，属于「幽灵宿主名」，会被误当作已支持宿主
-# 展示。一致性由 ``tests/test_launch_bugx.py`` 的守护测试保证。
+# 展示。一致性契约以本注释为准（HOST_DISPLAY_NAMES 键与宿主声明双向核对）。
 HOST_DISPLAY_NAMES = {
     "opencode": "OpenCode",
     "claude": "Claude Code",
@@ -878,7 +897,7 @@ def _lifecycle_auto_mode() -> bool:
     全部符号（``MODULE_COVERAGE`` / ``COVERAGE_EVIDENCE`` / ``resolve_project_root`` /
     ``coverage_manifest_path`` / ``run_child``）本就定义在这里；留在
     ``pre_phase`` 会让 ``post_phase`` 反向依赖前置阶段，与
-    ``docs/02_architecture/ARCHITECTURE.md`` 声明的单向流水线矛盾。
+    ``docs/02_architecture/01_ARCHITECTURE.md`` 声明的单向流水线矛盾。
     """
     try:
         manifest = coverage_manifest_path()

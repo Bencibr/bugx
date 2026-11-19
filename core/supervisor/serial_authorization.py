@@ -100,17 +100,32 @@ def _require_text(value: object, name: str) -> str:
     return value
 
 
+# 引擎 lifecycle run_id 形态（supervisor_bridge._expected_supervisor_run_id）：
+# `lifecycle-{session_id}-{lifecycle_id}` 或裸 `lifecycle-{lifecycle_id}`，
+# 全小写字母数字与连字符。恢复会话（DOC-RECOVERY-BINDING，session_runtime
+# start_runtime）必须收养该 run_id 才能保持 runtime/Supervisor 身份一致；
+# 授权身份校验必须接受同一磁盘形态，否则 resume 后的 pre --allow-serial
+# 恒被拒（E1 遗留观察 #3 机制 b）。严格字符集保证确定性接受 ⇒ 身份哈希稳定。
+_LIFECYCLE_RUN_ID_RE = re.compile(r"^lifecycle-[0-9a-z][0-9a-z-]{0,190}$")
+
+
 def _require_runtime_uuid(value: object) -> str:
     raw = _require_text(value, "runtime_run_uuid")
+    if _LIFECYCLE_RUN_ID_RE.fullmatch(raw):
+        return raw
     try:
         parsed = uuid.UUID(raw)
     except (ValueError, AttributeError, TypeError) as exc:
-        raise SerialAuthorizationError("runtime_run_uuid must be a canonical UUID") from exc
+        raise SerialAuthorizationError(
+            "runtime_run_uuid must be a canonical UUID or engine lifecycle run_id"
+        ) from exc
     # launch_bugx runtime ids are uuid4().hex (32 lowercase hexadecimal
     # characters); accept that real on-disk form and canonical dashed UUIDs.
     # Reject uppercase and other UUID spellings so identity hashing stays stable.
     if raw not in {str(parsed), parsed.hex}:
-        raise SerialAuthorizationError("runtime_run_uuid must be a canonical UUID")
+        raise SerialAuthorizationError(
+            "runtime_run_uuid must be a canonical UUID or engine lifecycle run_id"
+        )
     return raw
 
 
@@ -298,8 +313,18 @@ def _state_matches(
     if state.budget.require_parallel is not False:
         raise SerialAuthorizationError("Supervisor budget does not authorize serial execution")
     current_budget_hash, current_reason_hash = _budget_snapshot(state)
+    # budget_epoch 是预算使用窗口计数器，不是能力（capability）。合法 epoch
+    # 续期（``reset_budget``，唯一会递增 ``budget_epoch`` 的状态变更，链上有
+    # ``budget_reset`` 事件）在继承原预算全部能力字段后推进计数器，而
+    # ``RunBudget.to_dict()`` 不含 epoch 或用量字段——``budget_snapshot_sha256``
+    # 因此跨续期稳定。若在这里比较 epoch 计数器，恢复会话自动续期后
+    # （pre/post 均如此）授权绑定恒被拒（真机 dsh post BLOCKED 根因：
+    # "Supervisor budget snapshot does not match capability"）。能力契约保持
+    # **全内容相等**：任何预算字段变化（如 max_concurrency 被调小、
+    # serial_reason 变更）仍经 snapshot/reason 哈希比对拒绝；epoch 只允许
+    # 前进——回退不可能由任何状态变更产生，出现即 fail-closed 拒绝。
     if (
-        state.budget_epoch != budget_epoch
+        state.budget_epoch < budget_epoch
         or current_budget_hash != budget_snapshot_sha256
         or current_reason_hash != serial_reason_sha256
     ):
@@ -404,7 +429,26 @@ def issue_serial_authorization(
                 key: existing[key]
                 for key in _EVENT_FIELDS
             }
-            if actual_payload != payload:
+            # 与 _state_matches 同一契约：合法 epoch 续期（链上 budget_reset
+            # 事件）推进 budget_epoch 而不改变授权的能力内容（预算配置字典与
+            # serial_reason 均不变）。同一代际只能有一条授权事件（validate
+            # 侧唯一性不变式），因此续期后禁止追加新事件，只能 recovery 原
+            # 事件：除 epoch 派生字段（budget_epoch 及由 identity+epoch+
+            # snapshot 派生的 authorization_id）外逐字段严格相等，且 epoch
+            # 只允许原地或前进（回退 fail-closed 拒绝）。authorization_id 的
+            # 全部派生源（identity、budget_snapshot_sha256、epoch）都被其余
+            # 比较字段或本条 epoch 前向约束钉死，排除它不放松任何校验。
+            # 任何能力内容差异仍然拒绝。
+            compare_fields = _EVENT_FIELDS - {"budget_epoch", "authorization_id"}
+            capability_equal = all(
+                existing[key] == payload[key] for key in compare_fields
+            )
+            epoch_forward = (
+                not isinstance(actual_payload["budget_epoch"], bool)
+                and isinstance(actual_payload["budget_epoch"], int)
+                and actual_payload["budget_epoch"] <= payload["budget_epoch"]
+            )
+            if not capability_equal or not epoch_forward:
                 raise SerialAuthorizationError(
                     "orphan serial authorization does not match explicit pre inputs"
                 )

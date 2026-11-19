@@ -210,7 +210,7 @@ def claimed_units_this_round(state: RunState) -> set[str]:
 def eligible_units(state: RunState) -> set[str]:
     """Keep internal debt visible until all of it is retry-exhausted.
 
-    注意（契约，见 ``tests/test_lease_manager.py::EligibleUnitsTests``）：本函数返回
+    注意（契约，以本注释为准）：本函数返回
     的是**范围/可见性集合**，不是「此刻可申领集合」。因此：
 
     * 内部单元**整体保留**（含已终态者），调用方不得据此假设可申领；

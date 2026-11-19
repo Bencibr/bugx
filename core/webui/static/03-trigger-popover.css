@@ -1,0 +1,697 @@
+/* ==========================================================================
+   BugX Unified 3-in-1 Model / Host / Thinking Effort Capsule & Popover
+   ========================================================================== */
+
+/* 1. Reset footer action buttons to prevent collision (Images 1, 2, 3 fix) */
+.model-controls > .effort-selector,
+.model-controls > .model-selector:not(.bx-unified-model-picker),
+.input-footer-actions > .model-selector.effort-selector,
+.input-footer-actions > .model-controls > .effort-selector,
+.input-footer-actions > .model-controls > .model-selector:not(.bx-unified-model-picker) {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0;
+  visibility: hidden;
+  overflow: hidden !important;
+  pointer-events: none;
+  opacity: 0 !important;
+}
+
+.input-footer {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  width: 100% !important;
+  box-sizing: border-box;
+  min-width: 0 !important;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  position: relative !important;
+}
+
+.input-footer-primary {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--sp-3);
+  width: auto !important;
+  flex: 0 0 auto;
+  min-width: 0 !important;
+}
+
+.input-footer-actions {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  width: auto !important;
+  flex: 1 1 auto;
+  min-width: 0 !important;
+  grid-template-columns: none;
+}
+
+.input-footer-actions > .model-controls {
+  display: inline-flex !important;
+  align-items: center;
+  width: auto !important;
+  flex: 0 0 auto;
+  min-width: 0 !important;
+  gap: 0;
+}
+
+.input-footer-actions > .mode-selector {
+  flex-shrink: 0;
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+/* 模式切换器美化 (对齐图片 3 双向流线型图标与现代胶囊) */
+.mode-selector-trigger {
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  border-radius: var(--radius-pill) !important;
+  padding: 0 var(--sp-5) !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--sp-3);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: var(--bx-slate-800) !important;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  cursor: pointer !important;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+html.dark .mode-selector-trigger,
+body.dark .mode-selector-trigger {
+  background: rgba(30, 36, 51, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: var(--bx-slate-100) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mode-selector-trigger:hover {
+  border-color: var(--bx-link-ink) !important;
+  background: var(--bx-slate-50) !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.12);
+}
+
+html.dark .mode-selector-trigger:hover,
+body.dark .mode-selector-trigger:hover {
+  border-color: var(--bx-sky-400) !important;
+  background: var(--bx-slate-800) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.mode-selector-trigger .model-selector-chevron {
+  font-size: var(--fs-micro);
+  opacity: 0.65 !important;
+  margin-left: var(--sp-1) !important;
+}
+
+.bx-mode-badge-wrap {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 19px !important;
+  height: 19px !important;
+  border-radius: var(--radius-sm);
+  background: rgba(2, 132, 199, 0.12) !important;
+  color: var(--bx-link-ink) !important;
+  flex-shrink: 0;
+}
+
+html.dark .bx-mode-badge-wrap,
+body.dark .bx-mode-badge-wrap {
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: var(--bx-sky-400) !important;
+}
+
+/* 2. Unified Trigger Capsule */
+.bx-unified-model-picker,
+.bx-composer-model-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bx-unified-model-btn,
+.bx-composer-model-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 30px;
+  padding: 0 var(--sp-6);
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--bx-slate-800);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+html.dark .bx-unified-model-btn,
+body.dark .bx-unified-model-btn,
+html.dark .bx-composer-model-btn,
+body.dark .bx-composer-model-btn {
+  background: rgba(30, 36, 51, 0.95);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--bx-slate-100);
+}
+
+.bx-unified-model-btn:hover,
+.bx-composer-model-btn:hover {
+  border-color: var(--bx-link-ink);
+  background: var(--bx-slate-50);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.12);
+}
+
+html.dark .bx-unified-model-btn:hover,
+body.dark .bx-unified-model-btn:hover,
+html.dark .bx-composer-model-btn:hover,
+body.dark .bx-composer-model-btn:hover {
+  border-color: var(--bx-sky-400);
+  background: var(--bx-slate-800);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.bx-unified-model-label,
+#bx-composer-model-label {
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bx-unified-chevron {
+  font-size: var(--fs-micro);
+  opacity: 0.65;
+  transition: transform 0.18s ease;
+}
+
+.bx-unified-model-picker.open .bx-unified-chevron {
+  transform: rotate(180deg);
+}
+
+/* 3. Popover Card Container (Matches Image 2 prototype) */
+.bx-unified-model-popover,
+.bx-composer-model-dropdown {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  width: 308px;
+  background: var(--bx-white);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.05);
+  padding: var(--sp-6) var(--sp-7);
+  z-index: var(--z-dropdown);
+  display: none;
+  flex-direction: column;
+  gap: var(--sp-5);
+  box-sizing: border-box;
+}
+
+html.dark .bx-unified-model-popover,
+body.dark .bx-unified-model-popover,
+html.dark .bx-composer-model-dropdown,
+body.dark .bx-composer-model-dropdown {
+  background: #181d27;
+  border-color: var(--bx-glass-12);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.7);
+}
+
+.bx-unified-model-popover.open,
+.bx-composer-model-dropdown.open {
+  display: flex;
+}
+
+.bx-unified-model-popover::-webkit-scrollbar,
+.bx-composer-model-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+.bx-unified-model-popover::-webkit-scrollbar-thumb,
+.bx-composer-model-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.16);
+  border-radius: var(--radius-pill);
+}
+html.dark .bx-unified-model-popover::-webkit-scrollbar-thumb,
+body.dark .bx-unified-model-popover::-webkit-scrollbar-thumb,
+html.dark .bx-composer-model-dropdown::-webkit-scrollbar-thumb,
+body.dark .bx-composer-model-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* 4. Top Row (Host Platform) */
+.bx-ump-host-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.14s ease;
+  user-select: none;
+}
+
+.bx-ump-host-row:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+html.dark .bx-ump-host-row:hover {
+  background: var(--bx-glass-06);
+}
+
+.bx-ump-host-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.bx-ump-host-name {
+  font-size: var(--fs-emphasis);
+  font-weight: 600;
+  color: var(--bx-slate-900);
+}
+
+html.dark .bx-ump-host-name {
+  color: var(--bx-slate-50);
+}
+
+.bx-ump-host-badge {
+  font-size: var(--fs-micro);
+  padding: 1.5px var(--sp-4);
+  border-radius: var(--radius-pill);
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--bx-slate-500);
+  font-weight: 500;
+}
+
+html.dark .bx-ump-host-badge {
+  background: var(--bx-glass-08);
+  color: var(--bx-slate-400);
+}
+
+.bx-ump-host-chevron {
+  color: var(--bx-text-tertiary);
+  display: flex;
+  align-items: center;
+}
+
+/* Divider */
+.bx-ump-divider {
+  height: 1px;
+  background: rgba(15, 23, 42, 0.07);
+  margin: 0 -2px;
+}
+
+html.dark .bx-ump-divider {
+  background: var(--bx-glass-08);
+}
+
+/* 5. Middle Section (Model Selection) */
+.bx-ump-section-label {
+  font-size: var(--fs-label-sm);
+  font-weight: 500;
+  color: var(--bx-slate-500);
+  padding: 0 var(--sp-2);
+}
+
+html.dark .bx-ump-section-label {
+  color: var(--bx-slate-400);
+}
+
+.bx-ump-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-height: 140px;
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+.bx-ump-model-list::-webkit-scrollbar {
+  width: 4px;
+}
+.bx-ump-model-list::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.15);
+  border-radius: var(--radius-xs);
+}
+html.dark .bx-ump-model-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.bx-ump-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  user-select: none;
+}
+
+.bx-ump-model-item:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+html.dark .bx-ump-model-item:hover {
+  background: var(--bx-glass-06);
+}
+
+.bx-ump-model-item.active {
+  background: var(--bx-sky-a08);
+}
+
+html.dark .bx-ump-model-item.active {
+  background: var(--bx-sky-a12);
+}
+
+.bx-ump-model-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bx-ump-model-name {
+  font-size: var(--fs-body-lg);
+  color: var(--bx-slate-900);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bx-ump-model-item.active .bx-ump-model-name {
+  font-weight: 600;
+  color: var(--bx-link-ink);
+}
+
+html.dark .bx-ump-model-name {
+  color: var(--bx-slate-100);
+}
+
+html.dark .bx-ump-model-item.active .bx-ump-model-name {
+  color: var(--bx-sky-400);
+}
+
+.bx-ump-model-tag {
+  font-size: var(--fs-micro);
+  padding: 1px var(--sp-4);
+  border-radius: var(--radius-pill);
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--bx-slate-500);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+html.dark .bx-ump-model-tag {
+  background: var(--bx-glass-08);
+  color: var(--bx-slate-400);
+}
+
+.bx-ump-model-tag[data-badge="免费"] {
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--bx-success-ink);
+  font-weight: 600;
+}
+html.dark .bx-ump-model-tag[data-badge="免费"] {
+  background: rgba(16, 185, 129, 0.22);
+  color: #34d399;
+}
+
+.bx-ump-checkmark {
+  display: flex;
+  align-items: center;
+  color: var(--bx-link-ink);
+  flex-shrink: 0;
+}
+
+html.dark .bx-ump-checkmark {
+  color: var(--bx-sky-400);
+}
+
+/* Custom Model Input Row */
+.bx-ump-custom-row {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-2) var(--sp-1) 0;
+  border-top: 1px dashed rgba(15, 23, 42, 0.08);
+  margin-top: var(--sp-2);
+}
+
+html.dark .bx-ump-custom-row {
+  border-top-color: var(--bx-glass-08);
+}
+
+.bx-ump-custom-input {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-micro);
+  color: inherit;
+  outline: none;
+}
+
+html.dark .bx-ump-custom-input {
+  background: var(--bx-glass-06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.bx-ump-custom-input:focus {
+  border-color: var(--bx-link-ink);
+}
+
+.bx-ump-custom-btn {
+  background: rgba(2, 132, 199, 0.10);
+  border: 1px solid rgba(2, 132, 199, 0.28);
+  color: var(--bx-link-ink);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3) var(--sp-5);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+html.dark .bx-ump-custom-btn {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: var(--bx-sky-400);
+}
+
+/* 6. Bottom Section (Thinking Effort / 思考强度) */
+.bx-ump-effort-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-2);
+}
+
+.bx-ump-effort-title-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.bx-ump-effort-label {
+  font-size: var(--fs-body);
+  color: var(--bx-slate-500);
+  font-weight: 500;
+}
+
+html.dark .bx-ump-effort-label {
+  color: var(--bx-slate-400);
+}
+
+.bx-ump-effort-val {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--bx-slate-900);
+}
+
+html.dark .bx-ump-effort-val {
+  color: var(--bx-slate-50);
+}
+
+.bx-ump-effort-badge {
+  font-size: var(--fs-micro);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--bx-slate-500);
+  padding: var(--sp-1) var(--sp-4);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+
+html.dark .bx-ump-effort-badge {
+  background: var(--bx-glass-08);
+  color: var(--bx-slate-400);
+}
+
+.bx-ump-effort-badge:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+html.dark .bx-ump-effort-badge:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Gradient Slider Track */
+.bx-ump-slider-wrap {
+  padding: var(--sp-2) var(--sp-1);
+}
+
+.bx-ump-slider-track {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--bx-emerald-600) 0%, #0d9488 28%, var(--bx-sky-600) 65%, #2563eb 100%);
+  cursor: pointer;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25), 0 1px 2px rgba(2, 132, 199, 0.2);
+  user-select: none;
+}
+
+.bx-ump-slider-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+}
+
+.bx-ump-slider-particles span {
+  position: absolute;
+  background: var(--bx-white);
+  border-radius: var(--radius-circle);
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.8));
+  display: block;
+}
+
+.bx-ump-slider-knob {
+  position: absolute;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-circle);
+  background: var(--bx-white);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  transition: left 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+/* 7. Inner Host Drawer (When clicking top row) */
+.bx-ump-main-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.bx-ump-main-view.hidden {
+  display: none !important;
+}
+
+.bx-ump-host-drawer {
+  display: none;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.bx-ump-host-drawer.open {
+  display: flex;
+}
+
+.bx-ump-drawer-back {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-label-sm);
+  color: var(--bx-link-ink);
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+html.dark .bx-ump-drawer-back {
+  color: var(--bx-sky-400);
+  border-bottom-color: var(--bx-glass-08);
+}
+
+.bx-ump-drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.bx-ump-drawer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.bx-ump-drawer-item:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+html.dark .bx-ump-drawer-item:hover {
+  background: var(--bx-glass-06);
+}
+
+.bx-ump-drawer-item.active {
+  background: var(--bx-sky-a08);
+}
+
+html.dark .bx-ump-drawer-item.active {
+  background: var(--bx-sky-a12);
+}
+
+.bx-ump-drawer-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.bx-ump-drawer-left .bx-host-brand-icon,
+.bx-ump-host-left .bx-host-brand-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: var(--sp-1);
+}
+
+.bx-ump-drawer-left .bx-host-brand-icon svg,
+.bx-ump-host-left .bx-host-brand-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+
+
+

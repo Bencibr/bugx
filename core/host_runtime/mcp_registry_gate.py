@@ -31,8 +31,11 @@ MCP_REGISTRY: tuple[dict[str, object], ...] = (
         "package": "@bencibro/postmcp",
         "source": "https://github.com/Bencibr/postmcp",
         "trust": "B",
-        "audit": ("公开 npm 包供应链审查记录：核对安装、MCP 握手、原生依赖和遥测配置；"
-                  "发布前应重新执行当前版本的供应链检查。"),
+        "audit": ("DOC-236 采用路径 A2（2026-10-21）：**自研项目**（origin = 私有 Gitea（LAN）自研项目 postmcp，"
+                  "MIT）已发布 1.0.4——改用 Node 内置 `node:sqlite` 移除原生 `sqlite3`，"
+                  "消除 `--ignore-scripts` 下的 `Could not locate the bindings file` 启动失败；"
+                  "实测 `npm install --ignore-scripts` + MCP 握手 42 工具通过，dist/src 无遥测标记。"
+                  "详见 docs/08_internal/10_audits/AUDIT-postmcp-supply-chain.md"),
     },
     {
         "name": "playwright", "tier": "optional", "status": "active",
@@ -42,6 +45,17 @@ MCP_REGISTRY: tuple[dict[str, object], ...] = (
         "trust": "A",
         "audit": ("npm 元数据实测 maintainers 含 microsoft-oss-releases/microsoft1es；"
                   "载荷经 mcp_runtime lock-hash 安装（DOC-233 设计项 4）"),
+    },
+    {
+        "name": "codindex", "tier": "optional", "status": "active",
+        "credentials": {"env": (), "require_any": False},
+        "applies": {}, "installer": "npm",
+        "package": "codindex", "source": "https://github.com/Bencibr/codindex",
+        "trust": "B",
+        "audit": ("codindex@0.1.2（MIT）固定 npm dist.integrity；Node >=22.5。"
+                  "包的 MCP 握手在 npm --ignore-scripts 临时安装后通过；"
+                  "运行默认走 Node 内置 node:sqlite，不设置 CODINDEX_SQLITE=better-sqlite3，"
+                  "避免 better-sqlite3 原生 ABI 与安装脚本成为启动前置条件。"),
     },
     {
         "name": "bugx-docs", "tier": "optional", "status": "active",
@@ -91,8 +105,11 @@ MCP_REGISTRY: tuple[dict[str, object], ...] = (
         "package": "@mobilenext/mobile-mcp",
         "source": "https://github.com/mobile-next/mobile-mcp",
         "trust": "B",
-        "audit": ("公开 npm 包供应链审查记录：核对完整性、安装/启动链路、遥测开关和许可证风险；"
-                  "发布前应重新执行当前版本的供应链检查。"),
+        "audit": ("DOC-240：@mobilenext/mobile-mcp@1.0.12 + npm dist.integrity(sha512) "
+                  "实测 install(--ignore-scripts)/verify/start 全链通过；默认遥测已硬关闭"
+                  "（MOBILEMCP_DISABLE_TELEMETRY=1）。**许可证风险已登记**：传输层 Apache-2.0，"
+                  "但运行时依赖 mobilecli 为 FSL-1.1-ALv2（非 OSI、含非竞争限制），"
+                  "见 docs/08_internal/10_audits/AUDIT-mobile-supply-chain.md"),
     },
     {
         "name": "desktop", "tier": "optional", "status": "planned",

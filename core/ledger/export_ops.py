@@ -154,10 +154,15 @@ def promote_pattern(project_ledger: str | os.PathLike[str],
     cleaned = _sanitize_promotion_payload(cleaned)
 
     # 写入全局库
+    # F-RSI-20261115-163：bundle_id 必须确定性（不含时间戳）——两段写入
+    # （全局导入→项目标记）无分布式事务，间隙失败后重试时旧实现秒级时间戳
+    # 使 bundle_id 变化 → import_patterns 幂等检查失效 → 撞「已有模式冲突」
+    # 防线 → 重试永远失败、项目库 promoted 标记永远补不上（卡死循环）。
+    # 确定性 bundle_id 让重试走 already_imported 幂等分支，标记事件照常补写。
     g_db = database_path(global_ledger)
     result = import_patterns(
         g_db, [cleaned],
-        bundle_id=f"promote-{pid}-{int(time.time())}",
+        bundle_id=f"promote-{pid}",
         reviewer=actor,
         actor="publisher",
     )

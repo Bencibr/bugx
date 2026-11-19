@@ -13,6 +13,8 @@ from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping, TypeAlias
 
+from core.infra.json_utils import unique_json_object
+
 try:
     from jsonschema import Draft202012Validator, FormatChecker
 except ImportError:  # strict validation fails closed when the validator is unavailable
@@ -356,12 +358,12 @@ def _finite_float(value: str) -> float:
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ArtifactValidationError(f"duplicate JSON object key: {key}")
-        result[key] = value
-    return result
+    return unique_json_object(
+        pairs,
+        error_factory=lambda key: ArtifactValidationError(
+            f"duplicate JSON object key: {key}"
+        ),
+    )
 
 
 def parse_json(data: str | bytes | bytearray) -> Any:

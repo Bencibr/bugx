@@ -392,8 +392,14 @@ def bootstrap_coverage_manifest_locked(manifest: Path) -> bool:
                 with open(manifest, "a", encoding="utf-8") as f:
                     for bl in business_lines:
                         f.write(bl + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        # F-RSI-20261113-109：业务链路追加失败不得静默——清单缺业务行是
+        # 覆盖面缺口（judge 业务链路组合关单与业务单元派发都会错过），
+        # 骨架生成整体成功所以 fail-open，但缺口必须可观测（F-104/106 同款）。
+        print(
+            f"[launch_bugx] ⚠ 业务链路行追加失败，覆盖清单缺业务链路（组合关单/业务派发将错过）: {exc}",
+            file=sys.stderr,
+        )
     print(
         f"[launch_bugx] ✓ 已自动生成覆盖清单骨架：{len(discovered)} 个最小单元"
         "（module_coverage discover；Agent 开工后继续细化难度/工具/业务链路列）"

@@ -138,10 +138,14 @@ class Attestation:
         （``verification_executed == total_findings`` 且全通过）才记为实测。
         零发现（空集统计）、或只验证了其中一部分，都只能标 ``NOT-EXERCISED``。
         """
-        measured = (
-            self.findings_present
-            and self.verification_executed == self.total_findings
-        ) or self.mutation_exercised
+        # 「零假阳性」必须逐条可证：mutation_exercised 只能提升**已报告发现**
+        # 的证据等级，不能在零发现（total_findings==0）时把空集渲染成 PASS。
+        # 原写法 `... or self.mutation_exercised` 让「零发现+已变异」得 PASS，
+        # 与本方法 docstring「零发现只能标 NOT-EXERCISED」直接矛盾。
+        measured = self.findings_present and (
+            self.verification_executed == self.total_findings
+            or self.mutation_exercised
+        )
         return measured_verdict(measured, True)
 
     def negative_control_verdict(self) -> str:

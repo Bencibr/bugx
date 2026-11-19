@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from core.infra.build_info import BASE_VERSION
+
 _CORE_DIR = Path(__file__).resolve().parent.parent if Path(__file__).resolve().parent.name == "skills" else Path(__file__).resolve().parent
 if str(_CORE_DIR) not in sys.path:
     sys.path.insert(0, str(_CORE_DIR))
@@ -31,7 +33,7 @@ if str(_CORE_DIR) not in sys.path:
 JSONRPC_VERSION = "2.0"
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "bugx-docs"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = BASE_VERSION
 MAX_FILE_BYTES = 1_000_000
 MAX_FILES = 500
 MAX_RESULT_BYTES = 12_000

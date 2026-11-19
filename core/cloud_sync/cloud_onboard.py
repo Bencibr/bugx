@@ -10,6 +10,15 @@
   tombstone/冲突过滤 → Supervisor 原子导入 → 「inbox imported + cursor 推进」
   原子提交 → quarantine 落地仅作诊断。
 
+威胁模型边界（F-RSI-20261115-145 实测证实）：
+- ``project_key`` 是公开可推断的标识符（sha256(origin URL + root commit)），
+  **不是秘密**；任何能读取该仓库的人均可重算同一 key。
+- ``project_key`` 在客户端只承担**幂等标识**（同一账号内 upsert 去重），不是
+  鉴权凭据：账号 Bearer token 是唯一授权依据，缺失即由 ``CloudClient._request``
+  与 ``sync_layers`` 的 F2 闸门 fail-closed 拒绝，零 egress、零本地身份写入。
+- 服务端必须按账号隔离 project_key 并在 upsert 前校验项目归属——该防线是外部
+  契约，本仓只有客户端实现，不得以「防线在服务端」为由证伪客户端可推断风险。
+
 不变量：显式 quarantine 导入只能为 candidate；私有多设备同步按远端治理状态恢复
 active/candidate；committed cursor 只随成功导入推进；
 任一页失败时 Ledger、旧 snapshot 与 committed cursor 均不变化（AD-008-02/03）。
@@ -205,6 +214,25 @@ def derive_project_key(root: Path) -> str:
     任何设备首次运行时得到同一 ``project_key``，服务端解析到既有项目而
     不是新建一个重复项。已存在的 binding/committed 身份始终优先，绝不
     因本函数而改写既有项目。
+
+    威胁模型边界（F-RSI-20261115-145，探针实测 CONFIRMED）：
+    - ``project_key`` 是**幂等标识符，不是鉴权凭据**：sha256(origin URL
+      + root commit) 的两个输入对任何能读取该仓库的人（含克隆者）完全可见，
+      可完整重算同一 key（探针验证：公开输入重算与实际派生逐字节一致）；
+      已提交的 ``.bugx-project.json``（0o644）本身也随仓库公开。该 key 只用于
+      同一账号内的 upsert 去重，禁止把它当作授权依据或访问控制手段。
+    - 鉴权边界在传输与账号层：所有云端 upsert/pull/push 必须携带账号
+      Bearer token，缺失即由 ``CloudClient._request``/``_request_raw`` 与
+      ``sync_layers`` 的 F2 闸门 fail-closed 拒绝（零 egress、零本地身份写入），
+      不存在「仅凭 project_key 即可操作」的客户端路径。
+    - 提高熵源不可行：机器本地随机盐会破坏跨设备确定性（本函数存在的唯一
+      目的），且 committed 身份文件本来随仓库公开——可推断性是共享仓库
+      项目身份的固有属性，不是可修复缺陷。
+    - 服务端归属校验是**必需的外部契约**（本仓无服务端实现，无法自证）：
+      服务端必须按账号隔离 ``project_key``，并在 upsert 前校验请求者对该
+      项目的归属；缺失该校验时，可推断 key 允许任何克隆者以自身 token
+      覆盖/冒用同账号可见的项目身份数据。禁止以「防线在服务端」为由将
+      此风险标记为已证伪——部署/交付侧必须显式确认服务端已实现。
     """
     identity = _git_repo_identity(root)
     if identity:
@@ -562,6 +590,19 @@ def sync_layers(client, root: Path, project_slug: str | None = None,
     from core.cloud_sync.consent import revoked_summary, sharing_revoked
     if sharing_revoked():
         return revoked_summary(scopes)
+    # F2 硬闸门（F-RSI-20261115-145）：账号 Bearer token 是唯一的鉴权凭据。
+    # project_key 由公开的 origin URL + 首 commit 确定性派生，任何克隆者都能重算，
+    # 它只是同账号内的幂等标识；缺失账号凭据时不得写本地身份，也不得发出任何请求。
+    cred = getattr(client, "cred", None)
+    if cred is None or not cred.is_authenticated():
+        return {
+            "ok": False,
+            "error": ("unauthenticated: 云端同步必须携带账号 Bearer token；"
+                      "project_key 只是幂等标识，不是鉴权凭据"),
+            "code": "SYNC_UNAUTHENTICATED",
+            "skipped": "unauthenticated",
+            "scopes": sorted(scopes or {"global", "project"}),
+        }
     from core.cloud_sync.onboard_wizard import (
         ask_project_identity_decision,
         ensure_project_identity,
@@ -579,7 +620,7 @@ def sync_layers(client, root: Path, project_slug: str | None = None,
         sync_cfg = _load_cloud_config()
     except Exception:  # noqa: BLE001 - 配置缺失/非法不改变同步入口行为（非法值由闸报错）
         sync_cfg = {}
-    selected_policy = sensitive_policy or sync_cfg.get("sensitive_policy") or "allow"
+    selected_policy = sensitive_policy or sync_cfg.get("sensitive_policy") or "redact"
     selected_detail_mode = ns["resolve_detail_mode"](
         detail_mode or sync_cfg.get("sync_detail_mode"))
     out: dict = {}

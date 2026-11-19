@@ -4,9 +4,60 @@ All notable changes to the **BugX** project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> This public copy contains user-facing release notes only; internal development records are not distributed.
+> **Note for Users**: Granular internal commit notes from previous alpha/patch development cycles are kept in internal development records.
 
-## [Unreleased]
+## [0.1.1] - 2026-11-19
+
+### 宿主矩阵：zcode 全轴闭合
+- zcode CLI wrapper（ZCode Desktop 内置 `zcode.cjs` v0.17.1）挂载到 PATH；探针修正为用户级注册语义（`~/.zcode/agents/bugx.md` 存在即宿主可用），`bugx hosts` 双真。
+- ZCode Desktop 真实加载三个 BugX MCP 服务，会话内 MCP 真调全通（status/gate/coverage/next_round/findings/verify/confirm）。
+- 8 个 zcode 原生子智能体 worker 走通 `claim → worker_start → heartbeat → probe → checkpoint` 全链路，双轮 next_round；2 个并发满诚实拒止。证据入档宿主迁移清单覆盖矩阵。
+
+### 移动轴真机挖掘完整闭环
+- 靶场 exposure 14/14 全 covered；9/9 findings 全部 CONFIRMED（high×7 / medium×2），每条经引擎 verify 双正例+负对照实跑（SQL 注入 / 命令注入 / JSContext 动态执行 / Manifest 六种配置缺陷）。
+
+### 引擎修复
+- macOS memory pressure 探针恒 100% 根治：vm_stat 解析正则 `\s+` 字面转义永不命中五字段 → usage 恒 100% → 自适应并发永久压到 min=2；修复后实测恢复真实值（72.58%）。
+- zcode host `project_marker` 用户级注册语义对齐。
+
+### 版本治理
+- 语义版本 0.1.0 → 0.1.1（37 处声明，人工确认 `--confirm-version-transition`）；补齐 5 处此前不被 bump 覆盖的 `BUGX_VERSION` env 回退默认值声明。
+- 第三方 MCP 依赖刷新：`@mobilenext/mobile-mcp` 1.0.18、`@playwright/mcp` 0.0.86、`@bytebase/dbhub` 2.0.0（上游 breaking）；postmcp/codindex/redis-mcp-server 已最新。
+- 全仓文档版本标头统一至 `0.1.1+build.627`；历史审计快照保持当时基线。
+
+## [Unreleased] - build.513
+
+### 全量深读挖掘修复（6 区域并发）
+- RSI 自治循环补注册 `pain_mining` 执行器：该维度在 `_detect_dimension` 可达、`_exec_pain_mining` 方法完整，但执行分派字典遗漏它，进入即返回「无执行器」并陷入维度打转；现补齐分派。
+- `bugx interaction list` 默认过滤反向：原条件 `answered or cancelled` 把「全新待答问题」排除、把「已消费问题」留下，与命令帮助「列出尚未消费的问题」相反；改为按 `consumed` 判定，全新与待回灌问题均可见。
+- 自主 CVE 验证收据零负对照 fail-open：`negative_controls.total==0` 时负对照通过率曾被赋满分 1.0，使 `status=PASS` 的 driver 拿到 PASSED 收据；现改为 0.0，无负对照证据只能 FAILED。
+- `LLMProfileArbitrator.arbitrate` 在宿主无侦察命令时返回 `None` 破坏二元组契约，调用方 `x, y = arbitrate(...)` 直接抛 TypeError 使项目画像崩溃；现按其余降级分支返回 `(candidate_fixtures, heuristic_forms)`。
+- 报告「零假阳性」判定矛盾：`false_positive_verdict` 的 `or mutation_exercised` 让「零发现+已变异」得 PASS，与本方法 docstring「零发现只能标 NOT-EXERCISED」冲突；现要求 `findings_present` 才接受变异作为证据。
+
+### 收尾空转治理可达性
+- 修复孤儿 owner 快速自释放不可达：空闲监控的孤儿检测与 idle 自退曾共用计时器，`idle_elapsed` 每 30s 清零导致 60s 孤儿门槛永远达不到，宿主死亡后仍空转满 1800s idle。现改为两个独立计时器，孤儿检测按其自身节奏推进。
+- 这是墙钟乘数 3-6.7×（会话 post/idle 后空转 30-64min）主源的最后一段——build.558 引入的看护逻辑此前"代码在、不可达"。
+
+### CLI 启动性能
+- `bugx --help` / `bugx -h` 由 534ms 降到 94ms（贴 node 进程基线 76ms）：Node 层直接输出 argparse 真源快照，不再付 Python 冷启动与 18 个命令模块的 import 链。
+- 快照 `core/cli-help.txt` 由 `python3 scripts/bump_version.py --refresh-help` 从 argparse 真源生成，`--check` 逐字校验防漂移；带子命令的 `bugx audit --help` 仍走 Python 真源，输出该子命令自己的帮助。
+
+### RSI 性能维度可达性
+- 修复 RSI 自治循环自动检测链遗漏 `performance_baseline` 的问题：能力审计收敛后现在会进入性能基线维度，`_exec_performance_baseline` 执行器不再是不可达死代码。
+- 新增 `--start-dimension <维度名>`，可用 `--run-loop --start-dimension performance_baseline` 直接驱动性能升级；性能收敛判据统一为单一真源，三处内联重复已消除。
+
+### Doctor 与 Recon Scout 修复
+
+- `bugx doctor` 不再因内部导入缺失直接崩溃；版本一致性检查也能正确读取模板化的源版本描述符，不再恒报「缺失或无效」。
+- Recon Scout 的工具清单现在能读到 OpenCode（`mcp.servers`）与 Codex（TOML）项目级 MCP 配置，并递归识别分类目录下的 Skill，不再对这类项目误判「工具不足」。
+- Scout 引用源码切片时只读取项目内文件，绝对路径、`..` 越界与符号链接一律丢弃；单条假说的行号异常不再导致整批假说被丢弃。
+
+### Web UI 审计
+
+- 新增 `bugx probe ui`，记录响应式视口、Chromium 200%/400% 原生缩放、文字和指定控件对比度，并按项目 `DESIGN.md` 检查 token、组件样式和业务状态。
+- 支持本地视觉模型点评，以及可预览、复测、失败回滚的 CSS token 修复。
+- 增加内置 axe-core、键盘焦点旅程及同轮证据校验。支持用参考页面生成差异图，并在 CSS 修复复测中发现新增视觉退化。
+- 支持从已运行的 Storybook 选择组件场景，并用 DTCG 或 Style Dictionary JSON 作为渲染 token 的期望值。
 
 ### 报告处置与上报口径
 
@@ -54,12 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 默认 Python 安装缺少 BugX Agent 资源时，CLI 可校验 stable wheel 并修复当前 Python 环境；也可运行 `bugx update --repair-assets` 显式修复。在线恢复需要 stable 服务已发布 Agent wheel；发布未配置或校验失败时会停止并给出修复指引。
 - 显式资源修复会识别 CLI 资源 Build ID 落后于共享引擎的情况，只接受达到所有现有 Build ID 下限的 stable wheel，并在安装前复核共享引擎版本，避免用旧 wheel 覆盖新引擎。
-- 发布流水线在发布前核对 wheel 中核心清单的文件、哈希及 CLI/core 版本，阻止残缺或不一致的载荷发布。
+- Jenkins 在发布前核对 wheel 中核心清单的文件、哈希及 CLI/core Build ID，阻止残缺或不一致的载荷发布。
 - 安装资源自动恢复固定查询官方 stable 发行地址，不再把可配置的云端知识同步地址误用为 stable 包源。
 - 新项目仅在只读状态明确返回 `UNINITIALIZED` 时由 `pre` 自动建立初始布局；已有数据但布局不完整时保留现场并阻断，不调用 `init` 覆盖。
 - ZCode、Claude、Cline、Qoder 的 Worker 模板，以及 Claude/ZCode Agent 边界和 locale 缺失 fallback，统一要求先检查只读项目状态；只有 `UNINITIALIZED` 才运行 `pre`，`FATAL_BLOCKED` 或检查失败时保留现场并停止。
-- 签入的 ChatGPT Skill、Cline/DSH 项目 Skill 与 DSH/Pi 安装模板按各自 locale 使用统一 renderer 重建。
-- 新增安装资源自愈的 wheel 安全回归，以及 Worker 启动路由一致性守卫；构建产物和发布状态以当前发行流水线结果为准。
+- 签入的 ChatGPT Skill、Cline/DSH 项目 Skill 与 DSH/Pi 安装模板按各自 locale 使用仓库 renderer 重建；渲染时固定 Build 321 仓库引擎，避免更高但内容不同的全局 Build 334 生成旧镜像。
+- 新增安装资源自愈的 wheel 安全回归，以及 Worker 启动路由一致性守卫；构建产物验证与在线 stable 发布状态见 1.0.0 Build 321 内部记录。
 - wheel data-files 源 glob 必须覆盖核心完整性清单中的每个文件；新增适配器子目录映射与一致性回归，避免清单签名完整但发行 wheel 漏装模块。
 
 ### opencode ACP 模型轴打通 + L1 文档层收口
@@ -86,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   同步为 4 条可执行断言；`C5_RESULT.md` 状态 `DRAFT → AUDITED_OK`，U-1/U-2/U-3 全部闭环。
 - 影响面：仅 ACP 探针与文档；引擎运行期行为不变。
 
-## [Unreleased]
+## [Unreleased] - build.204
 
 ### Codex 整机打通：宿主沙箱不再"假装看不到 MCP"
 
@@ -131,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 证据：`state/l1b-acceptance/adversarial.json`（对抗探针 50.9s `PASS`）、
   `state/l1b-acceptance/l1-hostfree.json`（全流程 67 断言 `PASS` 83.3s）、
   `fault-matrix-receipt.json`。
+- 设计审计：内部对抗审计 6 项 `AUDITED_OK`。
 
 ### L1-ADV-D1 修复：Finding 裁决证据只能来自引擎核验（破坏性契约收紧）
 
@@ -161,8 +213,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   （报告 `发现问题总数 3 / 已确认修复数 3 / COMPLETE`，账本与报告双轨一致）。
   另留 `BH_L1_INPLACE_FIX=1` 取证开关，记录 `L1-ADV-D4`（本轮内修复后覆盖证据
   内容绑定失效、claim 仍认为已覆盖 ⇒ 只能跨轮收口）。
+- 设计审计：内部对抗审计（8 项 `AUDITED_OK`）。
 
-## [Unreleased]
+## [Unreleased] - build.201
 
 ### L1 20 节点覆盖矩阵 + 负向门禁 + 对抗夹具（仍在无宿主车道内）
 
@@ -201,7 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增 `tests/gates/test_smoke_l1_flow.py`（11 例纯逻辑）并登记 `tests/test_registry.json`；
   首跑即抓到真实缺陷：`--phase post pre post all` 会重复执行 `pre`（`all` 分支未去重），
   已改为末位去重保序。
-- L1 推进从「宿主 × 流程」纠正回宿主无关的
+- 策略文档 内部标准文档：把 L1 推进从「宿主 × 流程」纠正回宪法的
   「轴 × 流程」——宿主无关主干由本探针每次复测，宿主只承担一次性事实取证（DoD 四条）。
 
 ### codex 无头通道闭环 + CLI 驱动宿主升级
@@ -223,9 +276,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `codex-headless.residual.json`。
 - 宿主引擎改为**只用 CLI 升级**：`bugx init/install` 把 `~/.bugx/core` 从 build 198 升到 199，
   `bump_version.py --bump-build-id` 经同一安装器重建 build 200；`bugx doctor` 报 449 个静态
-  文件哈希一致。本轮版本号改为 `0.1.0`，Build ID 递增至 200。
+  文件哈希一致。本轮版本号仍为 `1.0.0`，Build ID 递增至 200。
 
-## [Unreleased]
+## [Unreleased] - build.199
 
 ### 提交门禁与宿主并发验收
 
@@ -237,9 +290,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 真机验收：`opencode` 单会话内 10 个原生 subagent 分两批并发派发，10/10 claim 真实开工并提交
   checkpoint（执行窗最大重叠 142.97s、整轮重叠 419.31s、峰值并发 3），`post --final` 以
   `INCOMPLETE`（覆盖未达标，显式 `--allow-incomplete`）正常封存。
-- 本轮不改变版本号（仍 `0.1.0`），Build ID 递增至 199；codex 无头通道仍待真机取证。
+- 本轮不改变版本号（仍 `1.0.0`），Build ID 递增至 199；codex 无头通道仍待真机取证。
 
-## [0.1.0] - 2026-10-16
+## [1.0.0+build.116] - 2026-10-16
 
 ### FunIDE 与跨平台构建修复
 
@@ -250,18 +303,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 真实 FunIDE UI 的 ACP/Worker/MCP 闭环仍未在本构建中验收，状态为 `UNVERIFIED_HOST`。
 
-## [0.1.0] - 2026-10-08
+## [1.0.0+build.56] - 2026-10-08
 
 ### Post 收尾与执行加速
 
 - 合入 DOC-208 的进程内执行 harness、冻结快照 `post --dry-run`、单次 FindingsSnapshot、知识账本脱敏投影和 Supervisor 串行授权。
 - post 失败现在同时保留稳定 attempt telemetry 和 Supervisor 权威 `lifecycle_blocked` 事件；遥测不可用时 fail-closed 标记为不可用，不伪称已落盘。
 - 统一 findings 报告容量上限为 4 MiB，并校验快照绑定与可配置的 credited 上限，避免跨 runtime 复用报告或结算计数漂移。
-- 语义版本继续固定为 0.1.0，Build ID 从 55 递增到 56。
+- 语义版本继续固定为 1.0.0，Build ID 从 55 递增到 56。
 
 真实 ACP/宿主 Agent → Worker → MCP → checkpoint → post 闭环仍未在本提交中验收，状态保持 `UNVERIFIED_HOST`。
 
-## [0.1.0] - 2026-10-08
+## [1.0.1] - 2026-10-08
 
 ### 性能与测试基础设施
 
@@ -276,7 +329,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS 测试 HOME 统一使用真实路径，OpenCode/ZCode 卸载清理回归恢复通过。
 
 
-## [0.1.0] - 2026-10-07
+## [1.0.0+build.39] - 2026-10-07
 
 ### 修复
 
@@ -284,7 +337,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 清理启动模块冗余转导出及过时测试，补齐交互、证据与新项目完整流程验证。
 - 开发架构门禁改为真实导入环检测，删除会误判标准库导入和旧依赖删除的历史数量快照。
 
-## [0.1.0] - 2026-10-07
+## [1.0.0+build.38] - 2026-10-07
 
 ### 修复与恢复
 
@@ -293,7 +346,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 业务提前准入授权持久化，自动调度与显式领取使用相同规则。
 - 修复相对 Cline 数据目录配置的项目路径锚定。
 
-## [0.1.0] - 2026-10-07
+## [1.0.0+build.37] - 2026-10-07
 
 ### Worker orchestration and proposal alignment
 
@@ -303,7 +356,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audited worker orchestration and internal architecture boundaries.
 
 
-## [0.1.0] - 2026-10-07
+## [1.0.0+build.36] - 2026-10-07
 
 ### Profile boundary fix
 
@@ -311,7 +364,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserved `NOT_APPLICABLE` probe states for transparent shape-guard accounting.
 
 
-## [0.1.0] - 2026-10-06
+## [1.0.0+build.32] - 2026-10-06
 
 ### Evidence integrity and recovery hardening
 
@@ -343,11 +396,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Worker checkpoints reject source scripts used as execution artifacts; generated output remains hash-verified.
 - Supervisor `max_wall_seconds` now remains a run-wide hard cap across budget resets; recovery cannot restart or extend the global wall clock.
 
-## [0.1.0] - 2026-09-27
+## [1.0.0] - 2026-09-27
 
 ### 🎉 Official General Availability (GA) Release
 
-BugX 0.1.0 marks the initial public release of BugX — an open-source, host-neutral, adversarial white-box & black-box AI-driven code auditing and vulnerability hunting agent.
+BugX 1.0.0 marks the first official major release of BugX — an open-source, host-neutral, adversarial white-box & black-box AI-driven code auditing and vulnerability hunting agent.
 
 ### Added & Improved
 

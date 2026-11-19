@@ -417,8 +417,15 @@ def close_session(final_round_id: str | None = None, *, reason: str = "completed
                 "rounds_count": int(state.get("polling_round", 1) or 1),
                 "status": final_state,
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            # F-RSI-20261113-112：遥测上报失败不得静默——tokens_consumed 是
+            # 全局每日预算熔断（DOC-049）与账单观测的输入，静默丢失=计量
+            # 缺口。fail-open 保留（遥测不阻断结算），但缺口必须可观测
+            # （F-104/106/109 同款守卫系列第 4 处）。
+            print(
+                f"[post] ⚠ 会话遥测上报失败（全局 token 计量将缺口本次消耗）: {exc}",
+                file=sys.stderr,
+            )
     return runtime_summary(current)
 
 

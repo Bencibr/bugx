@@ -1370,10 +1370,12 @@ PROBE_SPECIFICATIONS: dict[str, str] = {
         "- 工具接口: `apk_decompile_manifest` (解析 exported 组件与 DeepLink 过滤器), `adb_send_intent` (跨进程触发 Intent 越权)\n"
         "- 操作规范: 验证能否未认证越权拉起私有 Activity/Service，或通过伪造 Intent Extras 提取沙箱 SQLite 敏感数据。"
     ),
-    "ios_probe": (
-        "### [黑盒探针: IOSProbe (Mach-O Symbols & Plist Security)]\n"
-        "- 工具接口: `macho_symbol_inspector` (未剥离符号表与 IPC 接口), `ios_plist_security_gate` (URL Schemes 伪造/Keychain 共享)\n"
-        "- 操作规范: 审查私有 URL Schemes 劫持、ATS 强制放宽及敏感数据明文落盘隐患。"
+    "ios_binary": (
+        "### [黑盒探针: ios_binary (Mach-O 加固 / 代码签名 / entitlements / ATS)]\n"
+        "- 工具接口: `codesign`/`otool`/`nm` 宿主二进制审计（PIE、栈保护、cryptid、entitlements）, "
+        "Info.plist 静态安全门（ATS 放宽 `NSAllowsArbitraryLoads*`、`UIFileSharingEnabled` 明文落盘）\n"
+        "- 操作规范: 审查 ATS 强制放宽、敏感 entitlements 过宽（keychain-access-groups 等）"
+        "及二进制加固缺失（no-PIE / no-stack-canary）对应的可利用面。"
     ),
     "miniprogram_probe": (
         "### [黑盒探针: MiniProgramProbe (Subpackage Router & Cloud Functions)]\n"
@@ -1492,7 +1494,7 @@ def build_domain_specialized_prompt(
         elif target_form_norm in ("mobile_android", "android"):
             probes = ["android_probe"]
         elif target_form_norm in ("mobile_ios", "ios"):
-            probes = ["ios_probe"]
+            probes = ["ios_binary"]
         elif target_form_norm in ("miniprogram", "wechat"):
             probes = ["miniprogram_probe"]
         elif target_form_norm in ("binary", "embedded"):

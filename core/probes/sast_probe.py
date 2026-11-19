@@ -6,7 +6,9 @@ SAST 层定位：
 2. 零外部依赖多语言支持：内置通用结构化分词与括号平衡树引擎，
    原生覆盖 Go、Java、TypeScript/JavaScript、Rust、C/C++、Python、PHP 等主流语言；
 3. 供应链安全 (SCA)：内置轻量离线依赖漏洞匹配器 (pom.xml/package.json/go.mod/requirements.txt/Cargo.lock)；
-4. 企业级工程治理：支持跨语言行级抑制 (// bugx-ignore)、基线快照 (--baseline) 与 OASIS SARIF v2.1.0 标准导出；
+4. 企业级工程治理：支持跨语言行级抑制 (// bugx-ignore)、项目级路径忽略
+   (根目录 ``.bugxignore``，gitignore 子集)、基线快照 (--baseline) 与
+   OASIS SARIF v2.1.0 标准导出；
 5. 非侵入容灾原则：严禁强制外部工具安装，无外部工具时 100% 自动无缝降级至内置多语言引擎。
 """
 
@@ -50,7 +52,13 @@ from core.probes.sca_scanner import SCAScanner
 from core.planning.dynamic_flow_analyzer import DynamicFlowAnalyzer
 
 from core.runtime.tool_install_targets import OPTIONAL_TOOL_PACKAGE_SPECS
-from core.retrieval.universal_code_matcher import EXT_TO_LANG, ParsedSource, UniversalCodeMatcher
+from core.retrieval.universal_code_matcher import (
+    EXT_TO_LANG,
+    ParsedSource,
+    UniversalCodeMatcher,
+    extract_suppressions,
+    is_suppressed,
+)
 
 VALIDATED = {
     "semgrep": "1.80.0",
@@ -74,21 +82,236 @@ SKIP_DIRS = {
     "vendor", "Pods", ".gradle", ".idea",
 }
 
+#: 项目级忽略文件名（放在项目根，gitignore 语法）。
+#: ``SKIP_DIRS`` 只能排除固定的**目录名**，排不掉「本仓里这段路径是靶场/夹具」
+#: 这种 per-project 事实：``verification/sandboxes`` 下故意留洞的 CVE 修复
+#: 样例被当产品代码扫出 20 条 finding，只能靠用户配置的路径模式排除。
+IGNORE_FILE_NAME = ".bugxignore"
 
-def _skipped(relative: Path) -> bool:
-    """SAST 也要排除引擎/宿主的 ``.bugx*`` 运行态命名空间。
 
-    此前只按 ``SKIP_DIRS`` 的字面名排除 ``.bugx``，``.bugx-audit-artifacts``
-    这类兄弟目录会被当源码扫描——实测靶场里宿主写的 ``repro.py`` 就产生了
-    两条 ``SEC-006-SILENT-EXCEPTION``，被报告当成被测产品的缺陷。
-    判定与覆盖枚举同源（``core.retrieval.symbol_index``），避免两份名单漂移。
+def _ignore_glob_to_regex(pattern: str) -> str:
+    """把 gitignore 风格的 glob 译成正则体（不含首尾锚点）。
+
+    支持 ``*``（不跨 ``/``）、``**``（跨层级）、``?``、``[abc]`` / ``[!abc]``
+    与 ``\\`` 转义；不支持 ``{a,b}`` 花括号展开（正则里会被当字面量）。
     """
-    from core.retrieval.symbol_index import _is_engine_namespace_segment
+    out: list[str] = []
+    index = 0
+    length = len(pattern)
+    while index < length:
+        char = pattern[index]
+        if char == "*":
+            end = index
+            while end < length and pattern[end] == "*":
+                end += 1
+            if end - index >= 2 and end < length and pattern[end] == "/":
+                out.append("(?:.*/)?")  # ``**/``：跨任意层级目录
+                index = end + 1
+            elif end - index >= 2:
+                out.append(".*")
+                index = end
+            else:
+                out.append("[^/]*")
+                index = end
+        elif char == "?":
+            out.append("[^/]")
+            index += 1
+        elif char == "[":
+            close = pattern.find("]", index + 1)
+            if close == -1:
+                out.append(re.escape(char))
+                index += 1
+            else:
+                inner = pattern[index + 1:close]
+                if inner.startswith("!"):
+                    inner = "^" + inner[1:]
+                out.append(f"[{inner}]")
+                index = close + 1
+        elif char == "\\" and index + 1 < length:
+            out.append(re.escape(pattern[index + 1]))
+            index += 2
+        else:
+            out.append(re.escape(char))
+            index += 1
+    return "".join(out)
 
-    return any(
-        part in SKIP_DIRS or _is_engine_namespace_segment(part)
+
+class PathIgnoreSpec:
+    """某个项目根下 ``.bugxignore`` 解析出的忽略规格。
+
+    刻意**不做模块级缓存**：本探针可能在同一进程里被多次以不同 ``--root``
+    调用，进程级缓存会让 A 项目的模式串到 B 项目。规格由 ``load()`` 读一次，
+    调用方（``run_scan``）持有并在整轮扫描内复用；「重新加载」的时机就是
+    「下一次 ``run_scan(root)``」，与 ``SKIP_DIRS`` 这类进程级常量解耦。
+
+    语义是 gitignore 的子集：按行序取**最后一条命中**，``!`` 取反；不带
+    ``/`` 的模式匹配任意层级的同名节点，带 ``/`` 的模式锚定项目根；命中
+    某个目录时其下所有文件一并忽略。与 git 的差异：``!`` 可以直接把被忽略
+    目录内的文件重新纳入（git 要求先解除父目录忽略）。
+    """
+
+    def __init__(
+        self,
+        root: Path,
+        rules: tuple[tuple[bool, re.Pattern[str]], ...],
+        patterns: tuple[str, ...],
+    ) -> None:
+        self.root = root
+        self._rules = rules
+        self.patterns = patterns
+
+    @classmethod
+    def load(cls, root: Path) -> "PathIgnoreSpec":
+        root = root.resolve()
+        rules: list[tuple[bool, re.Pattern[str]]] = []
+        patterns: list[str] = []
+        try:
+            text = (root / IGNORE_FILE_NAME).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return cls(root, (), ())
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            negated = line.startswith("!")
+            body = line[1:].strip() if negated else line
+            if body.endswith("/"):
+                body = body.rstrip("/")
+            anchored = body.startswith("/") or "/" in body
+            body = body.lstrip("/")
+            if not body:
+                continue
+            prefix = "" if anchored else "(?:.*/)?"
+            try:
+                regex = re.compile(f"^{prefix}{_ignore_glob_to_regex(body)}$")
+            except re.error:
+                continue
+            rules.append((negated, regex))
+            patterns.append(line)
+        return cls(root, tuple(rules), tuple(patterns))
+
+    def matches(self, relative: str | Path) -> bool:
+        """``relative`` 为相对项目根的路径；命中任一祖先目录同样算忽略。"""
+        if not self._rules:
+            return False
+        rel = str(relative).replace("\\", "/").strip("/")
+        if not rel:
+            return False
+        parts = rel.split("/")
+        candidates = [rel]
+        for depth in range(1, len(parts)):
+            candidates.append("/".join(parts[:depth]))
+        ignored = False
+        for negated, regex in self._rules:
+            if any(regex.match(candidate) for candidate in candidates):
+                ignored = not negated
+        return ignored
+
+    def literal_excludes(self) -> tuple[str, ...]:
+        """可下发给外部工具的**字面量**前缀：含通配的规则无法安全翻译，跳过。"""
+        literals: list[str] = []
+        for pattern in self.patterns:
+            if pattern.startswith("!"):
+                continue
+            if any(char in pattern for char in "*?["):
+                continue
+            literals.append(pattern.strip("/"))
+        return tuple(literals)
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "file": str(self.root / IGNORE_FILE_NAME),
+            "patterns": list(self.patterns),
+        }
+
+
+def _skipped(relative: Path, ignore: PathIgnoreSpec | None = None) -> bool:
+    """枚举期跳过判定：内置目录白名单 + 引擎命名空间 + 项目级忽略。
+
+    SAST 也要排除引擎/宿主的 ``.bugx*`` 运行态命名空间：此前只按 ``SKIP_DIRS``
+    的字面名排除 ``.bugx``，``.bugx-audit-artifacts`` 这类兄弟目录会被当源码
+    扫描——实测靶场里宿主写的 ``repro.py`` 就产生了两条
+    ``SEC-006-SILENT-EXCEPTION``，被报告当成被测产品的缺陷。判定与覆盖枚举
+    同源（``core.retrieval.symbol_index``），避免两份名单漂移。
+
+    ``ignore`` 是**按 root 加载**的 ``PathIgnoreSpec``（``None`` = 只有内置规则）。
+    三条判定串成一条链：用户模式不再另起一条过滤通道，避免「枚举跳过」与
+    「事后过滤」两处口径漂移。
+    """
+    from core.retrieval.symbol_index import is_engine_namespace_segment
+
+    if any(
+        part in SKIP_DIRS or is_engine_namespace_segment(part)
         for part in relative.parts
-    )
+    ):
+        return True
+    return ignore is not None and ignore.matches(relative)
+
+
+#: 逐文件扫描失败的分类（F-207）。``syntax_error``/``parse_error`` 属解析失败，
+#: ``unreadable``/``scanner_error`` 属读取或扫描期失败；两者都必须带 file+reason
+#: 出现在 ``run_scan`` 的 ``skipped_files`` 里，不能与「文件无缺陷」同形。
+_PARSE_FAILURE_REASONS = frozenset({"syntax_error", "parse_error"})
+
+
+def _skip_reason(exc: BaseException) -> str:
+    if isinstance(exc, SyntaxError):
+        return "syntax_error"
+    if isinstance(exc, ValueError):
+        return "parse_error"
+    if isinstance(exc, OSError):
+        return "unreadable"
+    return "scanner_error"
+
+
+def _record_skip(
+    stats: dict[str, Any] | None, *, rel: str, stage: str, exc: BaseException,
+) -> dict[str, Any]:
+    """把一次逐文件跳过折成结构化记录并挂到 ``stats["skipped_files"]``。
+
+    聚合层（``run_scan``）据此输出 ``parse_errors``/``skipped_files``；没有它，
+    解析失败的文件只会让 ``scanned_files`` 少一，报告层无法区分「漏扫」与
+    「按规则排除」（F-207）。
+    """
+    reason = _skip_reason(exc)
+    if isinstance(exc, SyntaxError):
+        line = int(exc.lineno or 0)
+        col = int(exc.offset or 0)
+        detail = exc.msg or ""
+    else:
+        line = 0
+        col = 0
+        detail = str(exc)
+    record = {
+        "skipped": True,
+        "reason": reason,
+        "stage": stage,
+        "file": rel,
+        "line": line,
+        "col": col,
+        "detail": detail,
+    }
+    if stats is not None:
+        stats.setdefault("skipped_files", []).append(record)
+    return record
+
+
+def _merge_skipped(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按 (file, reason) 去重并稳定排序逐文件跳过记录。
+
+    Python 源码会经过 AST 与多语言两条枚举路径，同一份解析失败会被两边各记
+    一次；去重后 ``parse_errors`` 才是「文件数」而不是「路径数」。
+    """
+    seen: set[tuple[str, str]] = set()
+    merged: list[dict[str, Any]] = []
+    for item in records:
+        key = (str(item.get("file")), str(item.get("reason")))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    merged.sort(key=lambda item: (str(item.get("file")), str(item.get("reason"))))
+    return merged
 
 
 def _probe_environment() -> dict[str, str]:
@@ -229,6 +452,14 @@ def check_tool(name: str) -> dict:
     return _command((name,), name)
 
 
+#: 通道状态探针声明（AM-6 差距修复）：``check``/``status`` 只探测外部工具链
+#: 在场性（findings 恒空），与 mobile/ios_binary 的 ``check``（产出 findings）
+#: 语义不同。显式输出声明行，避免调用方把「通道就绪」误读成「扫过没问题」。
+CHANNEL_STATUS_NOTE = (
+    "channel-status only; run 'bugx probe sast scan' for findings"
+)
+
+
 def inspect(root: Path) -> dict:
     root = root.resolve()
     base = [
@@ -243,6 +474,8 @@ def inspect(root: Path) -> dict:
         "required": False,
         "recommended": True,
         "root": str(root),
+        "probe_kind": "channel_status",
+        "semantic_note": CHANNEL_STATUS_NOTE,
         "base_tools": base,
         "install": {
             "semgrep": f"pipx install {OPTIONAL_TOOL_PACKAGE_SPECS['semgrep']}",
@@ -260,6 +493,9 @@ def print_report(report: dict, as_json: bool = False) -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
     print(f"[{report['status']}] SAST 静态分析工具链（推荐，非硬依赖，支持多语言自动降级）")
+    # 通道状态探针声明：check/status 不产出 findings，「READY」只代表工具链
+    # 就绪，绝不代表「扫过没问题」；实际扫描必须走 scan 子命令。
+    print(f"  · 通道状态探针（{CHANNEL_STATUS_NOTE}）——findings 恒空，非漏洞扫描结果")
     for item in report["base_tools"]:
         print(f"  {'✓' if item['ok'] else '!'} {item['name']}: {item['detail']}")
     if report["status"] != "READY":
@@ -273,8 +509,6 @@ _SECRET_PLACEHOLDER_HINTS = (
     "your_", "xxxxx", "todo", "fixme", "fake",
 )
 _SECRET_CHAR_CLASSES = (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]")
-#: 行级抑制注释，语义与多语言引擎的 ``// bugx-ignore`` / ``# nosec`` 保持一致。
-_SUPPRESSION_RE = re.compile(r"(?:#|//)\s*(?:bugx-ignore(?::[^\n]*)?|nosec\b)", re.IGNORECASE)
 
 
 def _shannon_entropy(value: str) -> float:
@@ -328,10 +562,6 @@ class BuiltinAstScanner(ast.NodeVisitor):
         if 1 <= lineno <= len(self.source_lines):
             return self.source_lines[lineno - 1].strip()
         return ""
-
-    def _is_suppressed(self, lineno: int) -> bool:
-        """行级抑制：``# bugx-ignore`` / ``# nosec``（与多语言引擎语义一致）。"""
-        return bool(_SUPPRESSION_RE.search(self._get_snippet(lineno)))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.var_env.update(self.dynamic_analyzer.fold_python_function_scope(node))
@@ -523,7 +753,8 @@ class BuiltinAstScanner(ast.NodeVisitor):
                 if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                     val = node.value.value
                     # QUA-08：变量名匹配只是必要条件；值本身还必须像机密。
-                    if _looks_like_hardcoded_secret(val) and not self._is_suppressed(node.lineno):
+                    # 行级抑制不在这里判——``scan_source_ast`` 汇合点统一按规则名过滤。
+                    if _looks_like_hardcoded_secret(val):
                         self.findings.append({
                             "rule_id": "SEC-004-HARDCODED-SECRET",
                             "name": "Hardcoded Secret",
@@ -542,12 +773,19 @@ class BuiltinAstScanner(ast.NodeVisitor):
 
 
 def scan_source_ast(
-    root: Path, max_files: int = 1000, stats: dict[str, int] | None = None,
+    root: Path, max_files: int = 1000, stats: dict[str, Any] | None = None,
+    ignore: PathIgnoreSpec | None = None,
 ) -> list[dict[str, Any]]:
     """扫描 Python 源码（BuiltinAstScanner，保持向前兼容）。
 
-    ``stats`` 若给出，会填入 ``files``（成功解析的文件数）。报告层需要这个
-    数字才能说清覆盖范围：没有它，调用方只能拿「命中数」冒充「暴露面总量」。
+    ``stats`` 若给出，会填入 ``files``（成功解析的文件数）与 ``skipped_files``
+    （逐文件跳过记录：``reason`` 区分 ``syntax_error``/``unreadable`` 等）。
+    报告层需要这两个数字才能说清覆盖范围：只有 ``files`` 时，解析失败的文件
+    与「扫描范围外」在证据上无法区分（F-207）。
+
+    行级抑制**不在这里**判：抑制统一在 ``run_scan`` 的去重之后执行（见
+    ``_apply_suppressions``）。若在收集期就吃掉命中，跨规则去重会把同源的另一
+    条规则顶上来，用户抑制掉一条、报告里换个规则名继续报。
     """
     findings: list[dict[str, Any]] = []
     scanned = 0
@@ -560,35 +798,40 @@ def scan_source_ast(
             rel = path.relative_to(root).as_posix()
         except ValueError:
             rel = str(path)
-        if _skipped(Path(rel)):
+        if _skipped(Path(rel), ignore):
             continue
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
             source_lines = content.splitlines()
             tree = ast.parse(content, filename=str(path))
-            scanner = BuiltinAstScanner(path, rel, source_lines)
-            scanner.visit(tree)
-            findings.extend(scanner.findings)
-            scanned += 1
-        except (SyntaxError, OSError):
+        except (SyntaxError, OSError) as exc:
+            _record_skip(stats, rel=rel, stage="builtin_ast", exc=exc)
             continue
+        scanner = BuiltinAstScanner(path, rel, source_lines)
+        scanner.visit(tree)
+        findings.extend(scanner.findings)
+        scanned += 1
     if stats is not None:
         stats["files"] = stats.get("files", 0) + scanned
     return findings
 
 
 def scan_multilang_sources(
-    root: Path, max_files: int = 2000, stats: dict[str, int] | None = None,
+    root: Path, max_files: int = 2000, stats: dict[str, Any] | None = None,
+    ignore: PathIgnoreSpec | None = None,
 ) -> list[dict[str, Any]]:
-    """使用 UniversalCodeMatcher 与 SASTRuleMatcher 对非 Python 及多语言源码执行扫描。"""
+    """使用 UniversalCodeMatcher 与 SASTRuleMatcher 对多语言源码（含 Python）执行扫描。"""
     matcher = SASTRuleMatcher(BUILTIN_RULES)
     findings: list[dict[str, Any]] = []
     scanned = 0
 
-    # 重点扫描非 Python 多语言文件（Python 已由 BuiltinAstScanner 深度处理，亦可补充）
-    for ext, lang in EXT_TO_LANG.items():
-        if ext == ".py":
-            continue
+    # 必须覆盖 Python：``BUILTIN_RULES`` 里有 10 条规则声明了 ``python`` 规格
+    # （SQLi / 反序列化 / 路径穿越 / SSRF / 弱加密 / 临时文件 / SSTI …），而
+    # ``BuiltinAstScanner`` 只覆盖命令注入、动态执行、硬编码凭据三类。早先这里
+    # 跳过 ``.py`` 让那 10 条规则的 Python 规格成了永不执行的死代码——靶场种子
+    # 「pathlib 拼接式路径穿越」因此完全漏检（F-RSI-20261110-010）。AST 扫描器
+    # 与规则引擎对同一处命令注入/eval 的重叠命中由 ``_dedupe_cross_tool`` 合并。
+    for ext in EXT_TO_LANG:
         for path in root.rglob(f"*{ext}"):
             if scanned >= max_files:
                 break
@@ -598,24 +841,39 @@ def scan_multilang_sources(
                 rel = path.relative_to(root).as_posix()
             except ValueError:
                 rel = str(path)
-            if _skipped(Path(rel)):
+            if _skipped(Path(rel), ignore):
                 continue
 
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
                 parsed = UniversalCodeMatcher.parse_file(path, rel_path=rel, content=content)
+                # 抑制不在收集期判：清空解析出的抑制表，统一交给 ``run_scan`` 在
+                # 去重之后过滤。否则 ``sast_rules`` 会先吃掉多语言命中，同源的
+                # AST 规则在去重时无从得知它被合并（``merged_rule_ids`` 为空），
+                # 用户按规则目录写 ``# bugx-ignore: SEC-CMD-001`` 就静默失效。
+                parsed.suppressions = {}
                 file_findings = matcher.match_file(parsed)
                 findings.extend(file_findings)
                 scanned += 1
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - 结构化记录，不再静默 continue
+                # 逐文件失败不再裸 ``continue``：记录 file+reason 后由 ``run_scan``
+                # 汇总为 ``skipped_files``。单文件失败不中断整轮扫描，但必须在
+                # 证据上可区分（F-207）。
+                _record_skip(stats, rel=rel, stage="multilang", exc=exc)
                 continue
 
+    # Python 文件的 AST 专有规则由 ``matcher._scan_python_specifics`` 内部记录
+    # 解析失败（matcher 层维护 parse_error 清单），这里并入同一份聚合结果，
+    # 避免只暴露「多语言外壳」抛出的失败而漏掉 AST 规则层的跳过。
     if stats is not None:
+        stats.setdefault("skipped_files", []).extend(matcher.parse_errors)
         stats["files"] = stats.get("files", 0) + scanned
     return findings
 
 
-def scan_external_bandit(root: Path, timeout: float = 60.0) -> list[dict[str, Any]]:
+def scan_external_bandit(
+    root: Path, timeout: float = 60.0, ignore: PathIgnoreSpec | None = None,
+) -> list[dict[str, Any]]:
     """调用外部 Native Bandit 对 Python 源码进行深度安全扫描。
 
     ``timeout`` 由调用方按**剩余总预算**下发（``run_scan(deadline_seconds=...)``），
@@ -626,7 +884,11 @@ def scan_external_bandit(root: Path, timeout: float = 60.0) -> list[dict[str, An
     if not exe:
         return []
     try:
-        cmd = [exe, "-r", str(root), "-f", "json", "-q", "-x", ",".join(SKIP_DIRS)]
+        # 外部工具自己遍历磁盘，只能靠 ``-x`` 下发同一份忽略规格（仅字面量前缀）。
+        excludes = list(SKIP_DIRS)
+        if ignore is not None:
+            excludes.extend(str(root / literal) for literal in ignore.literal_excludes())
+        cmd = [exe, "-r", str(root), "-f", "json", "-q", "-x", ",".join(excludes)]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                              check=False, env=environment)
         if res.returncode not in (0, 1):
@@ -667,14 +929,20 @@ def scan_external_bandit(root: Path, timeout: float = 60.0) -> list[dict[str, An
         return []
 
 
-def scan_external_semgrep(root: Path, timeout: float = 60.0) -> list[dict[str, Any]]:
+def scan_external_semgrep(
+    root: Path, timeout: float = 60.0, ignore: PathIgnoreSpec | None = None,
+) -> list[dict[str, Any]]:
     """调用外部 Semgrep 做深度规则扫描；``timeout`` 由调用方的剩余预算下发。"""
     environment = _probe_environment()
     exe = shutil.which("semgrep", path=environment.get("PATH"))
     if not exe:
         return []
     try:
-        cmd = [exe, "scan", "--json", "--quiet", "--config", "p/security-audit", str(root)]
+        cmd = [exe, "scan", "--json", "--quiet", "--config", "p/security-audit"]
+        if ignore is not None:
+            for literal in ignore.literal_excludes():
+                cmd.extend(["--exclude", literal])
+        cmd.append(str(root))
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                              check=False, env=environment)
         if res.returncode not in (0, 1):
@@ -810,8 +1078,78 @@ def _cwe_head(value: Any) -> str:
     return str(value or "").strip().upper().split(":", 1)[0].strip()
 
 
+def _finding_source_lines(root: Path, rel: str) -> list[str] | None:
+    """读取 finding 指向的源文件行；越出 ``root`` 或读不到时返回 ``None``。"""
+    candidate = Path(rel)
+    path = candidate if candidate.is_absolute() else root / candidate
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    try:
+        return resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+
+
+def _apply_suppressions(
+    root: Path, findings: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """按行级抑制过滤**去重之后**的最终结果，返回 (保留项, 被抑制数)。
+
+    抑制必须作用在「缺陷」上，而不是各扫描器「原始命中」上。跨规则去重会把
+    同一处的重复命中合并成一条代表（同文件 + 同 CWE + 行距 ≤3），若抑制发生在
+    去重之前，用户抑制掉看得见的那条规则后，被吞掉的同源规则会顶上来——实测
+    ``exec`` 被 AST 的 ``SEC-002-DANGEROUS-EVAL`` 与多语言的 ``SEC-EVAL-001``
+    双报，注释只写前者时总数与 critical 纹丝不动，等于抑制静默失效。
+
+    放在这里还有一个好处：抑制口径对 AST / 多语言 / 外部工具一视同仁，不再
+    取决于各扫描器是否记得自己调一次判定。
+
+    匹配时取 ``{rule_id} ∪ merged_rule_ids``：去重把同源的另一条规则（如
+    ``SEC-CMD-001``）并进了代表条目，它仍是规则目录里的正式编号，按它写抑制
+    必须同样生效，否则「照文档写注释 → 静默无效果」。
+    """
+    cache: dict[str, dict[int, set[str]]] = {}
+    kept: list[dict[str, Any]] = []
+    suppressed = 0
+    for item in findings:
+        rel = str(item.get("file") or "")
+        try:
+            lineno = int(item.get("line") or 0)
+        except (TypeError, ValueError):
+            lineno = 0
+        if not rel or lineno <= 0:
+            kept.append(item)
+            continue
+        if rel not in cache:
+            lines = _finding_source_lines(root, rel)
+            cache[rel] = extract_suppressions(lines) if lines is not None else {}
+        rule_ids = {str(item.get("rule_id") or "")}
+        rule_ids.update(str(rule) for rule in (item.get("merged_rule_ids") or ()))
+        rule_ids.discard("")
+        if any(is_suppressed(cache[rel], lineno, rule) for rule in rule_ids):
+            suppressed += 1
+            continue
+        kept.append(item)
+    # ``merged_rule_ids`` 只是抑制判定的中间产物（去重时记下的同源规则身份），
+    # 不是缺陷本身的属性：它不参与指纹/SARIF，留在输出里会变成别人依赖的隐式
+    # 契约，把去重判据锁死。判定用完即摘。
+    for item in kept:
+        item.pop("merged_rule_ids", None)
+    return kept, suppressed
+
+
 def _dedupe_cross_tool(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """合并不同扫描器对同一处缺陷的重复命中（同文件 + 同 CWE + 行号相近）。"""
+    """合并不同扫描器对同一处缺陷的重复命中（同文件 + 同 CWE + 行号相近）。
+
+    合并时把被吞掉的 ``rule_id`` 记进代表条目的 ``merged_rule_ids``：规则目录里
+    的正式编号（如 ``SEC-CMD-001``）与去重后输出的编号（``SEC-001-OS-SYSTEM``）
+    不是同一个，用户照文档写抑制注释时必须同样生效，否则抑制静默失效。只在
+    真的合并了**不同** ``rule_id`` 时才写这个字段，代表条目自身的 ``rule_id``
+    与输出口径保持不变。
+    """
     kept: list[dict[str, Any]] = []
     seen: list[tuple[str, str, str, int]] = []
     for item in findings:
@@ -822,17 +1160,22 @@ def _dedupe_cross_tool(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
             line = int(item.get("line") or 0)
         except (TypeError, ValueError):
             line = 0
-        duplicate = False
+        duplicate_of = -1
         if path and cwe:
-            for seen_path, seen_cwe, seen_rule, seen_line in seen:
+            for index, (seen_path, seen_cwe, seen_rule, seen_line) in enumerate(seen):
                 # 只有**不同规则**命中同一处才算跨工具重复：同一条规则在相邻
                 # 两行命中是两处真实缺陷（实测 src/config.py:5 与 :6 是两个
                 # 独立的硬编码凭据），不能被合并掉。
                 if (seen_path == path and seen_cwe == cwe
                         and seen_rule != rule and abs(seen_line - line) <= 3):
-                    duplicate = True
+                    duplicate_of = index
                     break
-        if duplicate:
+        if duplicate_of >= 0:
+            # ``kept`` 与 ``seen`` 同步追加、从不删除，索引一一对应。
+            representative = kept[duplicate_of]
+            merged = representative.setdefault("merged_rule_ids", [])
+            if rule and rule not in merged and rule != representative.get("rule_id"):
+                merged.append(rule)
             continue
         seen.append((path, cwe, rule, line))
         kept.append(item)
@@ -856,8 +1199,11 @@ def run_scan(
     ``budget_exhausted=True``，绝不静默返回 ``COMPLETED`` 冒充完整扫描。
     """
     root = root.resolve()
+    # 忽略规格按本次调用的 root 加载一次，整轮扫描内复用：不同 --root 的调用
+    # 各拿各的 ``.bugxignore``，不会因进程内复用而串味。
+    ignore = PathIgnoreSpec.load(root)
     findings: list[dict[str, Any]] = []
-    file_stats: dict[str, int] = {}
+    file_stats: dict[str, Any] = {}
     used_tools: list[str] = []
     started_at = time.monotonic()
     deadline = (
@@ -871,12 +1217,12 @@ def run_scan(
         return deadline - time.monotonic()
 
     # 1. 执行 Python 原生 AST 扫描 (保持向前兼容)
-    builtin_py_results = scan_source_ast(root, stats=file_stats)
+    builtin_py_results = scan_source_ast(root, stats=file_stats, ignore=ignore)
     findings.extend(builtin_py_results)
     used_tools.append("builtin-ast")
 
     # 2. 执行多语言通用结构化模式扫描 (Go, Java, JS/TS, Rust, C/C++, PHP 等)
-    multilang_results = scan_multilang_sources(root, stats=file_stats)
+    multilang_results = scan_multilang_sources(root, stats=file_stats, ignore=ignore)
     if multilang_results:
         findings.extend(multilang_results)
         used_tools.append("builtin-multilang-sast")
@@ -884,7 +1230,13 @@ def run_scan(
     # 3. 执行多语言依赖供应链分析 (SCA)
     if include_sca:
         sca = SCAScanner()
-        sca_results = sca.scan_project(root)
+        # ``SCAScanner`` 自带清单枚举（另一个模块，本次不动），这里按同一份
+        # ``PathIgnoreSpec`` 收口：被忽略的清单不产生 finding。清单解析是毫秒级，
+        # 真正省时间的是上面两条 AST/多语言枚举路径。
+        sca_results = [
+            item for item in sca.scan_project(root)
+            if not ignore.matches(item.get("file", ""))
+        ]
         if sca_results:
             findings.extend(sca_results)
             used_tools.append("builtin-sca")
@@ -900,6 +1252,7 @@ def run_scan(
         else:
             semgrep_results = scan_external_semgrep(
                 root, timeout=60.0 if remaining is None else min(60.0, remaining),
+                ignore=ignore,
             )
             if semgrep_results:
                 findings.extend(semgrep_results)
@@ -914,6 +1267,7 @@ def run_scan(
         else:
             bandit_results = scan_external_bandit(
                 root, timeout=60.0 if remaining is None else min(60.0, remaining),
+                ignore=ignore,
             )
             if bandit_results:
                 findings.extend(bandit_results)
@@ -926,9 +1280,13 @@ def run_scan(
     # 行号相近（<=3 行）」，保留首个（内建优先，字段最全）。
     findings = _dedupe_cross_tool(findings)
 
+    # 行级抑制在**去重之后**统一执行（唯一应用点）：先合并同源重复，再按
+    # 「行 + 规则名」压制去重后的代表条目，被吞掉的同源规则不会顶上来。
+    findings, suppressed_by_comment = _apply_suppressions(root, findings)
+    file_stats["suppressed"] = suppressed_by_comment
+
     # 排序：按严重度及路径排序
-    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    findings.sort(key=lambda x: (severity_order.get(x.get("severity", "medium"), 2), x.get("file", ""), x.get("line", 0)))
+    findings.sort(key=lambda x: (_SEVERITY_RANK.get(x.get("severity", "medium"), 2), x.get("file", ""), x.get("line", 0)))
 
     # 保存基线
     if write_baseline:
@@ -939,6 +1297,17 @@ def run_scan(
     if baseline:
         findings, suppressed_baseline = apply_baseline_filter(findings, baseline)
 
+    # 逐文件跳过（含解析失败）的结构化收据：``scanned_files`` 只说明「成功扫了
+    # 多少」，没有这两个字段时「解析失败漏扫」与「文件无缺陷」不可区分（F-207）。
+    skipped_files = _merge_skipped(file_stats.get("skipped_files") or [])
+    parse_errors = sum(
+        1 for item in skipped_files if item.get("reason") in _PARSE_FAILURE_REASONS
+    )
+    skipped_reasons: dict[str, int] = {}
+    for item in skipped_files:
+        reason = str(item.get("reason"))
+        skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
+
     return {
         "schema_version": 2,
         "status": "DEGRADED" if budget_exhausted else "COMPLETED",
@@ -946,6 +1315,18 @@ def run_scan(
         # 报告层需要「扫了多少文件」才能说清楚覆盖范围。此前收据不报这个数，
         # 调用方只能用命中数顶替，把「命中数」当成「暴露面总量」呈现。
         "scanned_files": int(file_stats.get("files", 0)),
+        # 解析失败/读取失败的文件数与明细：``reason`` 区分 syntax_error /
+        # parse_error / unreadable / scanner_error，``file``+``line``+``col``
+        # 给出定位，报告层不必再从日志里反推漏扫了什么。
+        "parse_errors": parse_errors,
+        "skipped_files": skipped_files,
+        "skipped_reasons": skipped_reasons,
+        # 路径级忽略是「为什么少扫了」的可解释证据：报告层不该只能看到变小的
+        # 数字却说不清是漏扫还是按规则排除。
+        "path_ignore": ignore.describe(),
+        # 被行级抑制压掉的命中数：抑制生效与否必须可观测，否则「写了不生效」
+        # 只能靠人肉复现。
+        "suppressed_findings": int(file_stats.get("suppressed", 0)),
         "tools_executed": used_tools,
         "total_findings": len(findings),
         "suppressed_by_baseline": suppressed_baseline,
@@ -953,6 +1334,48 @@ def run_scan(
         "elapsed_seconds": round(time.monotonic() - started_at, 3),
         "findings": findings,
     }
+
+
+#: 严重度排序权重（0 最严重）。findings 排序与人读摘要共用同一份口径。
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+#: 人读输出里「批量命中」的计数阈值：达到该值的规则会得到 --baseline /
+#: .bugxignore 的可操作提示，而不是让用户逐条复核。
+_BULK_RULE_THRESHOLD = 20
+
+
+def _rule_summary(findings: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
+    """按规则聚合 ``(rule_id, 该规则最高严重度, 计数)``。
+
+    严重度取该规则**所有命中**里的最高值，不是第一条命中的——按严重度排序的
+    明细里同一条规则可能散落在多行，用首条会把 306 条 low 的批量规则和 3 条
+    high 的规则显示成同一档。
+    排序：最高严重度从高到低，同档按计数从多到少，再按 rule_id 兜底稳定。
+    """
+    counts: collections.Counter[str] = collections.Counter()
+    severities: dict[str, str] = {}
+    for item in findings:
+        rule = str(item.get("rule_id") or "")
+        if not rule:
+            continue
+        counts[rule] += 1
+        severity = str(item.get("severity") or "medium").lower()
+        current = severities.get(rule)
+        if current is None or _SEVERITY_RANK.get(severity, 2) < _SEVERITY_RANK.get(current, 2):
+            severities[rule] = severity
+    rows = [(rule, severities[rule], count) for rule, count in counts.items()]
+    rows.sort(key=lambda row: (_SEVERITY_RANK.get(row[1], 2), -row[2], row[0]))
+    return rows
+
+
+def _print_rule_summary(rows: list[tuple[str, str, int]], total: int) -> None:
+    """打印规则级摘要（只走人读输出，``--json`` / ``--sarif`` 不经过这里）。"""
+    rule_width = max(len(rule) for rule, _, _ in rows)
+    severity_width = max(len(severity) for _, severity, _ in rows) + 2  # 含方括号
+    print(f"  规则摘要（{len(rows)} 条规则 / {total} 项，按最高严重度排序）：")
+    for rule, severity, count in rows:
+        tag = f"[{severity.upper()}]".ljust(severity_width)
+        print(f"    {tag}{rule.ljust(rule_width)}  {count}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -985,13 +1408,36 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(scan_res, ensure_ascii=False, indent=2))
         else:
             print(f"[SAST Scan] 执行完成（工具链: {', '.join(scan_res['tools_executed'])}），发现 {scan_res['total_findings']} 个候选漏洞：")
+            if scan_res.get("parse_errors"):
+                reasons = "、".join(
+                    f"{reason}×{count}"
+                    for reason, count in sorted((scan_res.get("skipped_reasons") or {}).items())
+                )
+                print(
+                    f"  ⚠️ {scan_res['parse_errors']} 个文件因解析失败被跳过"
+                    f"（{reasons}），其 AST 级规则未覆盖；明细见 --json 的 skipped_files"
+                )
             if scan_res.get("suppressed_by_baseline", 0) > 0:
                 print(f"  ℹ️ 已基于 Baseline 过滤 {scan_res['suppressed_by_baseline']} 个已知历史问题")
+            truncated = scan_res["total_findings"] > 25
+            rule_rows = _rule_summary(scan_res["findings"])
+            # 摘要只在明细确实被截断时打：小规模扫描打摘要等于把明细抄一遍。
+            if truncated:
+                _print_rule_summary(rule_rows, scan_res["total_findings"])
             for idx, item in enumerate(scan_res["findings"][:25], 1):
                 cwe_tag = f"[{item.get('cwe', '')}] " if item.get('cwe') else ""
                 print(f"  #{idx} [{item['severity'].upper()}] {item['file']}:{item['line']} - {cwe_tag}{item['rule_id']}: {item['message']}")
-            if scan_res['total_findings'] > 25:
+            if truncated:
                 print(f"  ... 以及另外 {scan_res['total_findings'] - 25} 项（使用 --json 或 --sarif 查看全量）")
+                # 批量命中给可操作出口：这类项逐条复核没有意义，应当固化基线或
+                # 按路径排除。按计数判，不认规则名。
+                bulk = [(rule, count) for rule, _, count in rule_rows if count >= _BULK_RULE_THRESHOLD]
+                if bulk:
+                    names = "、".join(f"{rule}（{count} 项）" for rule, count in bulk)
+                    print(
+                        f"  提示：{names}属于批量命中（≥{_BULK_RULE_THRESHOLD} 项），"
+                        "建议用 --baseline 固化历史，或用 .bugxignore 排除整类路径，而不是逐条复核。"
+                    )
         return 0
 
     report = inspect(args.root)
@@ -1003,6 +1449,61 @@ def main(argv: list[str] | None = None) -> int:
     if args.strict:
         return 1
     return 0 if args.allow_degraded else 2
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活外部 SAST 工具是否在 PATH（零子进程 which）。
+
+    缺失不阻断：本模块架构契约是非侵入式零依赖，外部工具只做加速通道；
+    但调用方必须据此走 ``run_static_degraded`` 显式标记降级扫描，禁止把
+    纯内置引擎扫描伪装成完整外部工具链扫描。
+    """
+    environment = _probe_environment()
+    path = environment.get("PATH")
+    found = [name for name in ("semgrep", "codeql", "trivy", "bandit") if shutil.which(name, path=path)]
+    if not found:
+        return False, "无外部 SAST 工具（semgrep/codeql/trivy/bandit）；内置多语言引擎兜底"
+    return True, f"外部工具: {', '.join(found)}"
+
+
+def run_static_degraded(root: Path, *, deadline_seconds: float | None = None) -> dict:
+    """降级契约：仅执行内置 AST/多语言/SCA 阶段，显式标记降级扫描。
+
+    输出与成功路径（``run_scan`` 的 ``status="COMPLETED"`` 完整工具链扫描）
+    字段级可区分：``status="degraded"`` + ``degraded=True`` + ``degraded_reason``；
+    ``tools="builtin"`` 硬性跳过全部外部工具通道，绝不静默混入外部结果。
+    """
+    available, availability_detail = is_available()
+    result = run_scan(root, tools="builtin", deadline_seconds=deadline_seconds)
+    return {
+        "schema_version": result["schema_version"],
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "external_sast_tools_unavailable"
+        ),
+        "probe_mode": "static_degraded",
+        "root": result["root"],
+        "scan_status": result["status"],
+        "scanned_files": result["scanned_files"],
+        "parse_errors": result["parse_errors"],
+        "skipped_files": result["skipped_files"],
+        "skipped_reasons": result["skipped_reasons"],
+        "tools_executed": result["tools_executed"],
+        "total_findings": result["total_findings"],
+        "suppressed_by_baseline": result["suppressed_by_baseline"],
+        "findings": result["findings"],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "external_tools_skipped": ["semgrep", "bandit", "codeql", "trivy"],
+        },
+        "metadata": {
+            "degraded_mode": "builtin_engine_only",
+            "external_channels_executed": False,
+            "fallback": "外部 SAST 工具缺失时由内置多语言引擎完成扫描；加速通道缺失需在准备记录留痕",
+        },
+    }
 
 
 if __name__ == "__main__":

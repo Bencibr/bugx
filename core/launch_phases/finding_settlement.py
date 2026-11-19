@@ -172,6 +172,174 @@ def _findings_binding_is_stale(path: Path, runtime: dict) -> bool:
     )
 
 
+def _finding_decision_state(item: Mapping[str, Any]) -> str:
+    """裁决态归一：confirmed/rejected 之外（含确认块缺失或非法）一律 candidate。
+
+    与 auto_build 的口径一致——非法 confirmation 块会被 pop 掉，快照里等价于
+    candidate；这里不重复抛错，只做决定性归一。
+    """
+    confirmation = item.get("confirmation") if isinstance(item, Mapping) else None
+    if isinstance(confirmation, Mapping):
+        state = str(confirmation.get("state") or "").strip().lower()
+        if state in {"confirmed", "rejected"}:
+            return state
+    return "candidate"
+
+
+def _finding_identity_keys(item: Mapping[str, Any]) -> list[str]:
+    """finding 身份键（id / finding_id / fingerprint），去重保序。"""
+    keys: list[str] = []
+    for field_name in ("id", "finding_id", "fingerprint"):
+        value = str(item.get(field_name) or "").strip() if isinstance(item, Mapping) else ""
+        if value and value not in keys:
+            keys.append(value)
+    return keys
+
+
+def findings_json_stale_vs_authority(runtime: dict) -> str | None:
+    """派生 findings.json 与 Supervisor 权威态的确认态/revision 一致性检查。
+
+    缺陷（2026-11-17 obs-2，dsh 重验实证）：settle_findings_path 的 stale 判定
+    只看 run_id/lifecycle binding，同一 run 内**先于裁决**生成的 findings.json
+    会让 post 跳过 auto_build，把旧候选视图直接拿去结算（09:33 裁决后必须手动
+    删除派生文件）。这里追加两条从严信号：
+
+    * revision 信号：派生文件记录的 ``supervisor_binding.findings_revision``
+      落后于权威态（新 finding 已同步进 Supervisor 而视图未重建）→ stale；
+    * 确认态信号：权威终态（confirmed/rejected）必须在派生视图中以**同态**
+      出现——落后（candidate）或篡改反向（rejected↔confirmed）都是 stale；
+      权威 candidate 允许派生侧保留 candidate 或裁决器补证的 confirmed。
+
+    返回 None 表示一致（或无法可靠判定——交由快照校验兜底，绝不因检查自身
+    失败而放大阻断）；返回字符串为 stale 原因，调用方应归档旧文件并重建。
+    """
+    path = settle_findings_path(runtime)
+    if path is None or not path.is_file() or path.is_symlink():
+        return None
+    try:
+        derived = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(derived, dict):
+        return None
+    derived_findings = derived.get("findings")
+    if not isinstance(derived_findings, list):
+        return None
+    root = Path(os.path.abspath(os.fspath(resolve_project_root())))
+    from core.launch_phases.post_dry_run import RootReader, SnapshotInvalid
+
+    authority_reader = None
+    close_authority = False
+    try:
+        try:
+            project_reader = RootReader(root)
+        except SnapshotInvalid:
+            return None
+        try:
+            supervisor_payload, authority_reader, close_authority = (
+                _load_authoritative_supervisor(runtime, root, project_reader)
+            )
+        finally:
+            project_reader.close()
+        if not isinstance(supervisor_payload, dict):
+            return None
+        authority_findings = supervisor_payload.get("findings")
+        if not isinstance(authority_findings, list):
+            return None
+        # 信号一：finding 同步代 revision（新增 finding 未进派生视图）。
+        binding = derived.get("supervisor_binding")
+        if isinstance(binding, Mapping):
+            recorded_raw = binding.get("findings_revision")
+            recorded = recorded_raw if (
+                isinstance(recorded_raw, int) and not isinstance(recorded_raw, bool)
+            ) else None
+            authority_revision = supervisor_payload.get("findings_revision")
+            if (
+                recorded is not None
+                and isinstance(authority_revision, int)
+                and not isinstance(authority_revision, bool)
+                and recorded != authority_revision
+            ):
+                return (
+                    f"supervisor_binding.findings_revision={recorded} 落后于权威态 "
+                    f"{authority_revision}"
+                )
+        # 信号二：逐条确认态必须不落后于权威终态。
+        derived_index: dict[str, list[dict]] = {}
+        for item in derived_findings:
+            if isinstance(item, dict):
+                for key in _finding_identity_keys(item):
+                    derived_index.setdefault(key, []).append(item)
+        matched: set[int] = set()
+        for authority in authority_findings:
+            if not isinstance(authority, dict):
+                continue
+            label = str(authority.get("id") or authority.get("fingerprint") or "?")
+            candidates: list[dict] = []
+            seen: set[int] = set()
+            for key in _finding_identity_keys(authority):
+                for item in derived_index.get(key, []):
+                    marker = id(item)
+                    if marker not in seen:
+                        seen.add(marker)
+                        candidates.append(item)
+            if len(candidates) != 1:
+                return f"权威 finding {label} 在派生视图中缺失或不唯一"
+            derived_item = candidates[0]
+            matched.add(id(derived_item))
+            authority_state = _finding_decision_state(authority)
+            derived_state = _finding_decision_state(derived_item)
+            if authority_state in {"confirmed", "rejected"}:
+                if derived_state != authority_state:
+                    return (
+                        f"权威 finding {label} 终态={authority_state}，"
+                        f"派生视图为 {derived_state}（落后或反向）"
+                    )
+            elif derived_state == "rejected":
+                return f"权威 finding {label} 是 candidate，派生视图却是 rejected"
+        for item in derived_findings:
+            if isinstance(item, dict) and id(item) not in matched:
+                return "派生视图存在权威态之外的 finding"
+        return None
+    except FindingsSnapshotError:
+        return None
+    except Exception:
+        return None
+    finally:
+        if close_authority and authority_reader is not None:
+            try:
+                authority_reader.close()
+            except Exception:
+                pass
+
+
+def refresh_stale_findings_json(runtime: dict) -> str | None:
+    """post auto_build 前置刷新：派生视图落后于权威态时归档旧文件并放行重建。
+
+    与 :func:`archive_stale_findings_binding`（跨 run 的 binding 归档）互补：
+    本函数处理**同 run 内**确认态/revision 落后。一致文件不动（幂等）；判定
+    为 stale 时把旧文件改名 ``.stale-backup``（冲突时追加时间戳，绝不覆盖）
+    并返回人读原因，settle_findings_path 随即返回 None，调用方走 auto_build
+    从权威态重建。
+    """
+    if settle_findings_path(runtime) is None:
+        return None
+    reason = findings_json_stale_vs_authority(runtime)
+    if reason is None:
+        return None
+    path = settle_findings_path(runtime)
+    if path is None or not path.is_file():
+        return None
+    backup = path.with_name(path.name + ".stale-backup")
+    if backup.exists():
+        backup = path.with_name(f"{path.name}.stale-backup-{int(time.time())}")
+    os.replace(path, backup)
+    return (
+        f"派生 findings.json 落后于 Supervisor 权威态（{reason}）；"
+        f"已归档为 {backup.name}，将从权威态重建"
+    )
+
+
 def _lifecycle_findings_path(runtime: dict) -> Path:
     return lifecycle_root_for(runtime) / "findings.json"
 
@@ -355,7 +523,12 @@ def gate_confirmed_findings(
         # 收集未终态候选的详细信息以供宿主 Agent 智能升阶
         pending_ids = [
             str(f.get("id"))
-            for f in findings if not finding_confirmation.is_confirmed(f) and f.get("confirmation", {}).get("state") != "rejected"
+            # F-RSI-20261112-080：`.get("confirmation", {})` 的默认值只在键
+            # 缺失时生效——键存在但为 null 时拿到 None，直链 .get 即
+            # AttributeError，整个结算门禁以未处理异常形态崩溃（is_confirmed
+            # 走 _confirmation 的 isinstance 防御不崩，两处语义漂移）。
+            # `or {}` 同时覆盖缺失与 null。
+            for f in findings if not finding_confirmation.is_confirmed(f) and (f.get("confirmation") or {}).get("state") != "rejected"
         ]
         escalation_note = (
             f"findings 存在 {pending} 个未终态候选（{', '.join(pending_ids[:5])}），计命结算被拒："
@@ -592,6 +765,14 @@ def _sum_token_records(value: object) -> int:
     Supervisor snapshots have existed with both an aggregate field and a
     per-lease mapping.  Once an aggregate is present it is authoritative for
     that subtree; otherwise nested records are summed.
+
+    契约（F-RSI-20261112-082 取证固化，2026-11-12）：``_TOKEN_COLLECTIONS``
+    命中后只消费该子树（丢弃兄弟键）——这在当前真实 schema 链上不可达：
+    RunState.to_dict 顶层不经本函数（``_supervisor_token_total`` 显式分层），
+    claims dict 的键是 worker_id，claim/unit 记录必先命中 _TOKEN_FIELDS 的
+    ``tokens_consumed`` 聚合字段。若未来新增「collection 键与 token 携带键
+    并存」的写入形态，必须同步扩展 ``_supervisor_token_total`` 的分层或把
+    兄弟键并入求和，否则兄弟 token 会被静默丢弃。
     """
     if isinstance(value, Mapping):
         for key in _TOKEN_FIELDS:
@@ -1113,6 +1294,12 @@ def auto_build_findings_json(runtime: dict) -> str | None:
                 "run_id": run_id,
                 "lifecycle_id": lifecycle_id,
                 "round": round_no,
+            },
+            # obs-2（2026-11-17）：记录构建时的权威 finding 同步代，供
+            # findings_json_stale_vs_authority 检测"先于裁决/后续同步生成的
+            # 陈旧派生视图"；确认态一致性由逐条 confirmation 对比兜底。
+            "supervisor_binding": {
+                "findings_revision": supervisor_payload.get("findings_revision"),
             },
             "findings": merged,
         }

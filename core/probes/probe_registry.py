@@ -37,6 +37,15 @@ PROBE_TIMEOUT_BUDGET: dict[str, float] = {
     # 结果翻转。这里给出显式预算，消除该非确定性。
     "platform": 30.0,
     "memory": 20.0,
+    # mobile 探针逐 tier 拉起 adb/xcrun/maestro/appium 子进程，且 maestro 是
+    # JVM 工具：冷启动 --version 实测 7.5s（arm64 本机）；版本探测已并行+2s
+    # 硬顶后单跑 ~3.4s，但 pre 并行跑全部探针时 CPU 争抢实测 5.13s，沿用
+    # default 5.0s 仍临界假超时并触发「安装决策」阻断链
+    # （F-RSI-20261118-004/005）。15s 提供 3x 余量，与 platform 冷启动策略一致。
+    "mobile": 15.0,
+    # openwiki 冷启动读索引约 2.3s，并行满载时临界 5s；建议性探针假超时
+    # 只产生噪音告警，同样的预算策略消除翻转。
+    "openwiki": 10.0,
     "default": 5.0,
 }
 PROBE_TIMEOUT_MAX_SECONDS = 120.0
@@ -191,6 +200,17 @@ _BUILTIN_PROBES: tuple[ProbeDescriptor, ...] = (
         lifecycle="preflight",
         # 设备/工具状态为宿主级；形态、目标平台由报告重投影处理。
         cache_scope="host",
+    ),
+    ProbeDescriptor(
+        name="android",
+        script="android_probe.py",
+        domain="mobile",
+        accepts_root=True,
+        description="Android 探针（Manifest 静态语义 + adb 动态 Intent）",
+        priority=59,
+        lifecycle="runtime",
+        readiness_args=("check",),
+        required=False,
     ),
     ProbeDescriptor(
         name="ios_binary",
@@ -472,15 +492,19 @@ def _cached_profile(
 
 
 def _cached_probe_is_reusable(name: str, report: Mapping[str, Any]) -> bool:
-    """Reject stale Codebase Memory cache entries before they can mask repair.
+    """判定缓存的探针报告能否复用（跳过本次重探）。
 
-    Other probes keep the existing bounded profile-cache policy. Codebase
-    Memory is different because its readiness depends on a replaceable external
-    executable: failures must be rechecked, and a cached success must prove the
-    current exact pin and still resolve to the same compatible executable.
+    F-RSI-20261118-005 深层语义：``BLOCKED``/``DEGRADED`` 是**环境时刻相关**
+    的失败结论——宿主环境恢复（如模拟器启动）后，30 分钟 TTL 内的缓存自锁
+    会让恢复不可见（真机实证：模拟器就绪后 pre 仍连续阻断）。因此失败/降级
+    结论一律不可复用（每次重查，成本仅几秒）；只有 ``READY``/``NOT_APPLICABLE``
+    /``ABSENT`` 才进入 30 分钟复用窗口。Codebase Memory 额外校验版本 pin：
+    其就绪依赖可替换的外部可执行文件，缓存的成功必须证明当前精确 pin。
     """
     status = str(report.get("status", "")).upper()
-    if status not in {"READY", "NOT_APPLICABLE", "ABSENT", "BLOCKED", "DEGRADED"}:
+    if status in {"BLOCKED", "DEGRADED"}:
+        return False
+    if status not in {"READY", "NOT_APPLICABLE", "ABSENT"}:
         return False
     if name != "codebase-memory":
         return True
@@ -1667,3 +1691,80 @@ def run_preflight_probes(
             pass
 
     return profile
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活内置探针注册表完整性（零子进程、零探针执行）。
+
+    判定两条机械事实：注册表非空，且每个内置描述符声明的脚本文件真实存在。
+    脚本缺失说明引擎安装损坏，调用方必须走 ``run_static_degraded`` 只输出
+    静态注册表快照，禁止伪装探针执行就绪。
+    """
+    if not _REGISTRY:
+        return False, "探针注册表为空；没有可分发的探针"
+    # 描述符 script 相对引擎根（core/）解析，复用与执行链相同的
+    # _resolve_probe_script 候选规则，避免把「脚本已迁移」误报成「脚本缺失」。
+    core_dir = Path(__file__).resolve().parent.parent
+    missing = sorted(
+        descriptor.script
+        for descriptor in _REGISTRY.values()
+        if not _resolve_probe_script(core_dir, descriptor.script).is_file()
+    )
+    if missing:
+        return False, f"探针脚本缺失: {', '.join(missing)}"
+    return True, f"{len(_REGISTRY)} 个内置探针脚本齐全"
+
+
+def run_static_degraded(name: str | None = None) -> dict[str, Any]:
+    """降级契约：不执行任何探针子进程，只输出注册表静态快照。
+
+    输出与成功路径（``run_probe_readiness`` / profile 合成的真实探针执行报告）
+    字段级可区分：``status="degraded"`` + ``degraded=True`` + ``degraded_reason``，
+    每个条目只含描述符元数据并显式声明 ``executed=False``，禁止把静态快照
+    伪装成探针执行结果。
+    """
+    available, availability_detail = is_available()
+    probes = list_probes()
+    if name:
+        descriptor = get_probe(name)
+        probes = [descriptor] if descriptor is not None else []
+        unknown = descriptor is None
+    else:
+        unknown = False
+    entries = [
+        {
+            "name": p.name,
+            "script": p.script,
+            "domain": p.domain,
+            "lifecycle": p.lifecycle,
+            "priority": p.priority,
+            "accepts_root": p.accepts_root,
+            "required": p.required,
+            "critical": p.critical,
+            "cache_scope": p.cache_scope,
+            "readiness_action_declared": p.readiness_args is not None,
+            "executed": False,
+        }
+        for p in probes
+    ]
+    return {
+        "schema_version": 1,
+        "success": bool(entries) and not unknown,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "unknown_probe" if unknown
+            else "static_mode_forced" if available else "probe_registry_incomplete"
+        ),
+        "probe_mode": "static_degraded",
+        "registry_total": len(_REGISTRY),
+        "count": len(entries),
+        "entries": entries,
+        "findings": [],
+        "evidence": {"availability_detail": availability_detail},
+        "metadata": {
+            "degraded_mode": "registry_snapshot_only",
+            "probe_execution_skipped": True,
+            "fallback": "注册表不可用或探针执行被跳过时只提供描述符元数据；禁止据此判定环境就绪",
+        },
+    }

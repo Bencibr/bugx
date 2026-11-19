@@ -60,7 +60,7 @@ try {
   assert('1. bin/bugx.js --version 返回 0 代码且输出包含版本号', () => {
     const res = spawnSync('node', [binScript, '--version'], { env: testEnv, encoding: 'utf8' });
     if (res.status !== 0) throw new Error(`Exit code ${res.status}: ${res.stderr}`);
-    if (!res.stdout.includes('bugx-cli') && !res.stdout.includes('0.')) {
+    if (!/\d+\.\d+\.\d+/.test(res.stdout)) {
       throw new Error(`Unexpected stdout: ${res.stdout}`);
     }
   });

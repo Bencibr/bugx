@@ -142,7 +142,8 @@ Worker stdio 通道可补齐遗漏的 `caller_role`，但显式错误角色仍�
 5. 在覆盖清单中记录负责人、工具、证据和状态。
 
 Web 项目必须额外加入 `web-standards` 审计轨道，先运行
-`web_conformance.py check --root <dir>`，再用 Playwright 或项目浏览器测试补动态证据。
+`web_conformance.py check --root <dir>`，再用 `bugx probe ui --root <dir> --url <URL>`
+或项目浏览器测试补动态证据。
 该轨道的 Oracle 是 WCAG 2.2 AA、WAI-ARIA 1.2 和 HTML/WHATWG 语义；缺少动态环境只能
 标记 `BLOCKED/UNVERIFIED`，不能声称 Web 标准完整通过。具体规则见
 全局引擎 `web-conformance.md`（用 `bugx engine path --name web-conformance.md` 定位）。
@@ -215,15 +216,11 @@ lease 返回独立 `artifact_root`，Worker 只能向该目录写证据，超出
 
 Worker 内按 `IntentHypothesis → LogicChain → OracleSpec → EvidencePacket` 建立并校验逻辑分析包（`logic_analysis.py validate` / `bugx logic-analysis bind`），包状态仅作任务绑定，不改变租约或结算；最终 Finding 仍由 `finding_confirmation` 裁决。`checkpoint` 提交前对照 `core/schemas/worker-checkpoint.schema.json` 自检（`findings[].fingerprint` / `covered[].evidence` / `signatures≤10`），`budget` 类失败不得伪造 `fixed`。
 
-## 6. 测试策略
+## 6. 验证策略
 
-先内部最小单元，再模块间业务链路。高风险单元优先，但不能跳过低风险单元。
-
-测试执行器位于 `tests/run_tests.py`（**硬红线：日常开发、Bug 修复与子代理严禁运行全量测试**，改哪个模块只跑对应模块）：
-
-- 定向测试：`python3 -m unittest tests.test_x` 或 `bugx test --affected`（只运行受影响模块）；
-- `--mode quick`：编译检查和关键模块，适合每次修改后的快速反馈；
-- **全量测试职责归属**：全量测试套件（`--mode all-units` / `bash tests/run_tests.sh`）**仅由宿主在所有修复落盘、发版发布门禁或用户明确要求时集中统一跑一次**，任何 Worker、修复 Agent 或日常单点验证绝对禁止自行触发！
+验证优先使用最小、可审计的静态检查、协议检查或仓库外临时测试。临时测试只服务当前
+变更，验证结束后必须物理删除；本仓库不保留 `tests/` 套件、测试注册表或仓库级测试执行器。
+目标项目自带的 `tests/` 仍是 BugX 的被测输入，不属于本仓库过程文件。
 
 - 纯函数/转换：边界、属性、类型、空值、异常和变异测试。
 - 状态机/生命周期：合法与非法迁移、重复操作、取消、超时、恢复和幂等。

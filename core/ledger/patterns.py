@@ -174,16 +174,19 @@ def normalize_pattern(payload: Mapping[str, Any], now: str | None = None) -> dic
         "created_at": str(payload.get("created_at") or timestamp),
         "updated_at": str(payload.get("updated_at") or timestamp),
         "last_used_at": payload.get("last_used_at"),
-        "use_count": int(payload.get("use_count", 0)), "hit_count": int(payload.get("hit_count", 0)),
-        "miss_count": int(payload.get("miss_count", 0)),
-        "false_positive_count": int(payload.get("false_positive_count", 0)),
-        "rejected_count": int(payload.get("rejected_count", 0)),
         **extract_card_fields(payload),
         "routing_tags": extract_routing_tags(payload),
     }
-    for field in ("use_count", "hit_count", "miss_count", "false_positive_count", "rejected_count"):
-        if result[field] < 0:
-            raise LessonLedgerError(f"{field} 不得小于 0")
+    # F-RSI-20261115-130：计数器字段显式校验——int() 隐式转换会把 bool 静默
+    # 折成 0/1、小数截断（3.9→3）、非数字裸抛 ValueError（非 LessonLedgerError，
+    # 穿过 except LessonLedgerError 调用链）。对齐 incidents.normalize_duration
+    # 的显式校验标准（bool 排除 + 整型 + 非负），消除同域两套标准。
+    for field in ("use_count", "hit_count", "miss_count",
+                  "false_positive_count", "rejected_count"):
+        value = payload.get(field, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise LessonLedgerError(f"{field} 必须是非负整数（收到 {value!r}）")
+        result[field] = value
     return result
 
 

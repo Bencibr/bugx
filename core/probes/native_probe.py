@@ -186,6 +186,86 @@ def native_report(root: Path | str | None = None) -> Report:
     )
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探测原生审计前置条件（<5ms，零阻塞、零编译）。
+
+    编译器（clang/cc/gcc 任一在 PATH）是原生构建/插桩审计的必需前置；
+    缺失时 detail 明确给出降级路径。只查 PATH，不执行编译。
+    """
+    for name in ("clang", "cc", "gcc"):
+        path = _which(name)
+        if path:
+            return True, f"编译器可用: {name}={path}"
+    return False, (
+        "未找到 clang/cc/gcc：原生构建、插桩（sanitizer）与行为证据全部不可得，"
+        "降级为 run_static_degraded（仅源码/构建标记静态识别）"
+    )
+
+
+def run_static_degraded(root: Path | str | None = None) -> dict:
+    """降级路径：无编译器环境时，仅做源码/构建标记静态识别。
+
+    降级契约：输出与成功路径（native_report，status=READY）**可区分**——
+    status="degraded" + degraded=True + degraded_reason + checks_not_run；
+    sanitizer/插桩能力一律标注未执行，禁止把静态推断写成运行验证。
+    """
+    root_path = Path(root or Path.cwd())
+    if not root_path.is_dir():
+        return {
+            "platform": "native",
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "target_root_not_found",
+            "success": False,
+            "root": str(root_path),
+            "checks": [],
+            "warnings": [f"目标目录不存在: {root_path}"],
+            "checks_not_run": ["compile-probe", "sanitizer-support"],
+        }
+    sources, markers = _scan_sources(root_path)
+    toolchain = {name: _which(name) for name in TOOLCHAIN}
+    present = [name for name, path in toolchain.items() if path]
+    available, availability_detail = is_available()
+    warnings: list[str] = []
+    if not available:
+        warnings.append(
+            "无编译器：构建/插桩/行为证据均不可得，内存与并发结论只能静态推断、未运行验证"
+        )
+    warnings.append("降级模式：sanitizer 支持未做真实编译验证；禁止声称已覆盖运行时插桩")
+    return {
+        "platform": "native",
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "compiler_unavailable" if not available else "static_mode_forced"
+        ),
+        "success": True,
+        "root": str(root_path),
+        "checks": [
+            {
+                "name": "原生工程识别",
+                "ok": sources > 0 or bool(markers),
+                "detail": f"原生源文件 {sources} 个；构建标记 {', '.join(markers) or '无'}",
+                "required": True,
+            },
+            {
+                "name": "工具链在场（仅 PATH 检测，未验证可用性）",
+                "ok": bool(present),
+                "detail": ", ".join(present) or "无",
+                "required": False,
+            },
+        ],
+        "evidence": {
+            "native_sources": sources,
+            "build_markers": markers,
+            "toolchain_present": present,
+            "availability_detail": availability_detail,
+        },
+        "warnings": warnings,
+        "checks_not_run": ["compile-probe", "sanitizer-support"],
+    }
+
+
 def print_report(report: Report, *, as_json: bool = False) -> None:
     if as_json:
         print(json.dumps(asdict(report), ensure_ascii=False, indent=2))
@@ -203,7 +283,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("check", "status"), nargs="?", default="check")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（仅源码/构建标记静态识别；输出 status=degraded，"
+             "不做编译与 sanitizer 验证）",
+    )
     args = parser.parse_args(argv)
+    if args.static_degraded:
+        print(json.dumps(run_static_degraded(args.root), ensure_ascii=False, indent=2))
+        return 0
     report = native_report(args.root)
     print_report(report, as_json=args.json)
     # “不适用”不是失败：退出码 0 表示探针结论有效，避免上游把它误判为执行失败。

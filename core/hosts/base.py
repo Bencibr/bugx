@@ -227,6 +227,13 @@ class WorkerRuntimeFacet:
     autonomous_cli: bool = False
     #: CLI ``--workers`` 合法区间（原 ``autonomous`` 的 2~6 硬校验）。
     concurrency_bounds: tuple[int, int] | None = None
+    #: 单 claim 墙钟预算基数（秒）。``None`` 表示维持引擎 tier 阶梯与重试退避的
+    #: 既有行为（recon 180s / exploit 600s / verify 300s，``1.5**(attempt-1)`` 退避）；
+    #: 声明了该字段的宿主，其 ``runner_module`` 执行器以它作为
+    #: ``resolve_worker_timeout`` 的预算基数（``base_override``），用于慢宿主
+    #: （如 cline 全 agent 闭环实测 ~6min）的预算对齐。同一宿主上
+    #: ``BUGX_WORKER_TIMEOUT`` 环境变量让位于本字段（宿主事实比全局 env 更具体）。
+    worker_timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -245,9 +252,15 @@ class McpWriteFacet:
     #: 该宿主的 MCP 写入由 CLI 侧专用写入器负责（如 opencode.json 的
     #: permission/plugin 合并）。为真时通用 JSON 骨架不得接管。
     custom_writer: bool = False
-    #: 项目级配置的序列化格式。``json`` 走通用 JSON 骨架；``toml`` 表示宿主只读
-    #: TOML（如 Codex，2026-10-23 实测 ``.codex/config.json`` 永不被加载），
-    #: 写入/清理/诊断一律委托给 ``bootstrap`` / ``remove`` / ``inspect``。
+    #: 本 facet 拥有的 MCP 配置文件（项目级路径，或用户级唯一被加载层）的序列化
+    #: 格式。``json`` 走通用 JSON 骨架；``toml`` 表示宿主只读 TOML（如 Codex，
+    #: 2026-10-23 实测 ``.codex/config.json`` 永不被加载），写入/清理/诊断一律
+    #: 委托给 ``bootstrap`` / ``remove`` / ``inspect``；``yaml_patch`` 表示宿主
+    #: 配置是 YAML patch（如 dsh 的 cordis patch：``container_key="insert"`` 是
+    #: server 条目列表，无 JSON「名字→条目」映射形态），通用 JSON 骨架同样解析
+    #: 不了，写入/清理/诊断必须由插件拥有，探针/诊断按本声明分派
+    #: ``yaml.safe_load`` 解析——没有该声明时 YAML 会被当 JSON 解析失败而误判
+    #: 「未配置」（结构性假阴性）。
     config_format: str = "json"
     #: 引擎侧启动期写入实现：``(root, servers) -> 回执``。用于配置形态无法用
     #: 「JSON 容器键」表达的宿主（如 codex 的 TOML 表 + 运行期回执）。
@@ -381,7 +394,7 @@ def validate_plugin(plugin: HostPlugin) -> HostPlugin:
         f"{identity.name}: mcp_write 必须给出 project_relpath 或 global_scope",
     )
     _require(
-        mcp.config_format in {"json", "toml"},
+        mcp.config_format in {"json", "toml", "yaml_patch"},
         f"{identity.name}: 非法 mcp_write.config_format: {mcp.config_format!r}",
     )
     if mcp.config_format == "toml":
@@ -395,6 +408,13 @@ def validate_plugin(plugin: HostPlugin) -> HostPlugin:
             str(mcp.project_relpath).endswith(".toml"),
             f"{identity.name}: TOML mcp_write.project_relpath 必须是 .toml 文件",
         )
+    if mcp.config_format == "yaml_patch":
+        # YAML patch 与 TOML 同类：通用 JSON 骨架读不了它（dsh 的 cordis patch 是
+        # 顶层 ``- insert:`` 列表）。写入/清理/诊断三件必须全部由插件拥有，否则
+        # CLI 会按 JSON 解析 YAML 并静默跳过，探针则结构性误报「未配置」。
+        _require(callable(mcp.bootstrap), f"{identity.name}: yaml_patch mcp_write 必须提供 bootstrap")
+        _require(callable(mcp.remove), f"{identity.name}: yaml_patch mcp_write 必须提供 remove")
+        _require(callable(mcp.inspect), f"{identity.name}: yaml_patch mcp_write 必须提供 inspect")
 
     runtime = plugin.worker_runtime
     assert runtime is not None
@@ -430,6 +450,14 @@ def validate_plugin(plugin: HostPlugin) -> HostPlugin:
         _require(
             runtime.autonomous_cli,
             f"{identity.name}: 声明 concurrency_bounds 必须同时声明 autonomous_cli",
+        )
+    if runtime.worker_timeout_seconds is not None:
+        budget = runtime.worker_timeout_seconds
+        _require(
+            isinstance(budget, (int, float))
+            and not isinstance(budget, bool)
+            and budget > 0,
+            f"{identity.name}: worker_timeout_seconds 必须是正数（秒）: {budget!r}",
         )
     if runtime.autonomous_cli:
         _require(

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """BugX 构建标识与自增 Build ID 管理模块 (DOC-169).
 
-依据 AGENTS.md 规范：全局语义版本号严格保持 0.1.0，
+语义版本号从 ``BUGX_VERSION`` 解析；源码模板只在构建 staging 时物化。
 日常开发与提交通过单调自增、从 1 开始无上限递增的 Build ID 进行版本追踪。
 """
 
@@ -11,7 +11,23 @@ import os
 import re
 from pathlib import Path
 
-BASE_VERSION = "0.1.0"
+VERSION_ENV = "BUGX_VERSION"
+VERSION_TOKEN = "${BUGX_VERSION}"
+_DEFAULT_VERSION = "0.1.1"
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+
+
+def resolve_base_version(value: str | None = None) -> str:
+    """Resolve the base version from ``BUGX_VERSION`` with one source fallback."""
+    candidate = (value or os.environ.get(VERSION_ENV) or _DEFAULT_VERSION).strip()
+    if candidate == VERSION_TOKEN:
+        candidate = os.environ.get(VERSION_ENV, _DEFAULT_VERSION).strip()
+    if not _VERSION_RE.fullmatch(candidate):
+        raise ValueError(f"invalid BugX version: {candidate!r}")
+    return candidate
+
+
+BASE_VERSION = resolve_base_version()
 _BUILD_ID_RE = re.compile(r"^build_id:\s*(\d+)", re.M)
 
 
@@ -73,14 +89,17 @@ def bump_build_id(root: Path | None = None) -> int:
 
 
 def get_full_version_string(root: Path | None = None) -> str:
-    """返回标准版本与 Build ID 组合字符串，例如 0.1.0+build.1。"""
+    """返回标准版本与 Build ID 组合字符串，例如 0.1.1+build.627。"""
     bid = get_build_id(root)
     return f"{BASE_VERSION}+build.{bid}"
 
 
 __all__ = [
     "BASE_VERSION",
+    "VERSION_ENV",
+    "VERSION_TOKEN",
     "bump_build_id",
     "get_build_id",
     "get_full_version_string",
+    "resolve_base_version",
 ]

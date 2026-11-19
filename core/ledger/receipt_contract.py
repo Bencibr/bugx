@@ -160,7 +160,8 @@ def verify_receipt_coverage_contract(
                     )
                 elif declared is None:
                     warnings.append(
-                        f"收据未声明覆盖债务，密封件声明为 {sealed_debt}（无法交叉校验）"
+                        f"收据显式声明 coverage_debt_units=null（账本不可读），"
+                        f"密封件声明为 {sealed_debt}（无法交叉校验）"
                     )
                 elif isinstance(declared, int) and not isinstance(declared, bool):
                     if declared != sealed_debt:
@@ -200,12 +201,27 @@ def verify_receipt_coverage_contract(
                         f"收据声明的 {declared} 无法核实"
                         "（『读不出来』不得被折叠成『没有债务』——修复轮复核 E3-R2-D5）"
                     )
+                elif declared is None:
+                    # F-RSI-20261115-124：收据显式 null + 密封账本重算也 None——
+                    # 双方均不可读，债务状态完全未知，不得零反馈静默通过
+                    warnings.append(
+                        "收据显式声明 coverage_debt_units=null 且密封账本不可读："
+                        "双方均无法核实覆盖债务，债务状态未知"
+                    )
             elif isinstance(declared, int) and not isinstance(declared, bool):
                 if recomputed != declared:
                     errors.append(
                         f"收据声明的覆盖债务 {declared} 与密封账本按权威口径重算的 "
                         f"{recomputed} 不一致（收据必须由账本算出，不得写死字面量）"
                     )
+            elif declared is None:
+                # F-RSI-20261115-124：收据宣称「账本不可读」（null）但密封账本
+                # 可读且重算出 {recomputed}——声明与事实矛盾，不得静默通过
+                # （历史 E2-D1 拦了 999 字面量，null 是绕过债务核实的漏网伪造路径）
+                errors.append(
+                    f"收据显式声明 coverage_debt_units=null（账本不可读）"
+                    f"但密封账本重算出 {recomputed}：声明与事实矛盾"
+                )
         else:
             # 密封账本**类型错**（合法 JSON 但不是对象）时，整段重算此前被**静默
             # 跳过、零告警**——修复轮复核 E2-D1 实测（定级 P0）：把

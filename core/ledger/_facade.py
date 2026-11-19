@@ -14,7 +14,8 @@
 等价性：``lesson_ledger`` 本身也只是「从各兄弟模块 re-export」的纯 Facade，
 且经核对 **160 个导出名无一被多个模块重复导出**，因此「名字 → 模块」的映射
 是**唯一确定**的，本表与 ``getattr(lesson_ledger, name)`` 必然解析到同一对象。
-该等价性由 ``tests/test_ledger_dependency_direction.py`` 逐名字断言守护。
+该等价性以映射表与 ``lesson_ledger.py`` 导入块的核对为准（160 名无重复导出，
+名字→模块映射唯一确定）。
 """
 
 from __future__ import annotations

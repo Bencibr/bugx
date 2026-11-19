@@ -1,7 +1,8 @@
 # BugX Supervisor (并发协调与智能体调度仲裁中心)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/supervisor/` 是 BugX 针对多智能体（Worker / Judge / Orchestrator）并发攻防执行的核心协调器。它实现了租约仲裁、预算熔断、检查点事务持久化、Finding 状态流转机、以及抗崩溃灾备恢复闭环。
 

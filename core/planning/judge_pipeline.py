@@ -186,6 +186,9 @@ _SAFE_MODULES = {"math", "datetime", "itertools", "functools", "typing", "datacl
 _RULES_FILE_NAME = "judge-rules.json"
 _PROMOTE_THRESHOLD = 3
 _MAX_ACTIVE_ADDITIONS = 20
+#: 每类 candidates 的驻留上限（F-RSI-20261112-091）：防一次性反馈 token
+#: 无界驻留撑爆 rules 文件。晋升会清理对应 candidate；超限时拒绝新增。
+_MAX_CANDIDATE_ENTRIES = 200
 
 
 def default_rules() -> dict[str, Any]:
@@ -279,6 +282,11 @@ def harvest_feedback(
                 if token is None or token in base[key]:
                     counts["rejected"] += 1
                     continue
+                # F-RSI-20261112-091：已晋升生效的 token 直接跳过 candidate
+                # 记录——否则后续反馈经 setdefault 复活 candidate，形成
+                # active+candidate 双轨死数据。
+                if token in active.get(key, []):
+                    continue
                 slot = candidates.setdefault(key, {})
                 entry = slot.setdefault(token, {"count": 0, "sources": []})
                 if unit not in entry["sources"]:
@@ -290,6 +298,28 @@ def harvest_feedback(
                     if token not in lst and len(lst) < _MAX_ACTIVE_ADDITIONS:
                         lst.append(token)
                         counts["promoted"] += 1
+                        # F-RSI-20261112-091：晋升即从 candidates 清除——
+                        # 已 active 的候选残留是死数据（count/sources 永久
+                        # 驻留 rules 文件）。token in lst 幂等检查保证重复
+                        # 晋升安全，清理不影响既有 active 语义。
+                        slot.pop(token, None)
+    # F-RSI-20261112-091：candidates 每键上限——一次性反馈 token 无界驻留
+    # 会让 rules 文件无限膨胀（每次 harvest 全量读写）。超限时拒绝新增并
+    # 留痕（既有条目继续计数），上限按保守值不淘汰既有数据。
+    for key, slot in candidates.items():
+        overflow = len(slot) - _MAX_CANDIDATE_ENTRIES
+        if overflow > 0:
+            print(
+                f"[judge] ⚠ rule_feedback candidates[{key}] 已达上限 "
+                f"{_MAX_CANDIDATE_ENTRIES}（超出 {overflow} 条新增被拒；"
+                "清理 knowledge/judge-rules.json 或晋升既有条目可腾位）",
+                file=sys.stderr,
+            )
+            for token in list(slot):
+                if len(slot) <= _MAX_CANDIDATE_ENTRIES:
+                    break
+                if token not in active.get(key, []):
+                    slot.pop(token, None)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return counts
@@ -453,7 +483,7 @@ def classify_unit(
     profile = static_profile(source, rules)
     fired = sentinel_fired(evidence)
     # artifact-only：全部探针输出都可由已知伪影标记解释 ⇒ 单元在电池上下文
-    # 不可探测，行为证据为零信息量——送 judge 是纯浪费（受控验证显示
+    # 不可探测，行为证据为零信息量——送 judge 是纯浪费（l4adv 实测 15 单元
     # 中 5 个）。标记集合含内置确定性伪影族与项目反哺晋升的标记。
     markers = (rules or default_rules())["artifact_markers"]
     artifact_only = bool(evidence) and all(
@@ -602,10 +632,8 @@ def run_battery(
                   "json": "json.loads"}.get(suffix)
         code = f"import pathlib\nraw = pathlib.Path({file_path!r}).read_text(encoding='utf-8', errors='ignore')\nassert raw.strip(), 'empty asset'\nprint('asset_bytes=%d' % len(raw))"
         if parser:
-            body = ("import importlib\n"
-                    f"parser = lambda t: __import__({{{suffix!r}: 'json'}}.get({suffix!r}, 'yaml')).{'loads' if suffix=='json' else 'safe_load'}(t)\n")
             code = (f"import pathlib\nraw = pathlib.Path({file_path!r}).read_text(encoding='utf-8', errors='ignore')\nassert raw.strip(), 'empty asset'\n"
-                    + ("import json\nimport json as _p\nprint('parsed_items=%d' % len(json.loads(raw)))\n" if suffix == "json" else
+                    + ("import json\nprint('parsed_items=%d' % len(json.loads(raw)))\n" if suffix == "json" else
                        "import yaml\ndata = yaml.safe_load(raw)\nassert data is not None, 'unparsable asset'\nprint('parsed_type=%s' % type(data).__name__)\n"))
         all_probes = all_probes + [{"desc": f"asset-integrity[{suffix or 'text'}] {file_path}", "code": code}]
     if has_exec_signal(unit_source, dep_sources=dep_sources, rules=rules):
@@ -903,6 +931,39 @@ def run_battery_probe(
 
 
 _PROBE_REQUEST_SHELL_TOKENS = (";", "&&", "||", "`", "$(", ">", "<")
+#: probe_requests 的宿主执行身份是引擎进程——被审项目的恶意内容可能提示
+#: 注入 judge 产出 probe_requests（conventions 消毒同款威胁模型）。shell
+#: 字符黑名单挡不住 `import os` + 换行分隔的 python 逃逸，此处按 AST 拒收
+#: 高危导入与动态执行调用（纵深防御；-c 无沙箱，最终信任边界是宿主）。
+_PROBE_REQUEST_BANNED_MODULES = frozenset({
+    "os", "subprocess", "socket", "ctypes", "signal", "importlib",
+    "shutil", "sys", "pathlib", "builtins",
+})
+_PROBE_REQUEST_BANNED_CALLS = frozenset({
+    "eval", "exec", "compile", "__import__", "open", "globals", "locals",
+})
+
+
+def _probe_code_escaped_sandbox(code: str) -> bool:
+    """True = 代码含逃逸出「观测断言」语义的构造（import 高危模块/动态执行）。"""
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _PROBE_REQUEST_BANNED_MODULES:
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] in _PROBE_REQUEST_BANNED_MODULES:
+                return True
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+            if name in _PROBE_REQUEST_BANNED_CALLS:
+                return True
+    return False
 
 
 def validate_probe_requests(requests: object) -> list[dict[str, str]]:
@@ -916,6 +977,14 @@ def validate_probe_requests(requests: object) -> list[dict[str, str]]:
         code = str(item.get("code") or "").strip()
         desc = str(item.get("desc") or "probe")[:120]
         if not code or any(tok in code for tok in _PROBE_REQUEST_SHELL_TOKENS):
+            continue
+        # F-RSI-20261112-093：AST 纵深守卫——拒收 import os/subprocess 等
+        # 逃逸构造与 eval/exec/open 动态执行（观测断言语义不需要它们）。
+        if _probe_code_escaped_sandbox(code):
+            print(
+                f"[judge] ✗ probe_requests 含越出观测断言语义的构造，已拒收: {desc}",
+                file=sys.stderr,
+            )
             continue
         out.append({"desc": desc, "code": code})
     return out
@@ -974,6 +1043,18 @@ def execute_reproduction(
     artifact_root = (root / artifact_root).resolve() if not Path(artifact_root).is_absolute() else Path(artifact_root).resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
     argv = command.split(" ", 1)
+    # F-RSI-20261112-092：复现脚本的执行边界必须锁定在被审项目 root 内——
+    # judge 给出的相对路径（../）或绝对路径可指向 root 外任意 py 文件
+    # （宿主机脚本/引擎自身代码），越出「复现被审项目缺陷」的边界。
+    if len(argv) > 1:
+        script = Path(argv[1])
+        script = (root / script).resolve() if not script.is_absolute() else script.resolve()
+        if script != root and root not in script.parents:
+            print(
+                f"[judge] ✗ 复现命令越界拒绝：{argv[1]} 不在项目 root 内",
+                file=sys.stderr,
+            )
+            return None
     started = time.time()
     try:
         proc = subprocess.run(
@@ -1055,7 +1136,9 @@ def checkpoint_payload_from_verdict(
 ) -> dict[str, Any] | None:
     """把裁决映射成 supervisor checkpoint payload（机器构造，无手搓）。
 
-    - clean/insufficient_data → 全单元 covered（电池 evidence 即结构化证据）
+    - clean 且电池/复现证据可绑定 → 全单元 covered（结构化证据落账）
+    - insufficient_data → 全单元 unverified（judge 明确拒判：不得以电池
+      探针通过冒充已覆盖；artifact_only 例外记 not_applicable）
     - bug → 单元 covered，findings 附带，且每条 finding 的复现收据
       （宿主实跑）优先作为该单元 evidence；无复现收据时回退电池 evidence，
       finding 标记 reproducible=false。
@@ -1080,7 +1163,7 @@ def checkpoint_payload_from_verdict(
             # "verdict 适用于整组"——poc 型证据的 covered 单元在结算校验
             # （checkpoint_sync/post_coverage_sync）里靠 unit_id/target_units
             # 找关联 finding；缺失时整轮 post 被 fail-closed 拒绝（实测
-            # 变体归并后可能导致结算死锁）。
+            # bugx-audit-zcode 2026-11-09：files.py 变体归并后结算死锁）。
             "target_units": list(unit_ids),
         }
         if item.get("reproduction"):

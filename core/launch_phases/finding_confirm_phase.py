@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """finding_confirm_phase.py — Finding 确认一条龙（DOC-257 优化 A）。
 
-历史痛点：verify→confirm→
+实测痛点（l4adv-full 全轮 24.6min 中确认段占 14min）：verify→confirm→
 findings.json 物化→sync 四步靠宿主逐个手工拼 JSON，每次 schema 试错烧
 1-2 分钟模型回合（shell 禁字符/argv 包装/双通道/oracle 文件化共 4 轮）。
 
@@ -227,6 +227,9 @@ def confirm(
             print(f"[findings-confirm] ✗ verify {fp[:44]}: {str(exc)[:140]}")
             failed += 1
             continue
+        # F-RSI-20261118-009：recipe 可携带 severity（确认方定级补录）——
+        # triage 候选常缺 severity，确认动作随门禁要求补全报告字段。
+        recipe_severity = str(recipe.get("severity") or "").strip() or None
         try:
             supervisor.confirm_finding(
                 finding=fp, decision="confirmed",
@@ -234,6 +237,7 @@ def confirm(
                 root_cause_verified=True,
                 oracle={"tier": "differential", "provenance_kind": "runtime-invariant",
                          "reference": oracle_file},
+                severity=recipe_severity,
             )
             print(f"[findings-confirm] ✓ confirmed {fp[:52]}")
             done += 1
@@ -330,7 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     Worker 指令都写 ``--recipe <recipe.json>`` / ``--all-pending``，但 ``main()``
     只手工扫 ``--from-verdicts`` / ``--reject``，把 ``--recipe`` 当成位置参数，
     于是文档里的标准调用一律报「缺少 recipe 文件」。参数契约收敛到这里，
-    文档与实现由 ``tests/launch/test_finding_confirm_cli.py`` 双向断言。
+    文档与实现的双向一致契约以本注释为准。
     """
     parser = argparse.ArgumentParser(
         prog="bugx engine findings-confirm",

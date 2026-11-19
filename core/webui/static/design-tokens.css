@@ -1,0 +1,113 @@
+/* =========================================================================
+   BugX Studio Design Tokens（F-023 v1）
+   全部 token 由 project-settings.css 实测值等值提取（value-equal，像素零变化）：
+   - spacing：2px 线性坡道 --sp-1..16 + 延伸位 18/24；离坡奇数值已于 v2 ceil-even 归一（1px 线与负 margin 为保留例外）
+   - font-size：语义刻度 6 档 0.72/0.75/0.78/0.82/0.85/0.90（v3+轮 72 两次收敛：
+     漂移档与 0.02rem 边界对全部归并，相邻间距 ≥0.03rem）
+   - radius：xs..xl + pill/circle
+   - 色板：Tailwind slate/sky/emerald + Apple HIG 灰阶/主色（与文件内 Apple HIG
+     分节注释互证）+ 玻璃拟态 alpha 梯度
+   ========================================================================= */
+:root {
+  /* ---- spacing（2px 线性坡道）---- */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 10px;
+  --sp-6: 12px;
+  --sp-7: 14px;
+  --sp-8: 16px;
+  --sp-9: 18px;
+  --sp-10: 20px;
+  --sp-11: 22px;
+  --sp-12: 24px;
+  --sp-13: 26px;
+  --sp-14: 28px;
+  --sp-15: 30px;
+  --sp-16: 32px;
+  --sp-18: 36px;
+  --sp-24: 48px;
+
+  /* ---- font-size（实测刻度，按尺寸升序索引）---- */
+  /* F-RSI-20261112-097：micro 为徽标/kbd 等 10px 级微文本档（原 px 直用
+     8-11px 归一）；display 族为页面/区块标题档（原 1.0-1.6rem 散装归一）。
+     文本 6 档（caption..emphasis）维持轮 72 定稿不变。 */
+  --fs-micro: 0.625rem;
+  --fs-caption: 0.72rem;
+  --fs-label-sm: 0.75rem;
+  --fs-label: 0.78rem;
+  --fs-body: 0.82rem;
+  --fs-body-lg: 0.85rem;
+  --fs-emphasis: 0.90rem;
+  --fs-display-sm: 1.05rem;
+  --fs-display: 1.15rem;
+  --fs-display-lg: 1.40rem;
+  --fs-display-xl: 1.60rem;
+
+  /* ---- border-radius ---- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+
+  /* ---- 色板（Tailwind slate/sky/emerald + Apple HIG + 玻璃 alpha）---- */
+  --bx-sky-600: #0284c7;
+  --bx-white: #ffffff;
+  --bx-glass-08: rgba(255, 255, 255, 0.08);
+  --bx-slate-500: #64748b;
+  --bx-slate-900: #0f172a;
+  --bx-sky-400: #38bdf8;
+  --bx-slate-50: #f8fafc;
+  --bx-apple-gray-100: #f5f5f7;
+  --bx-apple-gray-900: #1d1d1f;
+  --bx-slate-400: #94a3b8;
+  --bx-black-06: rgba(0, 0, 0, 0.06);
+  --bx-glass-06: rgba(255, 255, 255, 0.06);
+  --bx-apple-blue: #0a84ff;
+  --bx-emerald-500: #10b981;
+  --bx-apple-gray-500: #86868b;
+  --bx-slate-800: #1e293b;
+  --bx-black-04: rgba(0, 0, 0, 0.04);
+  --bx-black-08: rgba(0, 0, 0, 0.08);
+  --bx-apple-blue-deep: #0071e3;
+  --bx-apple-red: #ff3b30;
+  --bx-glass-12: rgba(255, 255, 255, 0.12);
+  --bx-glass-10: rgba(255, 255, 255, 0.1);
+  --bx-slate-200: #e2e8f0;
+  --bx-apple-gray-400: #a1a1a6;
+  --bx-emerald-600: #059669;
+  --bx-sky-a12: rgba(56, 189, 248, 0.12);
+  --bx-slate-100: #f1f5f9;
+  --bx-glass-05: rgba(255, 255, 255, 0.05);
+  --bx-sky-a08: rgba(2, 132, 199, 0.08);
+
+  /* ---- 文本墨色（F-RSI-20261113-113：白底文本场景 AA≥4.5 加深变体）----
+     品牌/功能原色（apple-blue/sky-600/apple-red/emerald-500）保留用于
+     图形、边框、大字标题；**正文与链接文本**必须消费 ink 变体：
+     link-ink 5.93 / danger-ink 4.83 / success-ink 5.48（WCAG AA）。 */
+  --bx-link-ink: #0369a1;
+  --bx-danger-ink: #dc2626;
+  --bx-success-ink: #047857;
+  --bx-text-tertiary: #64748b;
+
+  /* ---- z-index 层级（value-equal 语义映射，v2）---- */
+  --z-hidden: -9999;
+  --z-raised: 1;
+  --z-table-header: 2;
+  --z-cell-hover: 3;
+  --z-menu-item: 10;
+  --z-detail-bar: 20;
+  --z-view-container: 50;
+  --z-tooltip: 100;
+  --z-dropdown: 9999;
+  --z-modal-overlay: 9999;
+  --z-toast: 100000;
+  --z-popover: 100000;
+  --z-modal-backdrop: 100001;
+  --z-confirm-dialog: 100005;
+  --z-settings-overlay: 10000000;
+}

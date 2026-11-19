@@ -778,7 +778,7 @@ def run_all(root: Path | None = None, *, dynamic: bool = False) -> dict[str, obj
     # L7 检的是**引擎自身健康**：双份副本、守卫旁路、宿主能力对齐……这些
     # 只有引擎源码树里才有意义。
     #
-    # 对仅含少量源文件和 .bugx/ 的普通被测项目跑 L7 时，可能报
+    # 实测：对被测项目（bugxtest3，只有 main.py 和 .bugx/）跑 L7，报
     # 「源码正本不存在：plugins/bugx/skills/bugx-dsh/SKILL.md」——把
     # 「这个项目不是引擎仓库」说成「引擎副本不一致」。这两件事的处置完全
     # 不同（前者是选错目标，后者是发版阻断缺陷），混在一起会误导。

@@ -356,7 +356,7 @@ def host_adapter(name: str) -> HostAdapter:
 # 在 detect_host 时静默退化成 UnknownAdapter（那会让真实宿主的 Supervisor MCP
 # 被误判为硬缺失）。
 _MISSING_ADAPTERS = [name for name in host_registry.SUPPORTED_HOSTS if name not in _ADAPTERS]
-if _MISSING_ADAPTERS:  # pragma: no cover - 由 tests/test_supervisor_host.py::HostHeadlessCapabilityTestCase 守护
+if _MISSING_ADAPTERS:  # pragma: no cover - 缺适配器即 fail-fast，契约以本注释为准
     raise RuntimeError(f"宿主注册表与适配器不一致，缺少: {', '.join(_MISSING_ADAPTERS)}")
 
 

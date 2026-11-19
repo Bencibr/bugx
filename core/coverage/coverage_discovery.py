@@ -18,6 +18,14 @@
 * F 业务发现 —— ``extract_feature_surface`` / ``announce_feature_surface`` /
   ``business_discovery`` / ``business_discovery_rows`` / ``graph_scope`` /
   ``PassContext`` / ``coverage_summary``（含端点/CLI 模式常量）
+
+恢复结算合账语义（DIM3，2026-11-17 用户裁决"新证据为准 + chain 保留"）的判定
+原语也落在本模块：``inherited_unit_coverage_verdicts``（维度 1 链判定）与
+``recovery_closeout_coverage_census``（维度 2 普查）。单元证据分三层——L1 本轮
+本地记录 / L2 本 Life 历史本地记录 / L3 沿链继承（``inherited_from`` 备注 +
+``resolve_inherited_evidence`` 溯源）；合账判定读取优先级为 L1 > L2 > L3，继承
+chain 只作历史层留痕、不参与判定权威，双记录并存不互写背书。语义细则与扩展点
+见 ``docs/08_internal/01_standards/RECOVERY_SETTLEMENT_SEMANTICS_2026-11-17.md``。
 """
 
 from __future__ import annotations
@@ -27,8 +35,9 @@ import math
 import os
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from core.runtime import project_graph
 from core.retrieval import symbol_index
@@ -130,35 +139,31 @@ def inheritable_scope(row: object) -> str:
     return scope
 
 
-def resolve_inherited_evidence(
-    root: Path, row: object, polling_id: str, lifecycle_id: str,
-) -> tuple[bool, str]:
-    """Existence validation of a bootstrap-inherited coverage reference.
+# 继承链溯源深度上限：只为防环与病态链路兜底，正常链条（每个 lifecycle 一代）
+# 远达不到该值；超过即按完整性异常 fail-closed。
+MAX_INHERITED_CHAIN_DEPTH = 32
 
-    门禁对带 ``inherited_from`` 备注的已覆盖单元，只做**源 lifecycle 证据在案**
-    校验：源清单确以 covered 判定同一 scope（单元编号跨 Session 重排，scope
-    才是稳定身份），且源 ``coverage-evidence.json`` 确有该单元的 passed 记录
-    （形状完整）。绝不复制证据文件、绝不改写任何字段——源记录的
-    ``target_fingerprint`` 漂移与 ``observed_at`` 年龄信号原样保留，引擎也不为
-    继承背书写任何新记录（语义审计 BLOCK 条款）。
+
+def _covered_source_verdict(
+    source_state: Path, scope: str,
+) -> tuple[str, str, str]:
+    """Resolve the newest covered manifest verdict for ``scope`` in one hop.
+
+    返回 ``(unit_id, note, reason)``：成功时 ``unit_id`` 非空且 ``reason`` 为空，
+    ``note`` 是该清单行备注（供继承链继续溯源）；失败时 ``unit_id`` 为空且
+    ``reason`` 说明拒绝原因。
     """
-    import core.bugx_paths as bugx_paths
-
-    source_state = (
-        bugx_paths.bugx_root(root) / "pollings" / polling_id
-        / "lifecycles" / lifecycle_id / "state"
-    )
     source_manifest = source_state / "module-coverage.md"
     if source_manifest.is_symlink() or not source_manifest.is_file():
-        return False, f"源清单缺失: {source_manifest}"
+        return "", "", f"源清单缺失: {source_manifest}"
     try:
         source_rows, parse_errors = parse_manifest(source_manifest)
     except (OSError, UnicodeError, ValueError) as exc:
-        return False, f"源清单无法解析: {source_manifest}: {exc}"
+        return "", "", f"源清单无法解析: {source_manifest}: {exc}"
     if parse_errors:
-        return False, f"源清单无效: {source_manifest}: {'; '.join(parse_errors[:3])}"
-    scope = inheritable_scope(row)
+        return "", "", f"源清单无效: {source_manifest}: {'; '.join(parse_errors[:3])}"
     source_unit_id = ""
+    source_note = ""
     for source_row in source_rows:
         if (
             getattr(source_row, "status", "") == "已覆盖"
@@ -166,19 +171,31 @@ def resolve_inherited_evidence(
         ):
             # 后写覆盖先写，与 historical_unit_verdicts 的「最近一次判定」一致。
             source_unit_id = coverage_unit_id(source_row)
+            source_note = getattr(source_row, "note", "") or ""
     if not source_unit_id:
-        return False, f"源清单没有该 scope 的 covered 判定: scope={scope or '-'}"
+        return "", "", f"源清单没有该 scope 的 covered 判定: scope={scope or '-'}"
+    return source_unit_id, source_note, ""
 
+
+def _passed_source_evidence(
+    source_state: Path, source_unit_id: str, *, workspace_root: Path,
+) -> tuple[bool, str, bool]:
+    """Check one hop's local evidence for a passed record of ``source_unit_id``.
+
+    返回 ``(passed, reason, found)``：``found=False`` 表示该跳没有可判定的本地
+    记录（文件缺失/无法解析/没有该单元记录）；``found=True`` 且非 passed 表示
+    本地存在**矛盾证据**（该跳自报 covered 却有 failed/error 记录）。
+    """
     source_evidence = source_state / "coverage-evidence.json"
     if source_evidence.is_symlink() or not source_evidence.is_file():
-        return False, f"源覆盖证据缺失: {source_evidence}"
+        return False, f"源覆盖证据缺失: {source_evidence}", False
     try:
         payload = json.loads(source_evidence.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError) as exc:
-        return False, f"源覆盖证据无法解析: {source_evidence}: {exc}"
+        return False, f"源覆盖证据无法解析: {source_evidence}: {exc}", False
     records = payload.get("records") if isinstance(payload, dict) else None
     if not isinstance(records, list):
-        return False, f"源覆盖证据缺少 records 数组: {source_evidence}"
+        return False, f"源覆盖证据缺少 records 数组: {source_evidence}", False
     from core.coverage import coverage_evidence
 
     for item in records:
@@ -187,14 +204,99 @@ def resolve_inherited_evidence(
         try:
             record = coverage_evidence.EvidenceRecord.from_dict(item)
         except ValueError as exc:
-            return False, f"源证据记录损坏 unit={source_unit_id}: {exc}"
+            return False, f"源证据记录损坏 unit={source_unit_id}: {exc}", False
+        # OQ-5：沿链跳与本地 P1 同口径补 sha 完整性 + target_drifted 标志
+        # 校验；**不**启用当前指纹一致性——祖先记录必然来自不同会话的
+        # 指纹，按当前指纹判 stale 会杀死跨 Session 继承机制本身。
+        # 校验失败的记录不构成该跳的可判定依据（既非 passed 权威、也不
+        # 构成矛盾证据——被篡改的 failed 记录不得作为推翻依据），继续
+        # 找该单元的下一条记录。
+        ok, check_reason = coverage_evidence.record_authority_check(
+            record, workspace_root, require_current_fingerprint=False,
+        )
+        if not ok:
+            continue
         if record.status != "passed" or record.exit_code != 0:
             return False, (
                 f"源证据记录非 passed unit={source_unit_id} "
                 f"status={record.status} exit_code={record.exit_code}"
+            ), True
+        return True, "", True
+    return False, (
+        f"源覆盖证据没有该单元可判定记录: unit={source_unit_id} in {source_evidence}"
+    ), False
+
+
+def resolve_inherited_evidence(
+    root: Path, row: object, polling_id: str, lifecycle_id: str,
+) -> tuple[bool, str]:
+    """Transitive provenance validation of a bootstrap-inherited reference.
+
+    门禁对带 ``inherited_from`` 备注的已覆盖单元，只做**源 lifecycle 证据在案**
+    校验：引用链最终必须在某个祖先 lifecycle 的 ``coverage-evidence.json`` 中
+    落到该 scope（单元编号跨 Session 重排，scope 才是稳定身份）的 passed
+    记录（形状完整）。
+
+    F3''（宿主矩阵 E2 实证修复）：``historical_unit_verdicts`` 的继承引用总是
+    指向**最近一个写入该 covered 判定的 lifecycle**，而该判定自身可能也是继承
+    而来（清单行带 ``inherited_from`` 备注、本地证据文件没有该单元记录，
+    实证：靶场 polling-000003→000002→000001 链条，002 的证据文件只有它自己
+    4 条 worker 记录）。因此当一跳没有本地 passed 记录、但该跳清单行的
+    covered 判定本身带 ``inherited_from`` 备注时，沿备注继续向祖先溯源。
+
+    以下情形一律 fail-closed，不随链条放宽：
+    * 引用链任一跳清单缺失/无法解析/scope 无 covered 判定（伪造引用在此被拦）；
+    * 任一跳存在**矛盾的本地非 passed 记录**（自报 covered 却有 failed/error）；
+    * 链条成环或深度超过 ``MAX_INHERITED_CHAIN_DEPTH``；
+    * 链条终点（判定自称本地产出）却没有本地 passed 记录。
+
+    绝不复制证据文件、绝不改写任何字段——源记录的 ``target_fingerprint`` 漂移
+    与 ``observed_at`` 年龄信号原样保留，引擎也不为继承背书写任何新记录
+    （语义审计 BLOCK 条款）。多跳溯源成功时返回 ``chain=a/b -> c/d`` 供结算
+    日志留痕；单跳成功返回空串（与既有日志形态一致）。
+    """
+    import core.bugx_paths as bugx_paths
+
+    scope = inheritable_scope(row)
+    if not scope:
+        return False, "继承单元缺少稳定 scope，拒绝溯源"
+    base = bugx_paths.bugx_root(root) / "pollings"
+    polling_id, lifecycle_id = str(polling_id), str(lifecycle_id)
+    visited: set[tuple[str, str]] = set()
+    chain: list[str] = []
+    while True:
+        chain.append(f"{polling_id}/{lifecycle_id}")
+        key = (polling_id, lifecycle_id)
+        if key in visited:
+            return False, "继承链成环: " + " -> ".join(chain)
+        visited.add(key)
+        if len(visited) > MAX_INHERITED_CHAIN_DEPTH:
+            return False, (
+                f"继承链深度超过上限 {MAX_INHERITED_CHAIN_DEPTH}: "
+                + " -> ".join(chain)
             )
-        return True, ""
-    return False, f"源覆盖证据没有该单元记录: unit={source_unit_id} in {source_evidence}"
+        source_state = base / polling_id / "lifecycles" / lifecycle_id / "state"
+        source_unit_id, source_note, reason = _covered_source_verdict(
+            source_state, scope,
+        )
+        if not source_unit_id:
+            return False, reason
+        passed, reason, found = _passed_source_evidence(
+            source_state, source_unit_id, workspace_root=root,
+        )
+        if passed:
+            if len(chain) == 1:
+                return True, ""
+            return True, "chain=" + " -> ".join(chain)
+        if found:
+            # 本地存在可解析的非 passed 记录：矛盾证据，禁止沿链绕过。
+            return False, reason
+        reference = inherited_evidence_reference(source_note)
+        if reference is None:
+            # 该跳的 covered 判定自称本地产出，却没有本地 passed 记录：
+            # 完整性异常，保持 fail-closed（伪造清单在此被拦截）。
+            return False, reason
+        polling_id, lifecycle_id = reference
 
 
 def accept_inherited_evidence(
@@ -220,9 +322,12 @@ def accept_inherited_evidence(
         ok, reason = resolve_inherited_evidence(root, row, polling_id, lifecycle_id)
         if ok:
             accepted.add(unit_id)
+            # 多跳溯源时 reason 形如 chain=a/b -> c/d，必须随结算日志留痕，
+            # 保证继承通过的证据始终可追溯到原始证据 lifecycle。
+            detail = f" ({reason})" if reason else ""
             print(
                 f"[coverage] {unit_id} covered via inherited evidence "
-                f"from {polling_id}/{lifecycle_id}"
+                f"from {polling_id}/{lifecycle_id}{detail}"
             )
         else:
             print(
@@ -231,6 +336,465 @@ def accept_inherited_evidence(
                 file=sys.stderr,
             )
     return accepted
+
+
+def _observed_record_epoch(observed_at: str) -> float | None:
+    """把证据记录的 ``observed_at``（ISO-8601）解析为 epoch 秒；失败返回 None。
+
+    只读解析，不做任何宽恕：调用方对 None 按各自语义 fail-closed 处理。
+    """
+    text = str(observed_at or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _local_evidence_records(
+    evidence_path: Path,
+) -> tuple[list[dict[str, object]], str]:
+    """只读装载本 lifecycle 的本地证据记录（R-1 P1 本地预查的数据基础）。
+
+    返回 ``(records, error)``：``error`` 非空表示证据文件**存在但无法解析**
+    或形状非法（census 对此整体 fail-closed；verdict P1 同
+    ``_passed_source_evidence`` 口径视为「无可判定本地记录」落到 P2 沿链）。
+    文件缺失返回 ``([], "")``——纯继承 Life 的合法形态（L3-only），P1 无本地
+    记录、判定自然落到 P2。本函数绝不写任何文件。
+    """
+    if evidence_path.is_symlink() or not evidence_path.is_file():
+        return [], ""
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [], f"证据文件无法解析: {evidence_path}: {exc}"
+    raw_records = payload.get("records") if isinstance(payload, dict) else None
+    if not isinstance(raw_records, list):
+        return [], f"证据文件缺少 records 数组: {evidence_path}"
+    return [item for item in raw_records if isinstance(item, dict)], ""
+
+
+def _latest_local_record(
+    records_by_unit: dict[str, list[dict[str, object]]], unit_id: str,
+    *, workspace_root: Path,
+) -> tuple[dict[str, object] | None, float | None, list[str]]:
+    """取该单元按 ``observed_at`` **最新**的本地记录（R-1 P1「取最新」口径）。
+
+    返回 ``(record, observed_epoch, exclusions)``：无可用记录返回
+    ``(None, None, exclusions)``；时间戳不可解析时 ``observed_epoch`` 为
+    None，调用方按 fail-closed 口径处理（无法证明早于本轮 → 视为本轮新增）。
+    排序规则：不可解析时间戳视为最新（fail-closed 保守），同 epoch 按文件序
+    （append = checkpoint 时序）取后者。结论只依赖证据文件当前状态，可确定
+    性重算。
+
+    记录候选门槛（OQ-5 用户裁决 2026-11-18）：``EvidenceRecord.from_dict``
+    形状校验之外，须通过 ``record_authority_check``（sha 完整性 +
+    ``target_drifted`` 标志 + 当前指纹一致性，store/validate 同口径）。
+    校验失败的记录不构成可判定候选——**排除原因逐条记入 ``exclusions``
+    留痕**（不静默丢弃）；完好记录仍正常参与排序，仅当该单元不存在任何
+    完好候选时才落 ``None`` 交由调用方走下一优先级。
+    """
+    from core.coverage import coverage_evidence
+
+    candidates = records_by_unit.get(unit_id) or []
+    best: tuple[tuple[float, float, int], dict[str, object], float | None] | None = None
+    exclusions: list[str] = []
+    for index, item in enumerate(candidates):
+        if not isinstance(item, dict):
+            continue
+        try:
+            record = coverage_evidence.EvidenceRecord.from_dict(item)
+        except ValueError as exc:
+            # 损坏记录（同口径 _passed_source_evidence found=False）：不构成
+            # 可判定候选，也不阻断对其余记录的判定。
+            exclusions.append(f"records[{index}] 形状损坏: {exc}")
+            continue
+        ok, reason = coverage_evidence.record_authority_check(
+            record, workspace_root, require_current_fingerprint=True,
+        )
+        if not ok:
+            exclusions.append(f"records[{index}] 权威校验失败: {reason}")
+            continue
+        epoch = _observed_record_epoch(str(item.get("observed_at") or ""))
+        # 不可解析 → 排序键第一分量取 2（恒新于任何可解析记录，fail-closed）。
+        order_key = (2, 0.0, index) if epoch is None else (1, epoch, index)
+        if best is None or order_key > best[0]:
+            best = (order_key, item, epoch)
+    if best is None:
+        return None, None, exclusions
+    return best[1], best[2], exclusions
+
+
+def _resolve_unit_backing(
+    root: Path,
+    row: ModuleRow,
+    *,
+    local_record: dict[str, object] | None,
+    observed_epoch: float | None,
+    round_started_epoch: float,
+    record_exclusions: list[str] | None = None,
+) -> dict[str, object]:
+    """按合账语义 R-1 优先级解析单个 covered 判定行的归属。
+
+    P1 本地最新记录（L1/L2，``observed_at`` 取最新）> P2 沿链继承（L3，
+    ``resolve_inherited_evidence`` 现行 fail-closed 规则逐字不变）> P3
+    unbacked。返回 ``{covered, backing, reference, chain, reason, detail,
+    local_record}``：
+
+    * P1.a passed/exit 0 → ``covered=True``，``backing=local_round``（本轮）
+      或 ``local_historical``（早于本轮开始；时间戳不可解析按 fail-closed
+      归入本轮）；清单行带 ``inherited_from`` 备注时尽力沿链解析 ``chain``
+      作双记录审计留痕（S6：祖先矛盾**不阻断**本地判定，只记入 reason）。
+    * P1.b 非 passed（failed/error）→ ``covered=False``，
+      ``backing=local_overturns``（新证据为准，继承判定被推翻，R-4/R-5）。
+    * P2.c 溯源可达祖先 passed → ``covered=True``，``backing=inherited``。
+    * P2.d/P3 → ``covered=False``，``backing=unbacked``（伪造/无凭据，
+      fail-closed）。
+
+    ``inherited`` 判定（维度 1 豁免决策字段）由调用方按
+    ``backing == "inherited"`` 推导：字面 DIM1 只有沿链继承豁免（R-6）。
+    """
+    note = getattr(row, "note", "") or ""
+    reference = inherited_evidence_reference(note)
+    reference_str = f"{reference[0]}/{reference[1]}" if reference else None
+    # OQ-5：被权威校验排除的记录逐条留痕（sha 不符/漂移标志/指纹漂移），
+    # 不静默丢弃——判定结论无论落到哪一优先级，审计者都能看到排除依据。
+    exclusion_note = (
+        "；记录排除: " + "; ".join(record_exclusions)
+        if record_exclusions else ""
+    )
+    result: dict[str, object] = {
+        "covered": False,
+        "backing": "unbacked",
+        "reference": reference_str,
+        "chain": "",
+        "reason": "",
+        "detail": "",
+        "local_record": None,
+    }
+    if local_record is not None:
+        status = str(local_record.get("status") or "")
+        result["local_record"] = {
+            "observed_at": str(local_record.get("observed_at") or ""),
+            "worker_id": str(local_record.get("worker_id") or ""),
+            "status": status,
+        }
+        if status == "passed" and local_record.get("exit_code") == 0:
+            result["covered"] = True
+            if (
+                observed_epoch is not None
+                and observed_epoch < float(round_started_epoch)
+            ):
+                result["backing"] = "local_historical"
+                detail = "本地历史 passed 证据（早于本轮开始）"
+            else:
+                # observed_at 不可解析 → 无法证明早于本轮，fail-closed 归入本轮。
+                result["backing"] = "local_round"
+                detail = "本轮本地 passed 记录（新证据为准）"
+            if reference is not None and inheritable_scope(row):
+                chain_ok, chain_reason = resolve_inherited_evidence(
+                    root, row, reference[0], reference[1],
+                )
+                if chain_ok:
+                    # 双记录并存（R-2）：chain=<沿链串> 与 local record 同时在案。
+                    result["chain"] = chain_reason or reference_str or ""
+                    detail += f"；双记录并存，沿链 {result['chain']}"
+                else:
+                    # S6/P4：祖先矛盾不阻断本 lifecycle 判定（P1 短路），
+                    # 溯源失败只作审计留痕。
+                    result["reason"] = (
+                        "祖先链溯源失败（本地实测权威，不阻断判定）: "
+                        f"{chain_reason}"
+                    )
+            result["detail"] = detail + exclusion_note
+            return result
+        result["backing"] = "local_overturns"
+        result["reason"] = (
+            f"本地最新记录非 passed（status={status}），"
+            "清单/继承判定被新证据推翻（R-1 P1.b）"
+        )
+        result["detail"] = result["reason"] + exclusion_note
+        return result
+    # P2：无本地记录 → 清单行 inherited_from 备注 → 沿链溯源（现行规则）。
+    if reference is not None:
+        if not inheritable_scope(row):
+            result["reason"] = "无稳定 scope，无法沿链溯源继承引用"
+            result["detail"] = result["reason"] + exclusion_note
+            return result
+        ok, reason = resolve_inherited_evidence(root, row, reference[0], reference[1])
+        if ok:
+            result["covered"] = True
+            result["backing"] = "inherited"
+            result["chain"] = reason or reference_str or ""
+            result["detail"] = result["chain"] + exclusion_note
+            return result
+        result["reason"] = f"继承链溯源失败: {reason}"
+        result["detail"] = result["reason"] + exclusion_note
+        return result
+    # P3：无本地记录且无备注。
+    result["reason"] = (
+        "covered 行无 inherited_from 备注（继承豁免只认沿链继承覆盖）"
+        if inheritable_scope(row)
+        else "无稳定 scope 且无本地记录或 inherited_from 备注"
+    )
+    result["detail"] = result["reason"] + exclusion_note
+    return result
+
+
+def inherited_unit_coverage_verdicts(
+    root: Path, manifest_path: Path, scopes: Iterable[str], *,
+    evidence_path: Path, round_started_epoch: float,
+) -> dict[str, dict[str, object]]:
+    """只读判定：每个 scope 最近一次 covered 判定的合账归属（R-1 优先级）。
+
+    供恢复会话结算语义的维度 1（继承豁免）使用。判定按 R-1 读取优先级：
+
+    P1 先查本 lifecycle ``coverage-evidence.json`` 中该单元（scope → 当前
+    清单行 unit_id）的最新本地记录（L1/L2，同 ``_passed_source_evidence``
+    口径校验记录形状）：passed/exit 0 → ``covered=True`` 且 ``backing``
+    为 ``local_round``/``local_historical``；非 passed → ``covered=False``
+    且 ``backing=local_overturns``（新证据推翻继承判定，R-4）。P1 无本地
+    记录才走 P2：清单行带 ``inherited_from`` 备注 →
+    :func:`resolve_inherited_evidence` 沿链溯源（现行 fail-closed 规则逐字
+    不变），可达祖先 passed → ``backing=inherited``；失败/无备注 →
+    ``backing=unbacked``。清单行遗留的 ``inherited_from`` 备注不再遮蔽更新
+    的本地实测（双记录场景 R-2：本地为判定权威，chain 作历史层留痕并存）。
+
+    **维度 1 决策字段不变（R-6 字面裁决）**：``inherited=True`` 当且仅当
+    ``backing == "inherited"``（沿链继承豁免）；本地证据覆盖
+    （``local_round``/``local_historical``）不触发豁免（OQ-1 有意的
+    fail-closed 浪费，放宽与否待用户裁决）。supersede 快照经 ``backing``
+    可区分「凭继承豁免」与「凭本地证据豁免」。
+
+    fail-closed 红线：scope 无 covered 判定、清单行**无** ``inherited_from``
+    备注（伪造继承覆盖）、或链溯源失败（伪造引用在此被拦），一律
+    ``inherited=False`` 并附拒绝原因。本地证据文件缺失/无法解析时 P1 视为
+    无本地记录（同 ``_passed_source_evidence`` 口径），判定落到 P2——与
+    legacy（纯链判定）行为一致，不因基础设施故障放宽。本函数绝不写任何
+    文件、绝不改写清单。
+    """
+    wanted = [str(scope).strip() for scope in scopes if str(scope).strip()]
+    if not wanted:
+        return {}
+
+    def _denied(reason: str, reference: str | None = None) -> dict[str, object]:
+        return {
+            "inherited": False, "covered": False, "backing": "unbacked",
+            "reference": reference, "chain": "", "reason": reason,
+            "detail": reason, "local_record": None,
+        }
+
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        return {s: _denied(f"清单缺失: {manifest_path}") for s in wanted}
+    try:
+        rows, parse_errors = parse_manifest(manifest_path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return {s: _denied(f"清单无法解析: {exc}") for s in wanted}
+    if parse_errors:
+        return {
+            s: _denied(f"清单无效: {'; '.join(parse_errors[:3])}")
+            for s in wanted
+        }
+    # R-1 P1 数据基础：本 lifecycle 本地证据记录（缺失/损坏 → 无本地记录）。
+    records, _evidence_error = _local_evidence_records(evidence_path)
+    records_by_unit: dict[str, list[dict[str, object]]] = {}
+    for record in records:
+        unit_key = str(record.get("unit_id") or "")
+        if unit_key:
+            records_by_unit.setdefault(unit_key, []).append(record)
+    # 与 _covered_source_verdict 同口径：后写覆盖先写，取最近一次 covered 判定。
+    newest_covered: dict[str, ModuleRow] = {}
+    for row in rows:
+        if getattr(row, "status", "") == "已覆盖":
+            scope = inheritable_scope(row)
+            if scope:
+                newest_covered[scope] = row
+    verdicts: dict[str, dict[str, object]] = {}
+    for scope in wanted:
+        row = newest_covered.get(scope)
+        if row is None:
+            verdicts[scope] = _denied(
+                f"清单没有该 scope 的 covered 判定: scope={scope}"
+            )
+            continue
+        local_record, observed_epoch, exclusions = _latest_local_record(
+            records_by_unit, coverage_unit_id(row), workspace_root=root,
+        )
+        resolution = _resolve_unit_backing(
+            root, row,
+            local_record=local_record, observed_epoch=observed_epoch,
+            round_started_epoch=round_started_epoch,
+            record_exclusions=exclusions,
+        )
+        verdicts[scope] = {
+            "inherited": resolution["backing"] == "inherited",
+            "covered": bool(resolution["covered"]),
+            "backing": str(resolution["backing"]),
+            "reference": resolution["reference"],
+            "chain": str(resolution["chain"]),
+            "reason": str(resolution["reason"]),
+            "detail": str(resolution.get("detail", "")),
+            "local_record": resolution["local_record"],
+        }
+    return verdicts
+
+
+def recovery_closeout_coverage_census(
+    root: Path,
+    manifest_path: Path,
+    evidence_path: Path,
+    round_started_epoch: float,
+) -> dict[str, object]:
+    """只读普查：恢复结算维度 2 条件①/②的覆盖来源账本（R-1 归属口径）。
+
+    回答两个问题（语义见 budget_governor 恢复会话结算注释块）：
+
+    1. 本 Life 的 covered 判定是否 100% 来自「沿链继承」或「本 Life 历史
+       证据」（observed_at 早于本轮开始时间的本地 passed 记录）——
+       即零新增挖掘意图（条件①）；
+    2. 本 round 是否**零新增证据记录**——OQ-2 加强口径：统计全部状态的
+       记录（含 failed/error，不只 passed），任何新证据都证明本轮存在真实
+       挖掘/重派动作，并发证明债豁免必须整体退场（条件②）。
+
+    每条 covered 判定的归属按合账语义 R-1 优先级判定（**本地直查先于沿链**，
+    反转 legacy「有备注先沿链」在双记录场景的误标）：本 lifecycle 最新本地
+    记录（P1：passed → ``local_round``/``local_historical``；非 passed →
+    ``local_overturns``）> 沿链继承（P2：备注 + ``resolve_inherited_evidence``
+    溯源通过 → ``inherited``；溯源失败 → ``unbacked``）> unbacked。entries
+    携带本地记录身份（observed_at/worker_id/status）与 ``chain_reference``；
+    清单行自称 covered 而判定为推翻/溯源失败的单元记入 ``divergences``
+    （R-5 显性化，不做清单行自动翻转）。清单/证据文件损坏、解析失败一律
+    fail-closed（available=False 且两条件为 False）；证据文件缺失是纯继承
+    Life 的合法形态。
+    """
+    fail: dict[str, object] = {
+        "available": False,
+        "covered_all_inherited_or_historical": False,
+        "no_new_evidence_records_this_round": False,
+    }
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        return {**fail, "reason": f"清单缺失: {manifest_path}"}
+    try:
+        rows, parse_errors = parse_manifest(manifest_path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return {**fail, "reason": f"清单无法解析: {exc}"}
+    if parse_errors:
+        return {
+            **fail,
+            "reason": f"清单无效: {'; '.join(parse_errors[:3])}",
+        }
+
+    evidence_absent = evidence_path.is_symlink() or not evidence_path.is_file()
+    records, evidence_error = _local_evidence_records(evidence_path)
+    evidence_note = ""
+    if evidence_error:
+        # 证据文件存在但损坏/形状非法：基础设施故障，整体 fail-closed。
+        return {**fail, "reason": evidence_error}
+    if evidence_absent:
+        evidence_note = "证据文件缺失（纯继承 Life 的合法形态）"
+
+    # OQ-2 加强口径：本轮新增证据记录 = 全部状态（含 failed/error）。
+    # None = 时间戳不可解析：无法证明不是本轮新增，fail-closed 计入。
+    new_evidence_this_round = 0
+    for record in records:
+        epoch = _observed_record_epoch(str(record.get("observed_at") or ""))
+        if epoch is None or epoch >= float(round_started_epoch):
+            new_evidence_this_round += 1
+    records_by_unit: dict[str, list[dict[str, object]]] = {}
+    for record in records:
+        unit_key = str(record.get("unit_id") or "")
+        if unit_key:
+            records_by_unit.setdefault(unit_key, []).append(record)
+
+    entries: list[dict[str, object]] = []
+    unbacked = 0
+    inherited_total = 0
+    historical_total = 0
+    local_round_total = 0
+    overturns_total = 0
+    # 与 _covered_source_verdict 同口径：后写覆盖先写。身份用 scope；scope
+    # 不稳定（业务行 path 为 ``-``）的行退回 unit_id 身份，不得静默跳过。
+    newest_covered: dict[str, ModuleRow] = {}
+    order: list[str] = []
+    for row in rows:
+        if getattr(row, "status", "") != "已覆盖":
+            continue
+        scope = inheritable_scope(row)
+        identity = scope or f"unit:{coverage_unit_id(row)}"
+        if identity not in newest_covered:
+            order.append(identity)
+        newest_covered[identity] = row
+    for identity in order:
+        row = newest_covered[identity]
+        unit_id = coverage_unit_id(row)
+        local_record, observed_epoch, exclusions = _latest_local_record(
+            records_by_unit, unit_id, workspace_root=root,
+        )
+        resolution = _resolve_unit_backing(
+            root, row,
+            local_record=local_record, observed_epoch=observed_epoch,
+            round_started_epoch=round_started_epoch,
+            record_exclusions=exclusions,
+        )
+        backing = str(resolution["backing"])
+        if backing == "inherited":
+            inherited_total += 1
+        elif backing == "local_historical":
+            historical_total += 1
+        elif backing == "local_round":
+            local_round_total += 1
+        elif backing == "local_overturns":
+            overturns_total += 1
+        else:
+            unbacked += 1
+        entries.append({
+            "identity": identity, "unit_id": unit_id,
+            "backing": backing,
+            "detail": str(resolution.get("detail", "")),
+            "covered": bool(resolution["covered"]),
+            "manifest_row_status": getattr(row, "status", ""),
+            "evidence_verdict": (
+                "covered" if resolution["covered"] else "not_covered"
+            ),
+            "chain_reference": resolution["reference"],
+            "chain": str(resolution["chain"]),
+            "reason": str(resolution["reason"]),
+            "local_record": resolution["local_record"],
+        })
+    # R-5 divergence 显性化：清单行自称已覆盖（含 inherited_from 引用）而
+    # 判定为「新证据推翻」或「沿链溯源失败」。不做清单行自动翻转（OQ-3），
+    # 后果走诚实路径：该单元不在有效 covered 集 → coverage_complete 不成立。
+    divergences = [
+        entry for entry in entries
+        if entry["backing"] == "local_overturns"
+        or (entry["backing"] == "unbacked" and entry["chain_reference"])
+    ]
+    return {
+        "available": True,
+        "covered_total": len(entries),
+        # entries 全量在案（R-3.4 审计四跳：快照 → 本地记录 → 祖先记录 → 清单
+        # 备注引用，全部机读可达；backing/local_record/chain_reference 逐行在案）。
+        "entries": entries,
+        "inherited_total": inherited_total,
+        "historical_local_total": historical_total,
+        "local_round_total": local_round_total,
+        "local_overturns_total": overturns_total,
+        "unbacked_total": unbacked,
+        "unbacked_entries": [e for e in entries if e["backing"] == "unbacked"],
+        "divergences": divergences,
+        "new_evidence_records_this_round": new_evidence_this_round,
+        "evidence_note": evidence_note,
+        # 条件①：全部归属落在 {inherited, historical_local} 才算「零新增
+        # 挖掘意图」；local_round（新证据）/local_overturns（推翻）/unbacked
+        # （伪造）任一在场即 False。
+        "covered_all_inherited_or_historical": bool(entries) and all(
+            entry["backing"] in {"inherited", "local_historical"}
+            for entry in entries
+        ),
+        # 条件②（OQ-2）：零新增证据记录（含 failed/error）。
+        "no_new_evidence_records_this_round": new_evidence_this_round == 0,
+    }
 
 
 def evidence_manifest_errors(
@@ -252,6 +816,12 @@ def evidence_manifest_errors(
         # 单元都能经 bootstrap 继承引用在源 lifecycle 核实，则不因文件缺席直接
         # 拒绝；任何单元核实失败，维持原有拒绝（保留缺文件错误本身）。
         if expected and accept_inherited_evidence(rows, root, sorted(expected)) >= expected:
+            return []
+        # F-RSI-20261118-008b：``expected`` 为空（无已覆盖单元的 allow-incomplete
+        # 收口轮）即不存在任何证据义务——manifest 缺席是诚实状态，不再阻断
+        # （移动靶场 0/14 覆盖轮 post 实证：与 allow-incomplete 的
+        # 「接受诚实的未覆盖债务」语义矛盾）。
+        if not expected:
             return []
         return [f"覆盖证据 manifest 不存在: {manifest}"]
     try:

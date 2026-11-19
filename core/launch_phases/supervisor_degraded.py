@@ -20,6 +20,7 @@ from core.launch_phases.common import (
     supervisor_state_path,
     child_environment,
     run_child,
+    sync_codebase_memory_env as _sync_codebase_memory_env,
     bugx_paths,
 )
 from core.launch_phases.session_runtime import (
@@ -593,15 +594,6 @@ def check_fix_regressions(root: Path | None = None) -> dict:
         return report
     except Exception as exc:
         return _watchlist_error_report(exc)
-
-
-def _sync_codebase_memory_env(profile: dict) -> None:
-    """把 codebase-memory 探针结论同步到进程环境变量。"""
-    cb_probe = (profile.get("probes") or {}).get("codebase-memory")
-    if isinstance(cb_probe, dict):
-        os.environ["BUGX_USE_CODEBASE_MEMORY"] = (
-            "1" if cb_probe.get("status") == "READY" else "0"
-        )
 
 
 def report_degraded_probes(*, refresh: bool = False,

@@ -1,0 +1,265 @@
+/* =========================================================================
+ * Workspace File Management & Safe Deletion Styles (REQ-10)
+ * ========================================================================= */
+.bx-files-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  margin-top: var(--sp-4);
+}
+
+.bx-files-breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-7);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--bx-black-06);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-body);
+}
+
+.bx-crumb-btn {
+  background: none;
+  border: none;
+  color: #0066cc;
+  cursor: pointer;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-xs);
+  transition: background 0.15s ease;
+}
+
+.bx-crumb-btn:hover {
+  background: rgba(0, 102, 204, 0.08);
+}
+
+.bx-crumb-sep {
+  color: #8e8e93;
+  font-size: var(--fs-label-sm);
+}
+
+.bx-crumb-current {
+  font-weight: 600;
+  color: var(--bx-apple-gray-900);
+  font-size: var(--fs-body);
+}
+
+.bx-files-container {
+  border: 1px solid var(--bx-black-08);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-height: 520px;
+  overflow-y: auto;
+  background: var(--bx-white);
+}
+
+.bx-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-body);
+  text-align: left;
+}
+
+.bx-files-table th {
+  background: #fbfbfd;
+  padding: var(--sp-5) var(--sp-7);
+  font-weight: 600;
+  color: var(--bx-apple-gray-500);
+  border-bottom: 1px solid var(--bx-black-06);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-table-header);
+}
+
+.bx-files-table td {
+  padding: var(--sp-5) var(--sp-7);
+  border-bottom: 1px solid var(--bx-black-04);
+  color: var(--bx-apple-gray-900);
+  vertical-align: middle;
+}
+
+.bx-file-row:hover td {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.bx-file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.bx-file-icon {
+  font-size: var(--fs-display-sm);
+  flex-shrink: 0;
+}
+
+.bx-file-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+}
+
+.bx-dir-link {
+  color: #0066cc;
+  cursor: pointer;
+}
+
+.bx-dir-link:hover {
+  text-decoration: underline;
+}
+
+.bx-file-ops {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+}
+
+.bx-file-action-btn {
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label-sm);
+  font-weight: 500;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--bx-white);
+  color: var(--bx-apple-gray-900);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bx-file-action-btn:hover {
+  background: var(--bx-black-04);
+}
+
+.bx-file-action-btn.danger {
+  color: var(--bx-danger-ink);
+  border-color: rgba(255, 59, 48, 0.25);
+}
+
+.bx-file-action-btn.danger:hover {
+  background: rgba(255, 59, 48, 0.08);
+  border-color: var(--bx-danger-ink);
+}
+
+/* CWD Directory item trash button */
+.bx-cwd-item-del-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  margin-left: auto;
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-label-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+
+.dir-item:hover .bx-cwd-item-del-btn {
+  opacity: 1;
+}
+
+.bx-cwd-item-del-btn:hover {
+  background: rgba(255, 59, 48, 0.15);
+}
+
+/* Document Center item trash button */
+.bx-doc-del-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  margin-left: var(--sp-3);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-caption);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+
+.bx-doc-item:hover .bx-doc-del-btn {
+  opacity: 1;
+}
+
+.bx-doc-del-btn:hover {
+  background: rgba(255, 59, 48, 0.15);
+}
+
+/* Dark mode overrides for Files tab */
+html.dark .bx-files-breadcrumb-bar,
+body.dark .bx-files-breadcrumb-bar {
+  background: var(--bx-glass-05);
+  border-color: var(--bx-glass-08);
+}
+
+html.dark .bx-crumb-btn,
+body.dark .bx-crumb-btn {
+  color: var(--bx-link-ink);
+}
+
+html.dark .bx-crumb-btn:hover,
+body.dark .bx-crumb-btn:hover {
+  background: rgba(10, 132, 255, 0.15);
+}
+
+html.dark .bx-crumb-current,
+body.dark .bx-crumb-current {
+  color: var(--bx-apple-gray-100);
+}
+
+html.dark .bx-files-container,
+body.dark .bx-files-container {
+  background: rgba(30, 30, 32, 0.85);
+  border-color: var(--bx-glass-08);
+}
+
+html.dark .bx-files-table th,
+body.dark .bx-files-table th {
+  background: rgba(255, 255, 255, 0.03);
+  color: #8e8e93;
+  border-bottom-color: var(--bx-glass-08);
+}
+
+html.dark .bx-files-table td,
+body.dark .bx-files-table td {
+  color: var(--bx-apple-gray-100);
+  border-bottom-color: var(--bx-glass-05);
+}
+
+html.dark .bx-file-row:hover td,
+body.dark .bx-file-row:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html.dark .bx-dir-link,
+body.dark .bx-dir-link {
+  color: var(--bx-link-ink);
+}
+
+html.dark .bx-file-action-btn,
+body.dark .bx-file-action-btn {
+  background: var(--bx-glass-08);
+  border-color: var(--bx-glass-12);
+  color: var(--bx-apple-gray-100);
+}
+
+html.dark .bx-file-action-btn:hover,
+body.dark .bx-file-action-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+html.dark .bx-file-action-btn.danger,
+body.dark .bx-file-action-btn.danger {
+  color: #ff453a;
+  border-color: rgba(255, 69, 58, 0.3);
+}
+
+html.dark .bx-file-action-btn.danger:hover,
+body.dark .bx-file-action-btn.danger:hover {
+  background: rgba(255, 69, 58, 0.15);
+  border-color: #ff453a;
+}
+

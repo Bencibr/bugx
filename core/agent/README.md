@@ -20,7 +20,7 @@ flowchart TD
 
     subgraph ArtifactsEvaluation["3. 产物封签与效果评估"]
         AA["agent_artifacts.py<br/>中间补丁、测试日志与产物规范哈希封签"]
-        AE["agent_eval.py<br/>行为指标度量、基线门槛对比与质量打分"]
+        AE["agent_eval.py<br/>行为指标度量、基线门槛对比与质量打分<br/>feature_baseline.py（功能完备性基准评测）"]
     end
 
     Orchestration --> WorkspaceExecution
@@ -36,6 +36,7 @@ flowchart TD
 | `__init__.py` | 智能体领域子包入口与核心符号导出 | `AgentOrchestrator`, `AgentWorkspace`, `AgentArtifact` |
 | `agent_artifacts.py` | 统一管理 Worker 生成的中间补丁、测试日志与证据文件规范与哈希封签 | `AgentArtifact`, `BugCandidate`, `ReproCase`, `PatchCandidate`, `seal_artifact` |
 | `agent_eval.py` | 对 Agent 执行输出进行一致性度量与质量评估打分 | `score`, `validate_cases`, `validate_findings`, `metrics_record` |
+| `feature_baseline.py` | 功能完备性基准评测（F-022）：声明被审产品功能清单与植入缺失，`completeness_recall/precision/by_domain` 三指标计入 quality_score（权重 0.25）。管线接线：baseline 可经 `--feature-baseline` 或**评测集内嵌**（cases payload `feature_baseline` 键，flag 优先）启用；`_print_score` 输出 `完备性召回/完备性精确/植入缺失检出` 行供 scenario_eval L4 解析 | `validate_feature_baseline`, `completeness_metrics`, `FeatureBaselineError` |
 | `agent_execution.py` | Agent 执行管道，驱动任务状态机并在超时时安全回收子进程组 | `execute_check_plan`, `CheckPlan`, `ExecutionObservation` |
 | `agent_orchestrator.py` | 多 Agent 协作调度微内核，负责任务拆解、拓扑依赖与工作分配 | `AgentOrchestrator`, `assemble_task_prompt` |
 | `agent_targets.py` | 被测代码库攻击面切片与多 Worker 并发分配算法 | `adapt_project`, `adapt_python_project`, `adapt_node_project` |

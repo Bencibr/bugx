@@ -71,31 +71,55 @@ REJECTION_REMEDIES: dict[str, dict[str, Any]] = {
         cli=[["bugx", "supervisor", "status"]],
     ),
     "expired_workers_require_retry": _entry(
-        meaning="存在 expired claim 形成的重试债，必须先接手原任务包。",
+        meaning=(
+            "存在 expired claim 形成的重试债，必须先接手原任务包。"
+            "注意：单元已 100% 沿链继承覆盖的 expired claim 已被标记"
+            " superseded_by_inheritance（事件 expired_claim_superseded_by_inheritance）"
+            "移出该集合不再重派；留在集合里的 claim 必有未覆盖单元，需按原包接手重派。"
+        ),
         category=CATEGORY_WORKER,
         trigger={"gate_reason": "expired_workers_require_retry", "gate_field": "expired_workers"},
         required_role="worker",
         required_inputs=("worker_id", "recover_expired=true", "expected_revision"),
-        exit_conditions=("expired_workers 为空", "新 claim active 且 unit_ids/resource_keys 与原包一致"),
+        exit_conditions=(
+            "expired_workers 为空（含被继承豁免标记 superseded 的 claim）",
+            "新 claim active 且 unit_ids/resource_keys 与原包一致",
+        ),
         next_actions=("RECLAIM_EXPIRED_WORKERS",),
         fallback_actions=("STALLED_OR_RECOVER",),
         steps=(
             "以 recover_expired=true 接手同一 expired/released claim",
             "接手失败时先确认没有 active claim，再由 host 显式 recover",
             "recover 后重新读取 gate，再按原单元重新派发",
+            "expired_workers 里消失的 worker 不必追讨：其单元已沿链继承覆盖"
+            "（见 expired_claim_superseded_by_inheritance 事件快照）",
         ),
         cli=[["bugx", "supervisor", "status"]],
         mcp_tool="bugx_supervisor_claim",
     ),
     "parallel_peak_below_two": _entry(
-        meaning="要求并行但本轮未观察到两个真实运行 worker。",
+        meaning=(
+            "要求并行但本轮未观察到两个真实运行 worker。"
+            "恢复会话收口豁免（三条件全真且留痕 parallel_gate_inherited_closeout）"
+            "会移除该原因；非 --final post 不接受该豁免（D5 fail-closed）。"
+        ),
         category=CATEGORY_SCHEDULER,
         trigger={"gate_reason": "parallel_peak_below_two"},
         required_role="host",
         required_inputs=("coverage_units", "max_concurrency"),
-        exit_conditions=("本轮真实峰值至少为 2", "或显式记录 serial_reason"),
+        exit_conditions=(
+            "本轮真实峰值至少为 2",
+            "或显式记录 serial_reason",
+            "或恢复结算三条件全真（owner_cancelled 证明在链 + covered 100% "
+            "继承/历史证据且本轮零新增 passed 记录 + 零新增 findings），"
+            "以 parallel_gate_inherited_closeout 留痕为准",
+        ),
         next_actions=("CLAIM_WORKERS",),
-        steps=("派发两个不同单元并确认 worker-start 窗口重叠",),
+        steps=(
+            "派发两个不同单元并确认 worker-start 窗口重叠",
+            "恢复会话零挖掘收口时核对三条件快照"
+            "（gate.recovery_closeout_exemption.conditions），缺一即拒绝",
+        ),
         cli=[["bugx", "supervisor", "status"]],
     ),
     "parallel_overlap_missing": _entry(
@@ -118,6 +142,29 @@ REJECTION_REMEDIES: dict[str, dict[str, Any]] = {
         next_actions=("WAIT_OR_HEARTBEAT_WORKERS",),
         steps=("每个 worker 提交带 coverage/evidence 的 checkpoint",),
         mcp_tool="bugx_supervisor_checkpoint",
+    ),
+    "bookkeeping_only_no_real_parallel": _entry(
+        meaning=(
+            "并发峰值只由记账式 claim（judge 判读取证电池等，process_pid 为空"
+            "/零 token/心跳零推进）的重叠窗口构成，经真实性过滤后无真实并发——"
+            "第四批修复（假并发门禁）的 fail-closed 诚实化标注。"
+        ),
+        category=CATEGORY_SCHEDULER,
+        trigger={"gate_reason": "bookkeeping_only_no_real_parallel",
+                 "gate_field": "bookkeeping_workers"},
+        required_role="host",
+        required_inputs=("coverage_units", "max_concurrency"),
+        exit_conditions=(
+            "两个真实 worker（pid/tokens/心跳三选二）窗口重叠",
+            "或显式记录 serial_reason 走串行授权",
+        ),
+        next_actions=("CLAIM_WORKERS",),
+        steps=(
+            "读取 bookkeeping_workers 清单确认均为记账 claim",
+            "派发两个真实 worker 并确认窗口重叠",
+            "或按串行授权契约显式降级（--allow-serial）",
+        ),
+        cli=[["bugx", "supervisor", "status"]],
     ),
     "max_wall_seconds": _entry(
         meaning="run 级墙钟预算耗尽。",

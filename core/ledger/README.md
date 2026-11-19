@@ -1,7 +1,8 @@
 # BugX Ledger (攻防复盘账本与错题经验库)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/ledger/` 是 BugX 的知识沉淀与复盘中枢。它不仅记录历史漏洞与误报事故（Incidents），更通过自动化物化（Auto-Materialization）将过往踩坑教训提炼为对抗模式（Patterns）与工具经验（Tool Experience），形成越战越强的智能免疫闭环。
 

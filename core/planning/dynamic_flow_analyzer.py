@@ -82,6 +82,139 @@ WEAK_TRANSFORMS = [
     r"\.toLowerCase\(\)", r"\.lower\(\)", r"\(string\)", r"\.to_s\b",
 ]
 
+# 字符串字面量起始引号（三引号优先，单双引号其次）。
+# 反引号（JS/TS 模板字面量）**不在**此列：``${host}`` 的插值必须能被折叠。
+_LITERAL_QUOTES = ('"""', "'''", '"', "'")
+
+
+def _literal_end(expr: str, start: int, quote: str) -> int:
+    """从 ``start`` 起找 ``quote`` 的收尾位置（返回结束后的下标），找不到返回 -1。"""
+    index = start
+    while index < len(expr):
+        char = expr[index]
+        if char == "\\":
+            index += 2
+            continue
+        if expr.startswith(quote, index):
+            return index + len(quote)
+        # 单行引号不跨行；跨行说明解析器给的实参文本本身不完整，交由调用方兜底。
+        if len(quote) == 1 and char == "\n":
+            return -1
+        index += 1
+    return -1
+
+
+def _matching_brace(text: str, start: int) -> int:
+    """``text[start] == '{'``，返回与之配对的 ``}`` 之后的下标，找不到返回 -1。"""
+    depth = 0
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char in "\"'":
+            end = _literal_end(text, index + 1, char)
+            if end < 0:
+                return -1
+            index = end
+            continue
+        if char == "\\":
+            index += 2
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return -1
+
+
+def _fstring_body_spans(body: str, depth: int = 0) -> list[tuple[bool, str]]:
+    """f-string 体内：``{...}`` 是代码（插值），其余是字面量文本。
+
+    ``{{`` / ``}}`` 是转义后的普通花括号，按字面量处理。
+    """
+    spans: list[tuple[bool, str]] = []
+    buffer: list[str] = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char in "{}" and index + 1 < len(body) and body[index + 1] == char:
+            buffer.append(char * 2)
+            index += 2
+            continue
+        if char != "{":
+            buffer.append(char)
+            index += 1
+            continue
+        end = _matching_brace(body, index)
+        if end < 0:
+            buffer.append(body[index:])
+            break
+        if buffer:
+            spans.append((False, "".join(buffer)))
+            buffer = []
+        spans.append((True, "{"))
+        spans.extend(_split_code_and_literals(body[index + 1:end - 1], depth + 1))
+        spans.append((True, "}"))
+        index = end
+    if buffer:
+        spans.append((False, "".join(buffer)))
+    return spans
+
+
+def _split_code_and_literals(expr: str, depth: int = 0) -> list[tuple[bool, str]]:
+    """把实参文本切成 ``(是否代码, 片段)``。
+
+    普通字符串字面量（``"..."``、``'...'``、三引号）内部**不是代码**，变量折叠
+    不得进入；f-string 的**字面量文本**同样不是代码，只有 ``{...}`` 插值段是。
+    反引号模板字面量按代码处理（``${host}`` 必须能被折叠）。
+    引号未闭合时退回"整段都是代码"，保持与旧实现一致的兜底行为。
+    """
+    spans: list[tuple[bool, str]] = []
+    buffer: list[str] = []
+    index = 0
+    while index < len(expr):
+        char = expr[index]
+        if char not in "\"'":
+            buffer.append(char)
+            index += 1
+            continue
+
+        # 紧邻引号的标识符字母就是字符串前缀（f / r / b / u / rf ...）。
+        prefix_start = index
+        while prefix_start > 0 and (expr[prefix_start - 1].isalnum() or expr[prefix_start - 1] == "_"):
+            prefix_start -= 1
+        prefix = expr[prefix_start:index].lower()
+
+        quote = next((q for q in _LITERAL_QUOTES if expr.startswith(q, index)), char)
+        end = _literal_end(expr, index + len(quote), quote)
+        if end < 0:
+            buffer.append(expr[index:])
+            break
+        if "f" in prefix and depth < 3:
+            # f-string：插值是代码，必须继续参与折叠（SQLI/SSRF 的插值判据依赖它）；
+            # 但字面量文本不是代码，不能被同名变量替换。
+            buffer.append(quote)
+            spans.append((True, "".join(buffer)))
+            buffer = []
+            spans.extend(
+                _fstring_body_spans(expr[index + len(quote):end - len(quote)], depth)
+            )
+            spans.append((True, quote))
+            index = end
+            continue
+
+        if buffer:
+            spans.append((True, "".join(buffer)))
+            buffer = []
+        spans.append((False, expr[index:end]))
+        index = end
+
+    if buffer:
+        spans.append((True, "".join(buffer)))
+    return spans
+
 
 @dataclass
 class FlowVariable:
@@ -180,7 +313,14 @@ class DynamicFlowAnalyzer:
                 parts.append(val)
                 if not c:
                     all_const = False
-            return "".join(parts), all_const
+            folded = "".join(parts)
+            # 含插值的 f-string 必须保留 ``f`` 前缀：折叠只做「值归一化」，不能
+            # 把动态插值抹平成普通字面量。下游的 SQLi/CMDi 规则靠「这是不是动态
+            # 拼出来的串」判定，前缀一丢，`execute(query)` 里 query 的插值痕迹
+            # 就彻底不可见（实测靶场种子 ① 因此漏检）。
+            if not all_const:
+                return 'f"' + folded + '"', False
+            return folded, all_const
 
         # FormattedValue
         if isinstance(node, ast.FormattedValue):
@@ -275,6 +415,56 @@ class DynamicFlowAnalyzer:
             return m_pure.group(1), True
         return curr, False
 
+    # 顶层关键字实参的起点（排除 ``==`` 比较）。
+    _KWARG_START_RE = re.compile(r",\s*[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)")
+
+    def payload_portion(self, args: str) -> str:
+        """取第一个关键字实参之前的部分——注入类规则的载荷面。"""
+        if not args:
+            return args
+        match = self._KWARG_START_RE.search(args)
+        return args[: match.start()] if match else args
+
+    # 标识符边界：不替换更长标识符的前缀，也不替换关键字实参名（``timeout=``）。
+    _IDENT_RE = re.compile(
+        r"(?<![A-Za-z0-9_$])([A-Za-z_$][A-Za-z0-9_$]*)(?![\w$])(?!\s*=(?!=))"
+    )
+
+    def _substitute_vars_once(
+        self, expr: str, env: dict[str, FlowVariable]
+    ) -> tuple[str, bool]:
+        """在表达式上**单次**替换变量引用，替换结果不再参与匹配。
+
+        返回 ``(替换后表达式, 是否引用了受污染变量)``。
+
+        替换只在**代码面**上做：普通字符串字面量（含三引号）内部不是代码，
+        按标识符直接替换会**凭空篡改分析对象**——实测 ``help="... cloud sync"``
+        里的 ``cloud`` 被同名变量替换成 ``subparsers.add_parser('cloud')``，
+        静态 DDL 里的列名被替换成 f-string，整段实参变成源码里不存在的东西。
+        全仓 317 个调用点存在这种改写。
+
+        f-string / 模板字面量（``f"..."``、``rf'...'``、JS 反引号）**整体仍按
+        代码处理**：``f"SELECT * FROM {table}"`` 的 ``{table}``、``${host}``
+        必须能被折叠还原，SQLI 与 SSRF 的插值判据都建立在折叠后的文本上。
+        """
+        if not expr or not env:
+            return expr, False
+        tainted = False
+
+        def _repl(match: re.Match[str]) -> str:
+            nonlocal tainted
+            var = env.get(match.group(1))
+            if var is None:
+                return match.group(0)
+            if var.is_tainted:
+                tainted = True
+            return var.value
+
+        pieces: list[str] = []
+        for is_code, chunk in _split_code_and_literals(expr):
+            pieces.append(self._IDENT_RE.sub(_repl, chunk) if is_code else chunk)
+        return "".join(pieces), tainted
+
     def resolve_call_target(
         self, callee: str, args_raw: str, env: dict[str, FlowVariable], snippet: str = ""
     ) -> tuple[str, str, bool]:
@@ -289,20 +479,31 @@ class DynamicFlowAnalyzer:
             if env[callee].is_tainted:
                 is_tainted = True
         else:
-            for name, var in env.items():
-                pat = rf"(?<![A-Za-z0-9_$]){re.escape(name)}(?![A-Za-z0-9_$])"
-                if re.search(pat, resolved_callee):
-                    resolved_callee = re.sub(pat, var.value, resolved_callee)
-                    if var.is_tainted:
-                        is_tainted = True
+            resolved_callee, tainted_by_callee = self._substitute_vars_once(
+                resolved_callee, env
+            )
+            is_tainted = is_tainted or tainted_by_callee
 
         # 2. 还原实参中的变量
-        for name, var in env.items():
-            pat = rf"(?<![A-Za-z0-9_$]){re.escape(name)}(?![A-Za-z0-9_$])"
-            if re.search(pat, resolved_args):
-                resolved_args = re.sub(pat, var.value, resolved_args)
-                if var.is_tainted:
-                    is_tainted = True
+        #
+        # 必须**单次扫描、不回扫替换结果**。原先按 env 逐项 ``re.sub`` 的写法会让
+        # 替换进去的文本被后续变量名再次替换，产生级联污染：实测
+        # ``corpus_fetch.py`` 的 ``urlopen(req, timeout=timeout, ...)`` 被还原成
+        # 一整段把多个函数里 ``req`` 的赋值、``pool.submit(...)`` 片段拼在一起的
+        # 垃圾文本，进而被拼接检测判成动态构造（假 SSRF）。单次替换用一次
+        # ``re.sub`` + 回调实现：只在**原始实参**上找标识符，替换结果不再参与匹配。
+        resolved_args, _ = self._substitute_vars_once(resolved_args, env)
+        # 污点传播同样只看载荷面：`env=environment` 这类配置实参即使本身来自
+        # `os.environ`，也不构成注入面（见下方 payload_portion 说明）。
+        payload = self.payload_portion(args_raw)
+        if any(
+            var.is_tainted
+            and re.search(
+                rf"(?<![A-Za-z0-9_$]){re.escape(var.name)}(?![A-Za-z0-9_$])", payload
+            )
+            for var in env.values()
+        ):
+            is_tainted = True
 
         # 3. 检查 getattr(os, "system") 或 getattr(os, system) 字符串内嵌动态调用还原
         m_getattr = re.search(r"getattr\(([^,]+),\s*['\"]?([A-Za-z0-9_]+)['\"]?\)", resolved_callee)
@@ -322,7 +523,11 @@ class DynamicFlowAnalyzer:
                         chain_raw = m_chain.group(1).strip()
                         resolved_args = self._resolve_line_vars(chain_raw, env)
 
-        if self.has_framework_source(resolved_args):
+        # 污点只看**载荷面**（第一个关键字实参之前）。注入类规则的注入点是命令/查询
+        # 串本身；把 `env=os.environ.copy()`、`cwd=`、`timeout=` 这类配置实参也算进去，
+        # 会让 `subprocess.run(cmd, env=os.environ.copy())` 这种完全正常的调用被判成
+        # 命令注入（实测仓库自身就有一条 critical 假阳性）。
+        if self.has_framework_source(self.payload_portion(resolved_args)):
             is_tainted = True
 
         return resolved_callee, resolved_args, is_tainted

@@ -67,7 +67,7 @@ flowchart TD
 | `rsi_loop.py` | RSI 递归自提升主循环 | 递归自我提升 (Recursive Self-Improvement) 控制循环与收敛性保障 | `solidify_round`, `repair_then_recheck`, `run_loop` |
 | `rsi_repair.py` | 失败分流与执行器 | 将候选修复补丁应用至磁盘工作区并执行本地构建，消除测试噪声 | `Diagnosis`, `classify`, `repair_noise`, `build_work_order` |
 | `rsi_rounds.py` | 轮次编排与快照比对 | 逐级递增自回归轮次编排，记录历史快照与差异轮次收敛 | `diff_rounds` |
-| `rsi_scope.py` | 修复范围守卫 | 严格限制修复改动文件范围，按模式模式 1 / 模式 2 隔离写边界 | `ScopeViolation`, `assert_allowed_paths`, `snapshot` |
+| `rsi_scope.py` | 修复范围守卫 | 严格限制修复改动文件范围，按模式模式 1 / 模式 2 隔离写边界；形状守卫六条（只增不减/单轮 ≤3/配对新增/禁改阈值/禁改基线/**禁纯内容改既有条目**——F-026 补 content_digests 防线到 full 模式） | `ScopeViolation`, `assert_allowed_paths`, `snapshot`, `check_assertion_change` |
 | `self_heal.py` | 就地自愈与阶梯规划 | 运行时遇到非致命环境异常时就地自动纠错与恢复（A1~A9 规划） | `Plan`, `Budget`, `HealReport`, `heal_tool`, `plans_for` |
 | `test_generator.py` | 全息测试生成引擎 | 自动化全息测试用例与脚手架生成，支持 AST 分析与单文件独立验证脚本 | `ContextualTestSynthesizer`, `generate_unittest_suite`, `generate_standalone_poc` |
 | `test_quality_auditor.py` | 测试质量量化审计 | 评估测试用例的断言有效性与语义密度，剔除无断言的假跑测试 | `TestQualityAuditor`, `AuditReport`, `DimensionScore` |

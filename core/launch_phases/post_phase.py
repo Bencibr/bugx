@@ -102,6 +102,7 @@ from core.launch_phases.finding_settlement import (
     derive_settle_line,
     gate_confirmed_findings,
     archive_stale_findings_binding,
+    refresh_stale_findings_json,
     settle_findings_path,
     verify_findings_binding,
     FindingsSnapshot,
@@ -347,6 +348,88 @@ def post(
         return result
 
 
+def _supervisor_owner_cancelled_proof(runtime: dict) -> tuple[bool, str]:
+    """跨会话 --final 收口的 owner 死亡证明核验（E1 遗留观察 #3 机制 a）。
+
+    合法接手者 =「同 lifecycle 绑定 + 原 owner 已取消终态在场」，用死亡证明
+    替代同进程授权；fail-closed：任一证据缺失即拒绝，授权语义不放宽：
+
+    1. runtime 必须是已被孤儿裁决收敛的 ``aborted`` 终态（由调用方前置判断）；
+    2. 项目布局下 runtime 的 ``lifecycle_id`` 必须等于 current.json 当前绑定
+       （接手者确实站在同一 lifecycle 上，而非无关会话）；
+    3. Supervisor 权威链（``status()`` 加载时已做 hash-chain 校验）必须在场
+       ``operation=lifecycle`` / ``gate=owner_cancelled`` 阻断事件（D27 宿主
+       取消回传，即 owner 死亡证明）；
+    4. 链身份必须绑定同一 lifecycle（``round_id`` 相等且 ``run_id`` 落在
+       runtime 采纳/引擎派生形态集合内）。
+    """
+    lifecycle_id = runtime.get("lifecycle_id")
+    if not isinstance(lifecycle_id, str) or not lifecycle_id.strip():
+        return False, "runtime lifecycle identity missing"
+    if uses_project_layout():
+        try:
+            current = bugx_paths.read_current(resolve_project_root())
+        except (OSError, ValueError, RuntimeError) as exc:
+            return False, f"current lifecycle binding unreadable: {exc}"
+        if str(current.get("lifecycle_id") or "") != lifecycle_id:
+            return False, "runtime lifecycle is not the current lifecycle binding"
+    session_id = runtime.get("session_id") or runtime.get("polling_id")
+    allowed_run_ids = {runtime.get("run_id")}
+    if isinstance(session_id, str) and session_id.strip():
+        allowed_run_ids.add(f"lifecycle-{session_id}-{lifecycle_id}")
+    allowed_run_ids.add(f"lifecycle-{lifecycle_id}")
+    try:
+        state = get_supervisor().status()
+    except Exception as exc:  # noqa: BLE001 - 链不可读一律 fail-closed
+        return False, f"supervisor chain unavailable: {exc}"
+    if (
+        getattr(state, "round_id", None) != lifecycle_id
+        or getattr(state, "run_id", None) not in allowed_run_ids
+    ):
+        return False, "supervisor chain identity does not bind this lifecycle"
+    chain_session = getattr(state, "session_id", None)
+    if (
+        isinstance(chain_session, str) and chain_session.strip()
+        and isinstance(session_id, str) and session_id.strip()
+        and chain_session != session_id
+    ):
+        # 链上会话代际与 runtime 会话代际分裂：接手锚点只认同一代际。
+        return False, "supervisor chain session does not match runtime session"
+    for event in getattr(state, "history", []) or []:
+        if (
+            isinstance(event, Mapping)
+            and event.get("type") in {"lifecycle_blocked", "lifecycle_blocked_throttled"}
+            and event.get("operation") == "lifecycle"
+            and event.get("gate") == "owner_cancelled"
+        ):
+            return True, "owner_cancelled death proof present in supervisor chain"
+    return False, "no owner_cancelled death proof in supervisor chain"
+
+
+def _recovery_closeout_exemption_violation(
+    gate: Mapping[str, object], *, final: bool,
+) -> list[str] | None:
+    """D5 fail-closed 守卫：恢复结算并发豁免只服务 ``--final`` 收口场景。
+
+    并行门（budget_governor）在三条件全真时豁免 require_parallel 的并发
+    证明债并落 ``parallel_gate_inherited_closeout`` 留痕。该豁免的合法消费
+    场景是恢复会话的 ``--final`` 结算收口；非 final 的 post 必须把被豁免的
+    并行证明债还原为拒绝，防止零工作会话借恢复豁免越过非终局结算的并行门。
+    豁免未生效（缺字段/ ineligible/ 无被豁免原因）时返回 None，行为不变。
+
+    返回被豁免的原因列表表示违规（调用方应拒绝）；None 表示无需干预。
+    """
+    exemption = gate.get("recovery_closeout_exemption")
+    if not isinstance(exemption, Mapping) or not exemption.get("eligible"):
+        return None
+    suppressed = exemption.get("suppressed_reasons")
+    if not isinstance(suppressed, list) or not suppressed:
+        return None
+    if final:
+        return None
+    return [str(reason) for reason in suppressed]
+
+
 def _post_impl(
     final: bool = False, share: str | None = None, *, allow_incomplete: bool = False,
     allow_serial: bool = False,
@@ -371,7 +454,27 @@ def _post_impl(
         polling_id=active_runtime.get("polling_id") or active_runtime.get("session_id"),
     )
     _begin_post_gate("runtime_active")
-    if not active_runtime.get("active") or active_runtime.get("state") not in {"running", "finished"}:
+    runtime_gate_ok = (
+        bool(active_runtime.get("active"))
+        and active_runtime.get("state") in {"running", "finished"}
+    )
+    if not runtime_gate_ok and final and active_runtime.get("state") == "aborted":
+        # E1 遗留观察 #3 机制 a：owner 进程死亡后 runtime 被孤儿裁决收敛为
+        # aborted，「本会话 pre 授权」跨会话不可达，诚实 INCOMPLETE 收口永久
+        # 不可达。合法接手 = 同 lifecycle 绑定 + Supervisor 权威链在场
+        # owner_cancelled 死亡证明；无证明仍拒绝（fail-closed 不放宽）。
+        admitted, successor_proof = _supervisor_owner_cancelled_proof(active_runtime)
+        if admitted:
+            runtime_gate_ok = True
+            print(f"→ [跨会话收口] {successor_proof}；允许合法接手者执行 --final 收口。")
+            try:
+                append_runtime_event(
+                    active_runtime, "successor_closeout_admitted", time.time(),
+                    successor_proof,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                print(f"[post] ⚠ 跨会话收口留痕失败（收口继续）: {exc}")
+    if not runtime_gate_ok:
         return _fail_post(
             "post 必须紧接对应的活动 pre/runtime 会话执行，拒绝复用旧快照结算",
             gate="runtime_active",
@@ -564,6 +667,31 @@ def _post_impl(
     if serial_override:
         gate_ok = True
         print("并发门禁：已验证合法串行凭证，允许单 Worker 收尾。")
+    # D5（fail-closed）：恢复结算并发豁免（parallel_gate_inherited_closeout）
+    # 仅限 --final 收口消费；非 final post 把被豁免的并行证明债还原为拒绝。
+    exemption_violation = _recovery_closeout_exemption_violation(gate, final=final)
+    if exemption_violation:
+        gate_ok = False
+        print(
+            "[post] ⚠ 恢复结算并发豁免仅限 --final 收口场景：非 final post "
+            "不接受继承结账豁免，被豁免的并行证明债保持拒绝："
+            + ", ".join(exemption_violation)
+        )
+    elif final:
+        exemption = gate.get("recovery_closeout_exemption")
+        if (
+            isinstance(exemption, Mapping)
+            and exemption.get("eligible")
+            and exemption.get("suppressed_reasons")
+        ):
+            print(
+                "[post] 恢复结算并发豁免生效（留痕事件 "
+                "parallel_gate_inherited_closeout，三条件快照见 Supervisor 链）："
+                + ", ".join(
+                    str(reason)
+                    for reason in exemption.get("suppressed_reasons", [])
+                )
+            )
     if not gate_ok:
         return _fail_post(
             "并发门禁未满足：Life 未满足（"
@@ -621,8 +749,16 @@ def _post_impl(
     findings_snapshot: FindingsSnapshot | None = None
     _begin_post_gate("findings_snapshot")
     try:
-        if quiet_auto and auto_mode(active_runtime) and settle_findings_path(active_runtime) is None:
-            auto_build_findings_json(active_runtime)
+        if quiet_auto and auto_mode(active_runtime):
+            # obs-2（2026-11-17）：同 run 内先于裁决生成的 findings.json 会让旧
+            # 判定（仅 run_id/lifecycle）漏判 stale，旧候选视图被直接结算。
+            # 先做派生视图 vs 权威态一致性刷新：落后 → 归档 .stale-backup，
+            # settle_findings_path 返回 None，走 auto_build 从权威态重建。
+            stale_note = refresh_stale_findings_json(active_runtime)
+            if stale_note:
+                print(f"[post] {stale_note}")
+            if settle_findings_path(active_runtime) is None:
+                auto_build_findings_json(active_runtime)
         # 遗留 binding 归档（2026-11-09 实测修复 findings_binding_mismatch 死锁）：
         # findings.json 绑定指向**已终结的旧 run** 时（auto 续轮换 run_id 后旧
         # 文件还在），那是旧 Life 的合法产物——归档回它所属的位置而不是拒绝

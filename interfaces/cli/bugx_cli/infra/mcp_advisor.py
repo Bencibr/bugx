@@ -26,6 +26,7 @@ BUILTIN_MCP_MANIFEST_NAME = "bugx-mcp-manifest.json"
 OPENCODE_MCP_PACKAGES = {
     "playwright": "@playwright/mcp",
     "postmcp": "@bencibro/postmcp",
+    "codindex": "codindex",
     "dbhub": "@bytebase/dbhub",
     "redis": "redis-mcp-server",
     "semgrep": "semgrep",
@@ -67,6 +68,13 @@ REQUIRED_MCP_RECOMMENDATIONS = (
         "purpose": "Web UI、浏览器交互和网络证据",
         "command": "bugx mcp-runtime install --timeout 30 && bugx mcp-runtime start --server playwright",
         "install_hint": "仅 Web UI 项目装配；安装最多等待 30 秒，失败时跳过该工具并继续本地模式。",
+    },
+    {
+        "name": "codindex",
+        "purpose": "本地结构化代码索引、调用图和影响面查询",
+        "command": "bugx mcp-runtime install --timeout 30 && bugx mcp-runtime start --server codindex",
+        "install_hint": ("需要 Node.js >=22.5；默认使用 Node 内置 node:sqlite。"
+                         "不要设置 CODINDEX_SQLITE=better-sqlite3，避免原生 ABI/安装脚本依赖。"),
     },
     {
         "name": "bugx-supervisor",
@@ -359,12 +367,73 @@ def targeted_mcp_names(root: Path) -> set[str]:
     return selected
 
 
+_PROVISION_FAILURE_TTL_SECONDS = 24 * 3600
+
+
+def _provision_failure_cache_path() -> Path:
+    return default_mcp_runtime_root() / ".provision-failed.json"
+
+
+def _read_provision_failure_cache() -> dict[str, float]:
+    """读取可选 MCP 装配的失败负缓存：{server: failed_epoch}。"""
+    path = _provision_failure_cache_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_provision_failure_cache(servers: set[str], now: float) -> None:
+    """记录装配失败的 server 与时间戳（TTL 内自动跳过重试）。"""
+    path = _provision_failure_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = _read_provision_failure_cache()
+        for server in servers:
+            data[server] = float(now)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as exc:
+        print(f"[bugx] ⚠ 装配失败缓存写入失败（不影响流程）: {exc}", file=sys.stderr)
+
+
+def _recent_failures(servers: set[str], now: float) -> set[str]:
+    """TTL 内失败过的 server 集合（过期条目自动视为可重试）。"""
+    cache = _read_provision_failure_cache()
+    fresh = {
+        str(server)
+        for server, failed_at in cache.items()
+        if isinstance(failed_at, (int, float))
+        and now - float(failed_at) < _PROVISION_FAILURE_TTL_SECONDS
+    }
+    return servers & fresh
+
+
 def provision_targeted_mcp_runtime(root: Path, selected: set[str]) -> set[str]:
-    """Install only selected, lock-enabled external servers with a 30s cap."""
+    """Install only selected, lock-enabled external servers with a 30s cap.
+
+    F-RSI-20261112-086：装配在离线/慢网环境必吃满 30s subprocess 超时且
+    无记忆——每次 install 白等 30s+（实测 33.37s vs 历史基线 3.18s）。
+    修复：失败负缓存（TTL 24h），TTL 内跳过自动重试并留痕；
+    ``BUGX_MCP_FORCE_PROVISION=1`` 或删除 ``.provision-failed.json`` 强制重试。
+    """
     disabled = _lock_disabled_servers()
     requested = (selected & set(OPENCODE_MCP_PACKAGES)) - disabled
     if not requested:
         return set()
+    now = time.time()
+    if os.environ.get("BUGX_MCP_FORCE_PROVISION", "").strip() not in {"1", "true", "yes"}:
+        recent = _recent_failures(requested, now)
+        if recent:
+            print(
+                f"[bugx] ⚠ 可选 MCP {', '.join(sorted(recent))} 近 24h 内装配失败，"
+                "本次跳过自动重试（BUGX_MCP_FORCE_PROVISION=1 或删除 "
+                f"{_provision_failure_cache_path().name} 可强制重试）",
+                file=sys.stderr,
+            )
+            requested -= recent
+            if not requested:
+                return set()
 
     def probe_existing() -> set[str]:
         try:
@@ -396,10 +465,12 @@ def provision_targeted_mcp_runtime(root: Path, selected: set[str]) -> set[str]:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"[bugx] ⚠ 可选 MCP 安装失败，已跳过 {', '.join(sorted(requested))}：{exc}", file=sys.stderr)
+        _write_provision_failure_cache(requested, time.time())
         return probe_existing()
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()[-500:]
         print(f"[bugx] ⚠ 可选 MCP 安装失败，已跳过 {', '.join(sorted(requested))}：{detail}", file=sys.stderr)
+        _write_provision_failure_cache(requested, time.time())
     return probe_existing()
 
 
@@ -477,7 +548,7 @@ def _mcp_runtime_doctor_payload(root: Path, runtime_root: Path,
         except CliError:
             pass
     # Avoid circular import by accessing python environment lazily
-    from bugx_cli.common import _python_environment
+    from ..common import _python_environment
     result = subprocess.run(
         [sys.executable, str(_script(root, "mcp_runtime.py")), *script_args],
         cwd=root, capture_output=True, text=True, check=False,

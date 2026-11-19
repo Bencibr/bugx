@@ -174,7 +174,7 @@ def check(path: Path = KB_FILE, today: dt.date | None = None,
         try:
             legacy = Path(path).parent / "docs" / Path(path).name
             if legacy.is_file():
-                hint = (f"（检测到旧 wheel 布局 {legacy}——升级 bugx_agent 或"
+                hint = (f"（检测到旧 wheel 布局 {legacy}——升级 bugx-cli 或"
                         f" cp 到 {Path(path)} 后重试）")
         except OSError:
             pass

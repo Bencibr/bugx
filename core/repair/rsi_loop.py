@@ -262,9 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--converge-after", type=int, default=2)
     parser.add_argument("--baseline", default=str(
-        (REPO_ROOT / "verification" / "evals" / "scenario-baseline.json")
-        if (REPO_ROOT / "verification" / "evals").is_dir()
-        else (REPO_ROOT / "evals" / "scenario-baseline.json")))
+        REPO_ROOT / "verification" / "evals" / "scenario-baseline.json"))
     parser.add_argument("--out", default=None)
     parser.add_argument("--source-root", default=None,
                         help="发现证据的解析根（缺省=仓库根）")

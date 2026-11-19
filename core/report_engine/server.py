@@ -10,6 +10,7 @@ import hashlib
 import html
 import http.server
 import json
+import sys
 import socketserver
 import tempfile
 import threading
@@ -128,7 +129,7 @@ class _ProjectRegistry:
             ),
         )
         # 3. evals-oss-ecosystem
-        evals_path = (self.repo_root / "verification" / "evals" / "oss") if (self.repo_root / "verification" / "evals").is_dir() else (self.repo_root / "evals" / "oss")
+        evals_path = self.repo_root / "verification" / "evals" / "oss"
         self._projects["evals-oss-ecosystem"] = ProjectWorkspaceInfo(
             id="evals-oss-ecosystem",
             name="Multi-Language OSS Targets Cluster",
@@ -153,7 +154,7 @@ class _ProjectRegistry:
             ),
         )
         # 4. oss-adm-zip
-        adm_path = (self.repo_root / "verification" / "evals" / "oss" / "reports" / "adm-zip") if (self.repo_root / "verification" / "evals").is_dir() else (self.repo_root / "evals" / "oss" / "reports" / "adm-zip")
+        adm_path = self.repo_root / "verification" / "evals" / "oss" / "reports" / "adm-zip"
         self._projects["oss-adm-zip"] = ProjectWorkspaceInfo(
             id="oss-adm-zip",
             name="OSS adm-zip Deserialization Sandbox",
@@ -550,8 +551,11 @@ class _DualTrackHTTPHandler(http.server.BaseHTTPRequestHandler):
                 self._cached_body = body
                 if self.webui_handler.handle_api_post(self.path, self, body):
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                # F-RSI-20261115-231：内部错误不得伪装成 404（REST 语义失真）
+                # 且零可观测。降级保留（404 响应不变），stderr 留痕供调试。
+                print(f"[report_engine] ⚠ API handler 异常（降级 404）: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
 
         if path.startswith("/api/projects/") and path.endswith("/config"):
             parts = path.strip("/").split("/")
@@ -603,8 +607,11 @@ class _DualTrackHTTPHandler(http.server.BaseHTTPRequestHandler):
             try:
                 if self.webui_handler.handle_api_delete(self.path, self):
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                # F-RSI-20261115-231：内部错误不得伪装成 404（REST 语义失真）
+                # 且零可观测。降级保留（404 响应不变），stderr 留痕供调试。
+                print(f"[report_engine] ⚠ API handler 异常（降级 404）: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
         self._send_api_error(404, "Endpoint not found")
 
     def do_PATCH(self) -> None:
@@ -614,8 +621,11 @@ class _DualTrackHTTPHandler(http.server.BaseHTTPRequestHandler):
                 body = self.rfile.read(content_length) if content_length > 0 else b""
                 if self.webui_handler.handle_api_patch(self.path, self, body):
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                # F-RSI-20261115-231：内部错误不得伪装成 404（REST 语义失真）
+                # 且零可观测。降级保留（404 响应不变），stderr 留痕供调试。
+                print(f"[report_engine] ⚠ API handler 异常（降级 404）: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
         self._send_api_error(404, "Endpoint not found")
 
     def do_OPTIONS(self) -> None:

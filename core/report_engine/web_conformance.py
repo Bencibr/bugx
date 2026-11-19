@@ -28,6 +28,8 @@ import json
 import os
 from typing import Any
 
+from core.probes.ui_evidence import load_ui_evidence
+
 
 SCHEMA_VERSION = 1
 STANDARD_ORACLES = (
@@ -52,11 +54,9 @@ SKIP_DIRS = {
 }
 MAX_FILES = 5000
 MAX_BYTES = 2 * 1024 * 1024
-VALID_DYNAMIC_STATUSES = {"PASS", "FAIL", "BLOCKED", "UNVERIFIED", "DEFERRED"}
-
 DYNAMIC_RULES: tuple[tuple[str, str], ...] = (
-    ("keyboard-focus", "键盘可操作、焦点可见且不被遮挡，无焦点陷阱"),
-    ("aria-tree", "最终 Accessibility Tree 的角色、名称、状态和关系正确"),
+    ("keyboard-focus", "声明的真实键盘步骤、焦点指示、退出与恢复"),
+    ("aria-tree", "渲染后的 ARIA 树和已执行的 axe-core 自动规则"),
     ("contrast", "最终渲染样式满足文字、非文本和焦点指示器对比度要求"),
     ("reflow-zoom", "200% 放大、400% 重排/320 CSS px 和方向变化后仍可操作"),
     ("state-feedback", "loading/error/empty/disabled 状态有可感知且语义正确的反馈"),
@@ -307,57 +307,26 @@ def _check_document(path: Path, root: Path) -> list[dict[str, Any]]:
 
 
 def _dynamic_checks(
-    evidence_path: Path | None, *, preflight: bool = False
+    evidence_path: Path | None, *, root: Path, preflight: bool = False
 ) -> list[dict[str, Any]]:
-    if evidence_path is None and preflight:
+    if evidence_path is None:
+        status = "DEFERRED" if preflight else "BLOCKED"
         return [
-            _check(
-                f"dynamic.{rule_id}",
-                "WCAG 2.2 AA / WAI-ARIA 1.2",
-                "DEFERRED",
-                message=f"动态规则在运行期通过浏览器测试检验（{description}），预检阶段免检",
-            )
+            _check(f"dynamic.{rule_id}", "WCAG 2.2 AA / WAI-ARIA 1.2", status,
+                   message=f"需要浏览器动态证据：{description}")
             for rule_id, description in DYNAMIC_RULES
         ]
-    payload: dict[str, Any] = {}
-    if evidence_path is not None:
-        try:
-            loaded = json.loads(evidence_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            return [_check(
-                "dynamic-evidence", "WCAG 2.2 AA / WAI-ARIA 1.2", "UNVERIFIED",
-                path=str(evidence_path), line=1, message=f"动态证据不可读取或不是 JSON：{exc}",
-            )]
-        if not isinstance(loaded, dict) or not isinstance(loaded.get("checks"), dict):
-            return [_check(
-                "dynamic-evidence", "WCAG 2.2 AA / WAI-ARIA 1.2", "UNVERIFIED",
-                path=str(evidence_path), line=1, message="动态证据必须是 {checks: {rule_id: {status,evidence}}}",
-            )]
-        payload = loaded["checks"]
-    results: list[dict[str, Any]] = []
-    for rule_id, description in DYNAMIC_RULES:
-        item = payload.get(rule_id)
-        if not isinstance(item, dict):
-            results.append(_check(
-                f"dynamic.{rule_id}", "WCAG 2.2 AA / WAI-ARIA 1.2", "BLOCKED",
-                message=f"缺少浏览器动态证据：{description}",
-            ))
-            continue
-        status = str(item.get("status", "")).upper()
-        evidence = str(item.get("evidence", "")).strip()
-        if status not in VALID_DYNAMIC_STATUSES:
-            status = "UNVERIFIED"
-            message = f"动态证据状态无效：{item.get('status')!r}"
-        elif status in {"PASS", "FAIL"} and not evidence:
-            status = "UNVERIFIED"
-            message = "PASS/FAIL 必须携带可定位的浏览器证据"
-        else:
-            message = str(item.get("message") or description)
-        results.append(_check(
-            f"dynamic.{rule_id}", "WCAG 2.2 AA / WAI-ARIA 1.2", status,
-            message=message, evidence=evidence,
-        ))
-    return results
+    try:
+        verified = load_ui_evidence(evidence_path, root)
+        return [
+            _check(f"dynamic.{rule_id}", "WCAG 2.2 AA / WAI-ARIA 1.2", **verified[rule_id])
+            for rule_id, _ in DYNAMIC_RULES
+        ]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        return [_check(
+            "dynamic-evidence", "WCAG 2.2 AA / WAI-ARIA 1.2", "UNVERIFIED",
+            path=str(evidence_path), line=1, message=f"动态证据校验失败：{exc}",
+        )]
 
 
 def check_project(
@@ -390,7 +359,7 @@ def check_project(
             "static-scan-limit", "HTML/WHATWG semantic conformance", "BLOCKED",
             message=f"源码文件超过扫描上限 {MAX_FILES}，静态结果不完整",
         ))
-    checks.extend(_dynamic_checks(dynamic_evidence, preflight=preflight))
+    checks.extend(_dynamic_checks(dynamic_evidence, root=root, preflight=preflight))
     summary = Counter(item["status"] for item in checks)
     status = "FAIL" if summary["FAIL"] else "BLOCKED" if summary["BLOCKED"] or summary["UNVERIFIED"] else "PASS"
     return {

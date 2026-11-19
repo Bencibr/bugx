@@ -1,6 +1,6 @@
 # 配置目录说明
 
-`config/config.yaml` 是后端服务的示例部署模板，不是 BugX CLI 的运行配置。
+`config/config.yaml` 是后端服务的示例部署模板，不是 `bug-hunter` CLI 的运行配置。
 当前 CLI 使用项目根目录的 `opencode.json`；云端客户端使用
 `BUGX_CLOUD_CONFIG` 指定的文件，未指定时使用 `~/.bugx/cloud-config.json`。
 

@@ -303,6 +303,17 @@ def verify_acceptance_receipt(receipt_path: Path) -> ReceiptVerificationResult:
                 f"Engine Version 声明必须带 build id（形如 0.1.0+build.N）："
                 f"当前为 {engine_version!r}——收据无法自证是哪个引擎版本产出的",
             )
+        outcome_text = str(data.get("outcome") or "").strip()
+        if not outcome_text:
+            # F-RSI-20261115-125：outcome 是收据 schema 必写字段（写侧恒写），
+            # 删除该字段即可让 terminal 契约对两字段都查不到 INCOMPLETE 而
+            # 整段静默——「静默 INCOMPLETE 禁令」（CORE-306 §9）可被删字段
+            # 绕过。与 git_commit/engine_version 同型必填校验。
+            return ReceiptVerificationResult(
+                False,
+                "缺少 outcome 终态声明：收据必须显式声明终局结果"
+                "（删除 outcome 即可绕过「静默 INCOMPLETE」禁令）",
+            )
         hashes = data.get("artifact_hashes") or {}
         target_candidates: dict[str, list[str]] = {
             "module-coverage.md": ["module-coverage.md"],

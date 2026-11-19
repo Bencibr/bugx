@@ -468,6 +468,11 @@ def handle_supervisor_confirm_finding(
     try:
         # L1-ADV-D1：裁决证据由引擎核验 receipt 派生并自检，缺料即 fail-closed；
         # handler 不再自己写 confirmation（旧实现只写 {state,reason,at} 必然堵死 post）。
+        severity = arguments.get("severity")
+        if severity is not None and (
+            not isinstance(severity, str) or not severity.strip()
+        ):
+            raise McpProtocolError("severity 必须是非空字符串", code=-32602)
         supervisor.confirm_finding(
             finding=finding_id.strip(),
             decision=decision,
@@ -478,6 +483,7 @@ def handle_supervisor_confirm_finding(
             ),
             root_cause_verified=root_cause_verified,
             remediation=remediation,
+            severity=severity,
             oracle=oracle,
             target_platform=(
                 target_platform.strip() if isinstance(target_platform, str) else None
@@ -780,17 +786,30 @@ def handle_supervisor_claim(service: Any, arguments: Mapping[str, object]) -> di
     # 旧实现吞掉 start_worker 异常并返回 claimed，随后 start timeout 回收 claim，
     # 子代理只能在数百秒后发现 checkpoint 不可提交。调用方必须紧接 worker_start；
     # 本返回明确 execution_state=claimed，禁止伪装 running。
-    result["epoch"] = 1
+    # F-RSI-20261110-043：报告真实调度代数——claim 序列化产物含
+    # scheduler_epoch（rebind_target 每次 +1），submit_finding 的
+    # STALE_LEASE 校验按它比对；硬编码 1 会让 rebind 后（epoch>=2）的
+    # worker 按返回值提交必撞 STALE_LEASE（1.0.0 时代补丁 12 残留，
+    # 其原子启动块已被 claim!=started 契约移除）。
+    result["epoch"] = result.get("scheduler_epoch", 1)
     result["start_required"] = True
     return result
 
 
 def handle_supervisor_reopen_finding(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
     service._require_role(arguments, "bugx_supervisor_reopen_finding", "host")
-    return project_state(service.get_supervisor().reopen_finding(
-        arguments.get("finding_id"), reason=arguments.get("reason"),
-        expected_revision=arguments.get("expected_revision"),
-    ))
+    # F-RSI-20261110-040：与 confirm_finding 同契约——Supervisor 层校验失败
+    # （InvalidCheckpoint 是 SupervisorError/RuntimeError，非 ValueError）转
+    # -32602 结构化拒绝；原实现原样穿透落 rpc 泛化分支（无错误码）。
+    try:
+        return project_state(service.get_supervisor().reopen_finding(
+            arguments.get("finding_id"), reason=arguments.get("reason"),
+            expected_revision=arguments.get("expected_revision"),
+        ))
+    except audit_supervisor.SupervisorError as exc:
+        raise McpProtocolError(str(exc), code=-32602) from exc
+    except ValueError as exc:
+        raise McpProtocolError(str(exc), code=-32602) from exc
 
 
 def handle_supervisor_admit_business(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
@@ -927,7 +946,14 @@ def handle_supervisor_checkpoint(service: Any, arguments: Mapping[str, object]) 
         }
         return project_state(state, coverage_delta=delta)
     except audit_supervisor.SupervisorError as exc:
-        raise McpProtocolError(str(exc), code=-32602) from exc
+        # DEF-2 残余缺口：checkpoint_pipeline 在 evidence 校验拒绝时把逐项
+        # violations + correct_sample + retry_prompt 挂在异常的 evidence_feedback
+        # 上；旧实现只转 str(exc)，宿主拿到一行文本无法自纠。透传结构化字段到
+        # McpProtocolError.data，由 rpc_server 回包 data 携带，与 finalize CLI
+        # 通道（worker_checkpoint.main 的 payload）形成对称。
+        feedback = getattr(exc, "evidence_feedback", None)
+        error_data = {"evidence_feedback": feedback} if isinstance(feedback, dict) and feedback else None
+        raise McpProtocolError(str(exc), code=-32602, data=error_data) from exc
 
 
 def handle_supervisor_salvage_checkpoint(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:

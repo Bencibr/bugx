@@ -20,7 +20,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from .. import __version__
 
@@ -54,17 +54,15 @@ COMMAND_CAPABILITIES: dict[str, dict[str, Any]] = {
         "description": "启动全自动无人值守 BugX 漏洞挖掘",
         "keywords": ["自主", "无人值守", "自动挖掘", "挂机", "探索", "autonomous", "mine", "auto"],
     },
-    "analyze": {
-        "description": "项目画像深度分析与代码覆盖度全景扫描",
-        "keywords": ["画像", "分析", "覆盖度", "项目全景", "技术栈", "analyze", "profile", "coverage"],
-    },
     "project": {
         "description": "项目元数据管理、画像展示与云端同步",
-        "keywords": ["项目", "元数据", "云同步", "project", "sync"],
+        "keywords": ["项目", "元数据", "云同步", "project", "sync",
+                     "画像", "分析", "覆盖度", "项目全景", "技术栈",
+                     "analyze", "profile", "coverage"],
     },
-    "patch": {
-        "description": "补丁合成、验证、对抗与自动应用",
-        "keywords": ["补丁", "修复代码", "修bug", "合成", "patch", "repair-code"],
+    "patch-forge": {
+        "description": "生成或静态校验补丁包（不执行包内代码、不提交远端）",
+        "keywords": ["补丁", "补丁包", "修复代码", "修bug", "合成", "patch", "patch-forge", "repair-code"],
     },
     "skill": {
         "description": "BugX 动态扩展 Skill 市场管理与挂载",
@@ -98,6 +96,102 @@ COMMAND_CAPABILITIES: dict[str, dict[str, Any]] = {
         "description": "重置项目运行态或全局错题集缓存",
         "keywords": ["重置", "清空", "还原", "reset", "clear"],
     },
+    "completion": {
+        "description": "输出 Bash、Zsh 或 Fish 的 Tab 补全脚本",
+        "keywords": ["补全", "tab补全", "shell补全", "completion", "bash", "zsh", "fish"],
+    },
+    "dsh": {
+        "description": "兼容启动器：为首个 Web Session 绑定项目并启动 DeepSeek Harness",
+        "keywords": ["deepseek", "harness", "web-session", "绑定项目"],
+    },
+    "mcp": {
+        "description": "启动本地 MCP Supervisor（不执行 worker 命令）",
+        "keywords": ["mcp", "本地mcp", "mcp supervisor"],
+    },
+    "capability": {
+        "description": "探查项目形态并装配能力：plan（只读）/ install（装齐所需 MCP 运行时）",
+        "keywords": ["能力", "装配", "探查形态", "capability"],
+    },
+    "mcp-runtime": {
+        "description": "lock-hash 专用离线 MCP runtime：install/verify/start/rollback",
+        "keywords": ["mcp-runtime", "runtime", "离线mcp", "lock-hash"],
+    },
+    "lesson": {
+        "description": "管理项目级结构化错题集",
+        "keywords": ["错题", "错题集", "lesson", "教训"],
+    },
+    "logic-analysis": {
+        "description": "校验或绑定意图、逻辑链、Oracle 与证据包",
+        "keywords": ["逻辑链", "oracle", "证据包", "logic-analysis"],
+    },
+    "probe": {
+        "description": "运行 core 探针（efficiency/sast/mobile 等），透传其参数",
+        "keywords": ["探针", "probe", "efficiency", "sast", "mobile"],
+    },
+    "knowledge": {
+        "description": "治理项目候选与用户全局错题集（不自动同步）",
+        "keywords": ["知识", "知识库", "knowledge", "候选"],
+    },
+    "self-audit": {
+        "description": "对 BugX 本地 CLI/MCP 只读入口做自举动态审计",
+        "keywords": ["自审", "自举", "self-audit", "元审计"],
+    },
+    "telemetry": {
+        "description": "查看或导出单向飞轮取证数据",
+        "keywords": ["遥测", "飞轮", "telemetry", "取证数据"],
+    },
+    "config": {
+        "description": "设置本地 BugX 隐私与遥测配置",
+        "keywords": ["配置", "设置", "config", "隐私"],
+    },
+    "goal": {
+        "description": "目标导向无人值守自治挖掘与长程自愈循环",
+        "keywords": ["目标", "goal", "长程", "自愈循环"],
+    },
+    "supervisor": {
+        "description": "本地监督 MCP：install / status / rpc；带外动作：reset-budget / recover / rebind-target / gate / findings",
+        "keywords": ["监督", "监工", "supervisor", "监督mcp"],
+    },
+    "plugin": {
+        "description": "安装、校验或查看私有 BugX 插件（不执行插件）",
+        "keywords": ["插件", "plugin", "私有插件"],
+    },
+    "update": {
+        "description": "检查并安装最新 BugX CLI 版本",
+        "keywords": ["升级", "更新", "update", "新版本"],
+    },
+    "log": {
+        "description": "查看诊断日志、错误排查、链路追踪与耗时瀑布图",
+        "keywords": ["日志", "排查日志", "链路追踪", "瀑布图"],
+    },
+    "view": {
+        "description": "安全查看源文件切片与视窗（具备越界自愈与沙箱隔离）",
+        "keywords": ["查看源文件", "切片", "视窗", "view"],
+    },
+    "test-generate": {
+        "description": "为指定单元自动生成标准化 AAA 测试用例或自包含 PoC",
+        "keywords": ["生成测试", "测试用例", "test-generate", "poc"],
+    },
+    "test-audit": {
+        "description": "对测试用例进行四维（准确、完整、有效、全面）量化质量审计",
+        "keywords": ["测试审计", "测试质量", "test-audit"],
+    },
+    "mining-audit": {
+        "description": "对漏洞挖掘方案与用例进行四维（准确、完整、有效、全面）质量量化审计与加固",
+        "keywords": ["挖掘审计", "方案审计", "mining-audit", "加固"],
+    },
+    "test-verify": {
+        "description": "基于 AST 语义变异与沙箱隔离动态验证测试用例的抓 Bug 杀伤能力",
+        "keywords": ["测试验证", "变异", "杀伤", "test-verify"],
+    },
+    "interaction": {
+        "description": "查看/回答 BugX 抛出的结构化交互问题（非交互宿主的答案回灌通道）",
+        "keywords": ["交互问题", "回答", "回灌", "interaction"],
+    },
+    "advisory": {
+        "description": "GitHub Security Advisory (GHSA) 标准安全公告与 PR 修复草案管理",
+        "keywords": ["安全公告", "ghsa", "advisory", "修复草案"],
+    },
     "help": {
         "description": "查看 BugX 命令使用说明",
         "keywords": ["帮助", "说明", "手册", "help", "usage"],
@@ -116,17 +210,37 @@ class IntentArbitrationResult:
 class CommandIntentArbitrator:
     """AI 与程序协同的命令意图理解与纠错仲裁器。"""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None,
+                 known_commands: Iterable[str] | None = None) -> None:
         self.root = (root or Path.cwd()).resolve()
+        # 解析器真实命令面：建议永不指向不存在的命令；None 时退回能力表全量。
+        self.known_commands = frozenset(known_commands) if known_commands else None
+
+    def _capabilities(self) -> dict[str, dict[str, Any]]:
+        """按真实命令面过滤能力表；幽灵键（历史漂移残留）不参与匹配与建议。"""
+        if not self.known_commands:
+            return COMMAND_CAPABILITIES
+        filtered = {k: v for k, v in COMMAND_CAPABILITIES.items() if k in self.known_commands}
+        ghosts = sorted(set(COMMAND_CAPABILITIES) - set(filtered))
+        if ghosts:
+            # 控制面闸门（过滤）已在上行生效；漂移必须留痕可观测，禁止静默吞掉。
+            print(
+                "[bugx] ⚠️ 意图能力表存在非真实命令键（已过滤，不参与建议）: "
+                + ", ".join(ghosts),
+                file=sys.stderr,
+            )
+        return filtered
 
     def infer_intent(self, raw_input: str) -> IntentArbitrationResult:
         cleaned = str(raw_input or "").strip()
         if not cleaned:
             return IntentArbitrationResult(None, [], "none", "输入为空")
 
+        caps = self._capabilities()
+
         # 1. 本地快速同义词与关键词精确初筛
         low = cleaned.casefold()
-        for cmd, meta in COMMAND_CAPABILITIES.items():
+        for cmd, meta in caps.items():
             if low == cmd or low in meta["keywords"]:
                 return IntentArbitrationResult(
                     matched_command=cmd,
@@ -135,14 +249,9 @@ class CommandIntentArbitrator:
                     reasoning=f"输入精确匹配命令或同义词: '{cleaned}'",
                 )
 
-        # 2. 尝试调用宿主 AI 进行动态语义意图推断 (若当前处于在线宿主环境)
-        ai_result = self._try_ai_dynamic_inference(cleaned)
-        if ai_result:
-            return ai_result
-
-        # 3. 本地语义关键词多路打分启发式匹配
+        # 2. 本地语义关键词多路打分启发式匹配（程序优先：零成本答案不烧 AI 调用）
         scored: dict[str, int] = {}
-        for cmd, meta in COMMAND_CAPABILITIES.items():
+        for cmd, meta in caps.items():
             score = 0
             for kw in meta["keywords"]:
                 kw_low = kw.casefold()
@@ -155,7 +264,7 @@ class CommandIntentArbitrator:
             ranked = sorted(scored.items(), key=lambda x: x[1], reverse=True)
             top_cmd = ranked[0][0]
             suggestions = [
-                (c, COMMAND_CAPABILITIES[c]["description"])
+                (c, caps[c]["description"])
                 for c, _ in ranked[:2]
             ]
             return IntentArbitrationResult(
@@ -165,22 +274,32 @@ class CommandIntentArbitrator:
                 reasoning=f"根据语义关键词匹配推荐: '{cleaned}'",
             )
 
-        # 4. 兜底编辑距离模糊匹配 (difflib)
-        candidates = list(COMMAND_CAPABILITIES.keys())
+        # 3. 兜底编辑距离模糊匹配 (difflib)
+        candidates = list(caps.keys())
         close = difflib.get_close_matches(low, candidates, n=2, cutoff=0.35)
         if close:
             return IntentArbitrationResult(
                 matched_command=close[0],
-                suggestions=[(c, COMMAND_CAPABILITIES[c]["description"]) for c in close],
+                suggestions=[(c, caps[c]["description"]) for c in close],
                 source="fuzzy_match",
-                reasoning=f"编辑距离近似推荐",
+                reasoning="编辑距离近似推荐",
             )
+
+        # 4. 宿主 AI 动态语义意图推断——本地全部未命中时的最后兜底（仅限已初始化项目）
+        ai_result = self._try_ai_dynamic_inference(cleaned)
+        if ai_result:
+            return ai_result
 
         return IntentArbitrationResult(None, [], "none", "未匹配到有效意图")
 
     def _try_ai_dynamic_inference(self, raw_input: str) -> IntentArbitrationResult | None:
         """调用宿主 AI 理解复杂自然语言或未知拼写意图。"""
         if os.environ.get("BUGX_OFFLINE") == "1" or os.environ.get("BUGX_INTENT_NO_LLM") == "1":
+            return None
+
+        # 项目门控：仅在已初始化的 BugX 项目内允许宿主 AI 侦察——
+        # 任意目录打错命令不应拉起宿主 AI 烧 token，更不应在用户工作区落盘。
+        if not (self.root / ".bugx").is_dir():
             return None
 
         active_host = ""
@@ -193,6 +312,7 @@ class CommandIntentArbitrator:
         if not active_host:
             return None
 
+        tmp_prompt = self.root / ".bugx" / "run" / "intent_prompt.txt"
         try:
             from core.host_runtime import host_registry
 
@@ -216,7 +336,6 @@ class CommandIntentArbitrator:
                 "</context>\n"
             )
 
-            tmp_prompt = self.root / ".bugx" / "run" / "intent_prompt.txt"
             tmp_prompt.parent.mkdir(parents=True, exist_ok=True)
             tmp_prompt.write_text(prompt_content, encoding="utf-8")
 
@@ -246,6 +365,11 @@ class CommandIntentArbitrator:
                 )
         except Exception:
             return None
+        finally:
+            try:
+                tmp_prompt.unlink(missing_ok=True)
+            except OSError:
+                pass  # 清理尽力而为，失败不掩盖主流程结果
         return None
 
 
@@ -405,6 +529,7 @@ class DiagnosticAIArbitrator:
         installation_required: set[str],
         strict: bool = False,
         auto_repairable_checks: set[str] | None = None,
+        use_ai: bool = False,
     ) -> DiagnosticsResult:
         eligible_repairs = set(auto_repairable_checks or ()) & self.AUTO_REPAIRABLE_CHECKS
         failed_raw = [(n, d, n in installation_required) for n, ok, d in checks if not ok]
@@ -417,8 +542,13 @@ class DiagnosticAIArbitrator:
                 ai_arbitrated=False,
             )
 
-        # 1. 优先尝试唤起宿主 AI 生成动态深入诊断分析
-        ai_items = self._try_ai_deep_diagnosis(failed_raw)
+        # 1. 显式 --ai 时才唤起宿主 AI 生成动态深入诊断分析。
+        # F-327 耗时账目 W-002：AI 宿主子进程串行阻塞 ~12s（timeout=12），
+        # 占 doctor 全程 21.8s 的 55%；默认改为本地确定性专家基线（毫秒级），
+        # 需要深度根因分析时用 `bugx doctor --ai` 显式开启。
+        ai_items = (
+            self._try_ai_deep_diagnosis(failed_raw) if use_ai else None
+        )
         if ai_items:
             for item in ai_items:
                 baseline = self._baseline_for_name(item.name)

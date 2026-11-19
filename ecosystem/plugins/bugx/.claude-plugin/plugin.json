@@ -1,6 +1,6 @@
 {
   "name": "bugx",
-  "version": "0.1.0",
+  "version": "${BUGX_VERSION}",
   "bugx_build_id": 98,
   "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
   "author": {

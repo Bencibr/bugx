@@ -313,6 +313,15 @@ class WorkerClaim:
             raise PersistenceError("worker claim submitted_at 必须是有限正数")
         if claim.round_no < 1:
             raise PersistenceError("worker claim round_no 必须 >= 1")
+        # F-RSI-20261118-008 存量迁移：D27 清淤（lifecycle_blocks._release_owner_
+        # cancelled_debris）曾把「claimed 未 start」的残渣写成 ``state="preempted"``
+        # （execution_state 仍为 claimed），但该状态从未注册进白名单/映射——读取
+        # 端 post 结算直接 PersistenceError（worktree post 硬失败实证）。写入端已
+        # 改为 released（同 execution_state 归位），此处对存量 preempted 归一化
+        # 为 released（preempted_reason 保留历史原因），随后按既有白名单校验。
+        if claim.state == "preempted":
+            claim.state = "released"
+            claim.execution_state = "released"
         if claim.state not in {"active", "submitted", "expired", "released", "superseded"}:
             raise PersistenceError(f"未知 claim 状态: {claim.state}")
         execution_by_claim_state = {

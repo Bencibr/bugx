@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -135,30 +134,6 @@ def _python_version_of(executable: str) -> str:
         return ""
     version = (completed.stdout or "").strip()
     return version if completed.returncode == 0 else ""
-
-
-def _normalize_python_spec(spec: str) -> str:
-    """把 ``"3.12"`` 归一化为 ``"==3.12"``（前缀匹配）；约束原样返回。"""
-    text = str(spec).strip()
-    if re.fullmatch(r"\d+\.\d+", text):
-        return f"=={text}"
-    return text
-
-
-def _allowed_minors(spec: str) -> list[tuple[int, int]]:
-    """枚举满足约束的 ``(major, minor)`` 候选，升序。
-
-    用于"本机该找哪些解释器"以及"需要自愈时该装哪个版本"；
-    上界来自约束本身（如 ``<3.14`` ⇒ 最高 3.13），因此**不写死**小版本。
-    """
-    normalized = _normalize_python_spec(spec)
-    results: list[tuple[int, int]] = []
-    for major in (3,):
-        for minor in range(8, 20):
-            ok, _detail = check_python_requires(normalized, (major, minor, 0))
-            if ok:
-                results.append((major, minor))
-    return results
 
 
 def _uv_managed_python(minor_spec: str) -> str:
@@ -497,19 +472,6 @@ def _resolve_pypi_entry(staging: Path, env_id: str, entry_name: str) -> str:
             f"{VENV_DIRNAME}/{env_id}/bin/{entry_name}"
         )
     return candidate.relative_to(staging).as_posix()
-
-
-def _read_pyvenv_version(config_path: Path) -> str:
-    """从 venv 的 ``pyvenv.cfg`` 读取解释器版本（``version_info = X.Y.Z``）。"""
-    try:
-        text = config_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        key, _, value = line.partition("=")
-        if key.strip() in ("version_info", "version"):
-            return value.strip()
-    return ""
 
 
 def _check_venv_shebang(

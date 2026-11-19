@@ -28,6 +28,7 @@ for _p in (str(_REPO_ROOT), str(_CURRENT_DIR)):
 
 from core.agent import agent_eval
 from core.ledger import finding_confirmation
+from core.infra.build_info import BASE_VERSION
 
 # DES-02：以下原语已下沉到 finding_io（finding_lifecycle 也依赖它们，
 # 原先构成 finding_report <-> finding_lifecycle 双向依赖）。这里再导出，
@@ -38,7 +39,7 @@ from core.ledger.finding_io import (  # noqa: F401  (re-export)
     write_atomic,
 )
 
-VERSION = "0.1.0"
+VERSION = BASE_VERSION
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 LEVELS = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
 

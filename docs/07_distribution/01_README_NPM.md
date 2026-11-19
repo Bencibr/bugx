@@ -2,9 +2,7 @@
   <strong>BugX · AI writes the code. BugX hunts the bugs.</strong>
 </p>
 
-> **Version 0.1.0** | **Updated: 2026-11-10**
-
-> **Search summary** — BugX is a local-first Node.js/Python CLI for AI code auditing, application security review, vulnerability hunting, and verified bug reproduction. It connects supported MCP/ACP coding hosts to structured lifecycle evidence, coverage, Findings, execution receipts, and recovery artifacts.
+> **Version ${BUGX_VERSION}** | **Updated: 2026-11-19**
 
 <p align="center">
   <strong>The autonomous, evidence-driven code auditing and vulnerability-hunting agent for modern AI programming tools.</strong>
@@ -58,6 +56,8 @@ flowchart LR
 - **Python**: `>= 3.11` (The BugX core engine is Python-powered; the npm package serves as a lightweight, zero-dependency global wrapper that automatically interfaces with your local Python environment).
 
 The npm tarball includes the integrity-checked BugX core payload, its catalog, and the bundled Web UI static shell. It has no native `sqlite3` npm dependency; MCP registry storage uses the Node runtime's built-in `node:sqlite` path where applicable.
+
+The repository keeps `package.json` as a `${BUGX_VERSION}` build template. To build locally, render a temporary staging tree with `python3 scripts/package_dist.py --version <version>`; do not run `npm pack` directly against the source checkout.
 
 ---
 

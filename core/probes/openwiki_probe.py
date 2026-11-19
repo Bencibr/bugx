@@ -164,6 +164,66 @@ def inspect(root: Path) -> dict:
     }
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探测叙述层能力前置条件（<5ms，零阻塞、零子进程）。
+
+    只查 openwiki CLI 是否在 PATH（不执行 --version 子进程）；缺失时
+    detail 明确给出安装建议。纯建议性能力：缺失不阻断审计（ABSENT=维持现状）。
+    """
+    cli_path = shutil.which("openwiki")
+    if cli_path:
+        return True, f"openwiki CLI 可用: {cli_path}"
+    return False, f"openwiki CLI 未安装：叙述层能力缺失（{INSTALL_HINT}）；缺失不构成降级阻断，回退就是不使用 wiki"
+
+
+def run_static_degraded(root: Path | str | None = None) -> dict:
+    """降级路径：CLI 缺失时仅静态读取 wiki 产物（清单/更新时间/页面目录）。
+
+    降级契约：输出与成功路径（inspect，status=READY）**可区分**——
+    status="degraded" + degraded=True + degraded_reason；findings 恒为空
+    （叙述层是待验证假设，按 DOC-032 永不进入 Finding 证据链）。
+    """
+    root_path = Path(root or Path.cwd()).resolve()
+    available, availability_detail = is_available()
+    wiki_dir = root_path / WIKI_DIR
+    wiki_present = wiki_dir.is_dir() and any(wiki_dir.rglob("*.md"))
+    manifest_path = root_path / MANIFEST
+    pages = 0
+    if manifest_path.is_file() and not manifest_path.is_symlink():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(manifest, dict) and isinstance(manifest.get("pages"), dict):
+                pages = len(manifest["pages"])
+        except (OSError, ValueError) as exc:
+            notes = [f"manifest 读取失败（显式留痕，不静默）: {exc.__class__.__name__}: {exc}"]
+        else:
+            notes = []
+    else:
+        notes = []
+    return {
+        "probe": "openwiki",
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "openwiki_cli_unavailable" if not available else "static_mode_forced"
+        ),
+        "success": True,
+        "root": str(root_path),
+        "findings": [],
+        "evidence": {
+            "wiki_present": wiki_present,
+            "manifest_pages": pages,
+            "availability_detail": availability_detail,
+            "narrative_layer_note": "叙述层内容属待验证假设，禁止作为 Finding 依据",
+        },
+        "notes": notes or [
+            "降级模式：仅静态读取 wiki 产物；不执行 CLI 子进程，不刷新 wiki",
+        ],
+        "recommendations": [] if available else [f"如需叙述层增强：{INSTALL_HINT}"],
+        "checks_not_run": ["openwiki-version", "freshness-git-compare"],
+    }
+
+
 def print_report(report: dict, as_json: bool = False) -> None:
     if as_json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -183,7 +243,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("check",), nargs="?", default="check")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（仅静态读取 wiki 产物；输出 status=degraded，"
+             "findings 恒为空）",
+    )
     args = parser.parse_args(argv)
+    if args.static_degraded:
+        print(json.dumps(
+            run_static_degraded(args.root), ensure_ascii=False, indent=2,
+        ))
+        return 0
     report = inspect(args.root.resolve())
     print_report(report, getattr(args, "json", False))
     return 0

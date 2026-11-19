@@ -1,7 +1,8 @@
 # BugX Planning & Slicing Engine (能力规划、领域路由、代码切片与仲裁流水线)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 2: 分析、切片与探测引擎`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/planning/` 汇聚了 BugX 微内核针对目标项目的核心能力编排、领域路由、静态/动态切片提取、业务规格采集与多维缺陷仲裁能力。它构成了审计前期阶段决策、提示词上下文合成与审计后期裁决闭环的关键中枢。
 

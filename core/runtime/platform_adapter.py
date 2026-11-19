@@ -383,7 +383,7 @@ class _OutputCollector:
         }
 
 
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+def terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
         try:
             process.send_signal(getattr(subprocess, "CTRL_BREAK_EVENT", 1))
@@ -447,7 +447,7 @@ def _run_bounded(command: list[str], cwd: Path, env: dict[str, str], timeout: fl
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         timed_out = True
-        _terminate_process_tree(process)
+        terminate_process_tree(process)
     finally:
         for reader in readers:
             reader.join(timeout=2)

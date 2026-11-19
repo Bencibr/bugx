@@ -12,6 +12,10 @@
 - Tier 3: 官方原生直接 API Key (Official Direct Key) - 如 OpenAI/Anthropic/Google 直连
 - Tier 4: 第三方代理与中转路由 (Third-Party Router) - 如 9router, OpenRouter
 - Tier 5: 按量扣费点数代扣通道 (Usage-Billing / Credits) - 如 Cline Credits
+
+可用性守卫（availability guard，E1 验收实证 #2）：tier 语义是"可用性优先"而非
+"命名即胜"。通道声明携带 0 余额 / credits 耗尽可用性事实时，该通道在阶梯排序中
+整体降级到最后，不得凭 ":free" 等命名匹配压过实测可用的高梯队路由。
 """
 
 from __future__ import annotations
@@ -82,6 +86,11 @@ from .host_evaluators import (
     evaluate_pi_candidates,
     evaluate_zcode_candidates,
 )
+from .provider_facts import (
+    PROVIDER_FACTS_FILE,
+    credits_exhausted,
+    load_provider_availability_facts,
+)
 
 
 class HostProviderArbitrator:
@@ -107,6 +116,26 @@ class HostProviderArbitrator:
     def evaluate_pi_candidates(cls, *args, **kwargs) -> list[ProviderCandidate]:
         return evaluate_pi_candidates(cls, *args, **kwargs)
 
+    # ---- 可用性事实守卫（availability facts guard, E1 实证 #2）----
+    # 事实提取实现已抽取至共享模块 provider_facts（评估层 is_free_model 短路判定
+    # 消费同一事实源）；本类保留转发入口，对外调用面与类级常量逐字节不变。
+    PROVIDER_FACTS_FILE = PROVIDER_FACTS_FILE
+
+    @classmethod
+    def _load_provider_availability_facts(cls, facts_file: Path | None = None) -> dict[str, Any]:
+        """读取通道可用性事实声明（转发共享模块；缺失/损坏时 fail-open 返回空）。"""
+        return load_provider_availability_facts(facts_file or cls.PROVIDER_FACTS_FILE)
+
+    @classmethod
+    def _credits_exhausted(
+        cls,
+        p_name: str,
+        p_info: Mapping[str, Any],
+        external_facts: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """判定通道是否携带 credits 耗尽 / 0 余额可用性事实（转发共享模块）。"""
+        return credits_exhausted(p_name, p_info, external_facts)
+
     @classmethod
     def rank_cline_providers(
         cls,
@@ -117,10 +146,16 @@ class HostProviderArbitrator:
         excluded_providers: set[str] | None = None,
         data_dir: Path | None = None,
     ) -> list[ProviderCandidate]:
-        """扫描并按阶梯优先级排序所有可用通道。"""
+        """扫描并按阶梯优先级排序所有可用通道（可用性优先守卫）。
+
+        携带 0 余额 / credits 耗尽事实的通道不参与 tier 命名竞争，整体降级到
+        健康通道之后（不剔除：仅剩耗尽通道时仍可作为兜底返回）。
+        """
         prov_map = providers_data.get("providers", {}) if isinstance(providers_data, Mapping) else {}
         excluded = excluded_providers or set()
-        candidates: list[ProviderCandidate] = []
+        external_facts = cls._load_provider_availability_facts()
+        healthy: list[ProviderCandidate] = []
+        degraded: list[ProviderCandidate] = []
 
         for p_name, p_info in prov_map.items():
             if p_name in excluded:
@@ -131,13 +166,21 @@ class HostProviderArbitrator:
                 models_data,
                 data_dir=data_dir,
                 preferred_free_model=preferred_free_model,
+                external_facts=external_facts,
             )
             if cand.is_valid and cand.tier != ProviderTier.TIER_9_UNAVAILABLE:
-                candidates.append(cand)
+                if cls._credits_exhausted(p_name, p_info, external_facts):
+                    cand.metadata["credits_exhausted"] = True
+                    cand.reason = f"[可用性守卫:credits_exhausted 已降级] {cand.reason}"
+                    degraded.append(cand)
+                else:
+                    healthy.append(cand)
 
-        # 排序：tier 单调递增（数值越小越优），然后 score 递减
-        candidates.sort(key=lambda c: c.rank_tuple)
-        return candidates
+        # 排序：tier 单调递增（数值越小越优），然后 score 递减；
+        # 可用性守卫：携带耗尽事实的通道整体排在健康通道之后
+        healthy.sort(key=lambda c: c.rank_tuple)
+        degraded.sort(key=lambda c: c.rank_tuple)
+        return healthy + degraded
 
     @classmethod
     def select_best_cline_provider(
@@ -257,25 +300,13 @@ class HostProviderArbitrator:
             preferred_domain=requested_domain,
             preferred_model=requested_model,
         )
-        if not candidates:
-            return requested_domain, requested_model, None, "*(未发现 ZCode 候选通道)*"
-
-        # 显式指定判定
-        if requested_domain:
-            for c in candidates:
-                if c.provider_id.lower() == requested_domain.lower() and c.is_valid:
-                    manifest = format_provider_manifest(candidates, host="zcode", selected=c)
-                    return c.provider_id, requested_model or c.model, c, manifest
-
-        valid_cands = [c for c in candidates if c.is_valid and c.tier != ProviderTier.TIER_9_UNAVAILABLE]
-        if not valid_cands:
-            manifest = format_provider_manifest(candidates, host="zcode", selected=candidates[0])
-            return None, requested_model, None, manifest
-
-        best = valid_cands[0]
-        manifest = format_provider_manifest(candidates, host="zcode", selected=best)
-        final_model = requested_model or best.model
-        return best.provider_id, final_model, best, manifest
+        return cls._select_best_provider(
+            candidates,
+            host="zcode",
+            requested_provider=requested_domain,
+            requested_model=requested_model,
+            empty_manifest="*(未发现 ZCode 候选通道)*",
+        )
 
     @classmethod
     def self_heal_zcode_provider(
@@ -378,6 +409,51 @@ class HostProviderArbitrator:
         }
 
     @classmethod
+    def _select_best_provider(
+        cls,
+        candidates: Sequence[ProviderCandidate],
+        *,
+        host: str,
+        requested_provider: str | None,
+        requested_model: str | None,
+        empty_manifest: str,
+    ) -> tuple[str | None, str | None, ProviderCandidate | None, str]:
+        """Apply the shared provider-choice policy after host-specific evaluation."""
+        if not candidates:
+            return requested_provider, requested_model, None, empty_manifest
+
+        if requested_provider:
+            for candidate in candidates:
+                if (
+                    candidate.provider_id.lower() == requested_provider.lower()
+                    and candidate.is_valid
+                ):
+                    manifest = format_provider_manifest(
+                        candidates, host=host, selected=candidate,
+                    )
+                    return (
+                        candidate.provider_id,
+                        requested_model or candidate.model,
+                        candidate,
+                        manifest,
+                    )
+
+        valid = [
+            candidate
+            for candidate in candidates
+            if candidate.is_valid and candidate.tier != ProviderTier.TIER_9_UNAVAILABLE
+        ]
+        if not valid:
+            manifest = format_provider_manifest(
+                candidates, host=host, selected=candidates[0],
+            )
+            return None, requested_model, None, manifest
+
+        best = valid[0]
+        manifest = format_provider_manifest(candidates, host=host, selected=best)
+        return best.provider_id, requested_model or best.model, best, manifest
+
+    @classmethod
     def select_best_opencode_provider(
         cls,
         config_dir_or_file: Path | None = None,
@@ -390,24 +466,13 @@ class HostProviderArbitrator:
             preferred_provider=requested_provider,
             preferred_model=requested_model,
         )
-        if not candidates:
-            return requested_provider, requested_model, None, "*(未发现 OpenCode 候选)*"
-
-        if requested_provider:
-            for c in candidates:
-                if c.provider_id.lower() == requested_provider.lower() and c.is_valid:
-                    manifest = format_provider_manifest(candidates, host="opencode", selected=c)
-                    return c.provider_id, requested_model or c.model, c, manifest
-
-        valid = [c for c in candidates if c.is_valid and c.tier != ProviderTier.TIER_9_UNAVAILABLE]
-        if not valid:
-            manifest = format_provider_manifest(candidates, host="opencode", selected=candidates[0])
-            return None, requested_model, None, manifest
-
-        best = valid[0]
-        manifest = format_provider_manifest(candidates, host="opencode", selected=best)
-        final_model = requested_model or best.model
-        return best.provider_id, final_model, best, manifest
+        return cls._select_best_provider(
+            candidates,
+            host="opencode",
+            requested_provider=requested_provider,
+            requested_model=requested_model,
+            empty_manifest="*(未发现 OpenCode 候选)*",
+        )
 
     @classmethod
     def self_heal_opencode_provider(
@@ -481,24 +546,13 @@ class HostProviderArbitrator:
             preferred_provider=requested_provider,
             preferred_model=requested_model,
         )
-        if not candidates:
-            return requested_provider, requested_model, None, "*(未发现 Pi 候选)*"
-
-        if requested_provider:
-            for c in candidates:
-                if c.provider_id.lower() == requested_provider.lower() and c.is_valid:
-                    manifest = format_provider_manifest(candidates, host="pi", selected=c)
-                    return c.provider_id, requested_model or c.model, c, manifest
-
-        valid = [c for c in candidates if c.is_valid and c.tier != ProviderTier.TIER_9_UNAVAILABLE]
-        if not valid:
-            manifest = format_provider_manifest(candidates, host="pi", selected=candidates[0])
-            return None, requested_model, None, manifest
-
-        best = valid[0]
-        manifest = format_provider_manifest(candidates, host="pi", selected=best)
-        final_model = requested_model or best.model
-        return best.provider_id, final_model, best, manifest
+        return cls._select_best_provider(
+            candidates,
+            host="pi",
+            requested_provider=requested_provider,
+            requested_model=requested_model,
+            empty_manifest="*(未发现 Pi 候选)*",
+        )
 
     @classmethod
     def self_heal_pi_provider(

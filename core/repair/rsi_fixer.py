@@ -173,7 +173,7 @@ def build_fix_prompt(work_order: dict, *, mode: str, tree: Path | None = None) -
         "",
         "## 关于全量测试（重要：不要在本次修复里跑）",
         "",
-        "**不要执行 `pytest tests/ -q` 或任何全量测试。**",
+        "**不要在仓库内保留或执行仓库级 `pytest tests/ -q`；验证只能使用目标项目或临时目录。**",
         "",
         "本仓库全量测试有 3600+ 条、约 24 分钟。修复 agent 的预算是分钟级，",
         "一旦开始跑全量测试就会耗尽预算，最终超时被杀——**代码改对了也会被",
@@ -187,8 +187,8 @@ def build_fix_prompt(work_order: dict, *, mode: str, tree: Path | None = None) -
         "",
         "## 范围限制",
         "禁止修改：",
-        "- `evals/golden-findings.json`、`evals/cases.json`（评测断言）",
-        "- `evals/*baseline*.json`（基线/门槛）",
+        "- `verification/evals/golden-findings.json`、`verification/evals/cases.json`（评测断言）",
+        "- `verification/evals/*baseline*.json`（基线/门槛）",
         "- 任何以「让评测变绿」为目的的断言调整",
         "",
         f"当前修复模式：{mode}（{rsi_scope.mode_description(mode)}）",
@@ -757,7 +757,7 @@ def attempt_fix(work_order: dict, *, host: str = "dsh", root: Path | None = None
         # ``regression_commands`` 让调用方指定「对本缺陷有意义的回归集」。
         # L7 的修复只需重跑 l7_selfcheck（0.00s），没必要跑全量 pytest
         # （数分钟）——门禁要拦的是「改坏别处」，不是「必须跑全量」。
-        # 缺省仍走 pytest tests/，保持对通用工单的行为不变。
+        # 缺省仍在目标项目中运行其自身测试，仓库本身不提供 tests/ 目录。
         if regression_commands:
             for argv in regression_commands:
                 reg_rc, reg_out, reg_err = _run(

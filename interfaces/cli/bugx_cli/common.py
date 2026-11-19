@@ -28,9 +28,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import bugx_cli
 from . import __version__
-from bugx_cli.infra import (
+from .infra import (
     CONFIG_NAME,
     CORE_API_RE,
     CliError,
@@ -197,6 +196,8 @@ PROBE_SCRIPTS = {
     "efficiency": "efficiency_probe.py",
     "sast": "sast_probe.py",
     "mobile": "mobile_probe.py",
+    "ui": "ui_audit.py",
+    "android": "android_probe.py",
     "ios_binary": "ios_binary_probe.py",
     "codebase-memory": "codebase_memory_probe.py",
     "platform": "platform_probe.py",
@@ -267,7 +268,7 @@ def _ensure_core_importable() -> None:
         if cand.is_dir() and (cand / "launch_bugx.py").is_file():
             candidates.append(cand)
     # 后插入者位于 sys.path[0]，故按 (asset, global_engine) 顺序插入 ⇒
-    # 最终 global_engine 优先。契约见 `docs/03_ai/AI_REFERENCE.md`「副本升级门禁」：
+    # 最终 global_engine 优先。契约见 `docs/03_ai/01_AI_REFERENCE.md`「副本升级门禁」：
     # Python 导入必须优先 `global_engine_root()`（共享引擎是运行时真源），
     # 仅在全局引擎缺失 launch_bugx.py 时才回落到 asset_root。
     for cand in candidates:
@@ -858,13 +859,20 @@ def get_build_id() -> int | None:
             raise CliError("BUGX_BUILD_ID 超出支持的整数范围") from exc
         if env_value < 1:
             raise CliError("BUGX_BUILD_ID 必须是正整数")
-    build_id = getattr(bugx_cli, "__build_id__", None)
+    # F-RSI-20261110-045：包标识改相对读取——原 `getattr(bugx_cli, "__build_id__")`
+    # 依赖顶层模块名 `bugx_cli`，仓库开发布局下该名字解析到 site-packages
+    # 安装副本（bugx-agent 1.0.0 快照），__build_id__ 短路劫持到陈旧快照。
+    try:
+        from . import __build_id__ as _pkg_build_id
+    except ImportError:
+        _pkg_build_id = None
+    build_id = _pkg_build_id if isinstance(_pkg_build_id, int) and not isinstance(_pkg_build_id, bool) and _pkg_build_id >= 1 else None
     if isinstance(build_id, int) and not isinstance(build_id, bool) and build_id >= 1:
         return build_id
     if env_value is not None:
         return env_value
     try:
-        from bugx_cli.infra.engine_installer import asset_root
+        from .infra.engine_installer import asset_root
         meta = asset_root() / "metadata.txt"
         if meta.is_file():
             content = meta.read_text(encoding="utf-8")
@@ -874,7 +882,7 @@ def get_build_id() -> int | None:
     except Exception:
         pass
     try:
-        from bugx_cli.infra.engine_installer import global_engine_root
+        from .infra.engine_installer import global_engine_root
         meta = global_engine_root() / "metadata.txt"
         if meta.is_file():
             content = meta.read_text(encoding="utf-8")
@@ -887,7 +895,7 @@ def get_build_id() -> int | None:
 
 
 def get_full_version() -> str:
-    """返回标准版本与 Build ID 组合字符串，例如 0.1.0+build.4。"""
+    """返回标准版本与 Build ID 组合字符串，例如 0.1.1+build.627。"""
     bid = get_build_id()
     if bid is not None:
         return f"{__version__}+build.{bid}"

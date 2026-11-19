@@ -301,10 +301,10 @@ def harvest_specification(project_root: Path) -> BusinessSpec:
     # 2. 扫描权威设计文档与 README
     doc_candidates = (
         "README.md",
-        "docs/02_architecture/DESIGN_SPEC.md",
-        "docs/02_architecture/ARCHITECTURE.md",
-        "docs/02_architecture/BUGX_AUDIT_FLOW.md",
-        "docs/03_ai/AI_REFERENCE.md",
+        "docs/02_architecture/02_DESIGN_SPEC.md",
+        "docs/02_architecture/01_ARCHITECTURE.md",
+        "docs/02_architecture/03_BUGX_AUDIT_FLOW.md",
+        "docs/03_ai/01_AI_REFERENCE.md",
     )
     for rel_path in doc_candidates:
         candidate = project_root / rel_path

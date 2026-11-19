@@ -985,8 +985,14 @@ def _execute_autonomous_worker(
             for unit in unit_ids:
                 unit_findings = [f for f in findings if f.get("unit_id") == unit or f.get("file") == unit]
                 sched.record_audit_attempt(unit, findings_count=len(unit_findings))
-    except Exception:
-        pass
+    except Exception as exc:
+        # F-RSI-20261112-104：UCB1 记账失败不得静默——调度质量退化（探索/
+        # 利用加权失真）应可观测。checkpoint 已提交（上一 try），此处只影响
+        # 下一轮调度倾斜，fail-open 合理但必须留痕。
+        print(
+            f"[worker-runtime] ⚠ UCB1 调度记账失败（不影响本批交付，下一轮调度倾斜退化）: {exc}",
+            file=sys.stderr,
+        )
 
     return {
         "worker_id": worker_id,

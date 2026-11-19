@@ -109,6 +109,15 @@ def coverage_debt_units(supervisor: dict[str, Any] | None) -> int | None:
     total = gate.get("coverage_units", len(coverage))
     if isinstance(total, bool) or not isinstance(total, int) or total < 0:
         return None
+    # F-RSI-20261115-126：写侧快照恒 coverage_units == len(coverage)
+    # （observability.build_parallel_gate_snapshot 直接取 len）。gate 声明数
+    # 小于账本条目数即密封账本被篡改或写侧 bug——gate=0 + coverage 非空会把
+    # 债务折叠成 0 谎报 coverage_complete=true（E2-D1 拦收据字段，这里是
+    # 密封账本字段侧的同型路径）。矛盾即口径不可信，返回 None（与「读不出
+    # 来」同语义 fail-closed），不盲信 gate 数字；gate > len 不拦（历史快照
+    # 可能含未入账单元，高估债务是诚实方向）。
+    if total < len(coverage):
+        return None
     covered = sum(
         1 for state in coverage.values() if str(state) in COVERED_STATES
     )

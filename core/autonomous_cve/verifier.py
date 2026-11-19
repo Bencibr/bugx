@@ -57,7 +57,10 @@ class AutoHuntVerifier:
         controls = report.get("negative_controls", {})
         total_controls = controls.get("total", 0)
         suppressed_controls = controls.get("suppressed", 0)
-        neg_pass_rate = (suppressed_controls / total_controls) if total_controls > 0 else 1.0
+        # 零负对照 = 没有反假阳性证据，不能记满分（fail-open 会让
+        # status=PASS 的 driver 拿到 PASSED 收据，等于给"未做负对照"背书）。
+        # 无证据时记 0.0，收据只能 FAILED；有负对照才按抑制率计算。
+        neg_pass_rate = (suppressed_controls / total_controls) if total_controls > 0 else 0.0
 
         now = datetime.datetime.now(datetime.timezone.utc)
         receipt_dict: dict[str, Any] = {

@@ -106,8 +106,8 @@ def admit_business_unit(
         raise InvalidCheckpoint("只允许授权业务 coverage unit")
     if not isinstance(risk_score, (int, float)) or not math.isfinite(float(risk_score)):
         raise InvalidCheckpoint(
-        "risk_score 必须是有限数字（0-10），形如 7.5；"
-        "不要传 NaN / Infinity / \"7.5\" 这样的字符串"
+        "risk_score 必须是 70-100 的有限数字，形如 87.5；"
+        "不要传 NaN / Infinity / 字符串形式的数值"
     )
     if not 70 <= float(risk_score) <= 100:
         raise InvalidCheckpoint("只有 70 <= risk_score <= 100 的业务链路可提前准入")
@@ -542,6 +542,7 @@ def confirm_finding(
     remediation: Mapping[str, object] | None = None,
     oracle: Mapping[str, object] | None = None,
     target_platform: str | None = None,
+    severity: str | None = None,
 ) -> RunState:
     """Host-owned Finding decision executed inside one Supervisor transaction.
 
@@ -564,9 +565,19 @@ def confirm_finding(
         self._check_revision(state, expected_revision)
         if state.status.value in {"complete", "failed"}:
             raise InvalidTransition(f"run 已结束: {state.status.value}")
+        # 与 verify_finding（_verification_precheck）同语义：按 id-or-fingerprint
+        # 唯一匹配。findings-confirm 一条龙把 recipe 的 fingerprint 同时传给
+        # verify 与 confirm；旧实现只按 id 匹配，id≠fingerprint 时 confirm 恒报
+        # "Finding 不存在或身份不唯一"。唯一命中才通过，多命中/零命中仍拒绝
+        # （只放宽到唯一匹配，不放宽到模糊匹配）。
         matches = [
             item for item in state.findings
-            if isinstance(item, dict) and item.get("id") == key
+            if isinstance(item, dict) and key in {
+                str(item.get("fingerprint") or "").strip(),
+                str(item.get("id") or "").strip(),
+                str(item.get("finding_id") or "").strip(),
+                str(self._finding_key(item) or "").strip(),
+            }
         ]
         if len(matches) != 1:
             raise InvalidCheckpoint("Finding 不存在或身份不唯一")
@@ -579,16 +590,22 @@ def confirm_finding(
             receipt=receipt, oracle=oracle,
             root_cause_verified=root_cause_verified, remediation=remediation,
             target_platform=target_platform, rejection_class=rejection_class,
-            root=self.workspace_root,
+            root=self.workspace_root, severity=severity,
         )
         target["confirmation"] = decided["confirmation"]
         if decided["remediation"] is not None:
             target["remediation"] = decided["remediation"]
+        # F-RSI-20261118-009：确认后 finding 的 severity 回写。apply_decision
+        # 在 deepcopy 副本上定级/补录，最终有效值经 severity_final 通道返回——
+        # 回写条件只看 severity_final 有效（severity_applied 仅标记「本轮新补」，
+        # worker 已带有效定级时为 None 但 severity_final 仍需同步到 target）。
+        if decided.get("severity_final"):
+            target["severity"] = decided["severity_final"]
         self._append_event(
             state,
             "finding_confirmed" if decision == "confirmed" else "finding_rejected",
             now,
-            finding_id=key,
+            finding_id=str(target.get("id") or key),
             reason=str(reason).strip(),
             channel="confirm_finding",
             verification_id=decided["confirmation"].get("verification_id"),

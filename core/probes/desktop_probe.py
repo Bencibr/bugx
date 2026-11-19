@@ -210,6 +210,102 @@ def desktop_report(root: Path | str | None = None) -> Report:
     return Report("desktop", "READY", tuple(checks), tuple(warnings))
 
 
+def is_available(root: Path | str | None = None) -> tuple[bool, str]:
+    """降级契约：机械探测桌面审计前置条件（<5ms，零阻塞、零子进程）。
+
+    desktop_probe 为纯静态只读探针：无外部工具/SDK 依赖，环境层面恒可用；
+    若提供 root 则顺带校验目标目录可读性。返回 (available, detail)。
+    """
+    detail = "desktop_probe 为纯静态只读探针，无外部工具/SDK 依赖，环境恒可用"
+    if root is not None:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            return False, f"目标目录不存在或不可读: {root_path}"
+        detail += f"；目标目录可读: {root_path}"
+    return True, detail
+
+
+def run_static_degraded(root: Path | str | None = None) -> dict:
+    """降级路径：受限静态取证（有界文件扫描 + 框架识别 + 打包/更新通道检查）。
+
+    降级契约：输出与成功路径（desktop_report，status=READY）**可区分**——
+    status="degraded" + degraded=True + degraded_reason；框架未识别或工程
+    不可读时如实返回 success=False，禁止把未取证写成 PASS。
+    """
+    root_path = Path(root or Path.cwd())
+    available, availability_detail = is_available(root_path)
+    if not available:
+        return {
+            "platform": "desktop",
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "target_root_not_found",
+            "success": False,
+            "root": str(root_path),
+            "findings": [],
+            "warnings": [availability_detail],
+            "checks_not_run": ["electron-process-model", "packaging", "update-channel"],
+        }
+    files = _iter_files(root_path)
+    framework, evidence = _detect_framework(files)
+    warnings: list[str] = []
+    if not framework:
+        warnings.append(
+            "未识别到 Electron/Tauri/Qt/WPF 桌面框架：桌面取证不适用（非环境缺口，"
+            "与 BLOCKED 严格区分）；如需桌面审计请先确认项目形态"
+        )
+        return {
+            "platform": "desktop",
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "desktop_framework_not_detected",
+            "success": False,
+            "root": str(root_path),
+            "findings": [],
+            "evidence": {"files_scanned": len(files)},
+            "warnings": warnings,
+            "checks_not_run": ["electron-process-model", "packaging", "update-channel"],
+        }
+    if framework == "electron":
+        process_details, process_warnings = _electron_findings(files)
+        packaging_details, packaging_warnings = _packaging_findings(files)
+        update_details, update_warnings = _update_findings(files)
+        findings = [
+            {"area": "process_model", "details": process_details},
+            {"area": "packaging", "details": packaging_details},
+            {"area": "update_channel", "details": update_details},
+        ]
+        warnings.extend([*process_warnings, *packaging_warnings, *update_warnings])
+    else:
+        packaging_details, packaging_warnings = _packaging_findings(files)
+        findings = [{"area": "packaging", "details": packaging_details}]
+        warnings.extend(packaging_warnings)
+        warnings.append(
+            f"{framework} 的进程模型/更新通道无自动化探针：需宿主 Agent 以现有工具取证"
+        )
+    warnings.append(
+        "降级模式：以上为有界静态扫描结果（≤4000 文件）；进程运行时行为、安装与"
+        "更新通道真实行为均未验证，禁止声称已完成桌面动态取证"
+    )
+    return {
+        "platform": "desktop",
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": "static_mode_forced",
+        "success": True,
+        "root": str(root_path),
+        "findings": findings,
+        "evidence": {
+            "files_scanned": len(files),
+            "framework": framework,
+            "framework_evidence": evidence,
+            "availability_detail": availability_detail,
+        },
+        "warnings": warnings,
+        "checks_not_run": ["runtime-process-behavior", "installer-verification"],
+    }
+
+
 def print_report(report: Report, *, as_json: bool = False) -> None:
     if as_json:
         print(json.dumps(asdict(report), ensure_ascii=False, indent=2))
@@ -227,7 +323,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("check", "status"), nargs="?", default="check")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（有界静态取证；输出 status=degraded，"
+             "不验证运行时行为）",
+    )
     args = parser.parse_args(argv)
+    if args.static_degraded:
+        print(json.dumps(run_static_degraded(args.root), ensure_ascii=False, indent=2))
+        return 0
     report = desktop_report(args.root)
     print_report(report, as_json=args.json)
     # “不适用”不是失败：退出码 0 表示探针结论有效，避免上游把它误判为执行失败。

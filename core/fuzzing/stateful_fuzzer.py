@@ -328,5 +328,77 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活推演器前提（纯标准库，零 I/O、零子进程）。"""
+    if sys.version_info < (3, 9):
+        return False, (
+            f"Python 版本过低（{sys.version_info[0]}.{sys.version_info[1]}）；"
+            "状态机推演器不可用"
+        )
+    return True, f"状态机推演器就绪（Python {sys.version_info[0]}.{sys.version_info[1]}，纯标准库）"
+
+
+def run_static_degraded(
+    transitions_data: list[dict[str, Any]] | None,
+    *,
+    max_length: int = 4,
+    max_sequences: int = 20,
+) -> dict[str, Any]:
+    """降级契约：只做反常序序列生成，不执行 StatefulOracle 目标测试。
+
+    输出与成功路径（``oracle.test_target`` 的真实目标执行 + 不变量校验结果）
+    字段级可区分：``status="degraded"`` + ``degraded=True`` + ``degraded_reason``，
+    并显式声明 ``oracle_executed=False``——生成序列只是候选线索，不是漏洞确认。
+    """
+    available, availability_detail = is_available()
+    transitions_valid = isinstance(transitions_data, list) and any(
+        isinstance(item, dict) and item.get("action") for item in transitions_data
+    )
+    if not transitions_valid:
+        return {
+            "schema_version": 1,
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "transitions_empty_or_invalid",
+            "probe_mode": "static_degraded",
+            "oracle_executed": False,
+            "generation": None,
+            "findings": [],
+            "evidence": {
+                "availability_detail": availability_detail,
+                "transitions_provided": bool(transitions_data),
+            },
+            "metadata": {"degraded_mode": "sequence_generation_only"},
+        }
+    generation = fuzz_transitions(
+        transitions_data,
+        max_length=max_length,
+        max_sequences=max_sequences,
+    )
+    return {
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "oracle_execution_skipped"
+        ),
+        "probe_mode": "static_degraded",
+        "oracle_executed": False,
+        "generation": generation,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "sequences_generated": generation["total_anomalies_generated"],
+            "transitions_count": generation["transitions_count"],
+        },
+        "metadata": {
+            "degraded_mode": "sequence_generation_only",
+            "fallback": "生成序列需配合真实目标执行与不变量校验才能确认业务逻辑漏洞",
+        },
+    }
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

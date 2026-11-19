@@ -25,7 +25,7 @@ def command_advisory(args: argparse.Namespace) -> int:
     if subcommand == "list":
         # Look for existing advisories in standard locations
         candidates = [
-            Path.cwd() / "evals" / "oss" / "ghsa_advisories.json",
+            Path.cwd() / "verification" / "evals" / "oss" / "ghsa_advisories.json",
             Path.cwd() / ".bugx" / "advisories.json",
         ]
         found = False

@@ -63,7 +63,12 @@ def _release_owner_cancelled_debris(
             getattr(claim, "state", "") == "active"
             and getattr(claim, "execution_state", "") == "claimed"
         ):
-            claim.state = "preempted"
+            # F-RSI-20261118-008：写入端必须落在 from_dict 白名单内。曾写
+            # ``state="preempted"``（该状态未注册，读取端 post 结算直接
+            # PersistenceError——worktree post 硬失败实证）；released 完全
+            # 对应本语义（「释放」），preempted_reason 保留历史原因供审计。
+            claim.state = "released"
+            claim.execution_state = "released"
             claim.preempted_reason = "owner_cancelled_queue_debris"
             released.append(worker_id)
     if released:

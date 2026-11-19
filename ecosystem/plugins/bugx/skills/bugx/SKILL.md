@@ -2,7 +2,7 @@
 name: bugx
 description: 专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。
 metadata:
-  bugx_version: "0.1.0"
+  bugx_version: "${BUGX_VERSION}"
 ---
 <!-- bugx-locale: zh-CN -->
 
@@ -10,7 +10,7 @@ metadata:
 
 BugX ChatGPT Skill 镜像。执行前用 `bugx engine path --name AGENT_GUIDE.md` 和 `bugx engine path --name bugx.md` 读取全局协议；项目 `.bugx/` 只保存状态与配置。
 
-协议镜像版本：0.1.0
+协议镜像版本：${BUGX_VERSION}
 
 ## ChatGPT 原生交互适配（强制）
 

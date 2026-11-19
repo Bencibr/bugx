@@ -47,7 +47,7 @@ def _estimate_complexity_baseline(root: Path, manifest_path: Path | None = None)
 
 def _install_host(root: Path, host: str, *, timeout: float = 180.0) -> dict[str, object]:
     """Repair the selected host entry before starting the no-prompt run."""
-    from bugx_cli.infra.security import _find_repo_root
+    from ..infra.security import _find_repo_root
     repo = _find_repo_root(Path(__file__))
     source_cli = repo / "interfaces" / "cli" / "bugx_cli" / "cli.py"
     if not source_cli.is_file():

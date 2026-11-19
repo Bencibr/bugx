@@ -21,6 +21,7 @@ from .free_models import (
     is_subscription_token,
     score_free_model_capability,
 )
+from .provider_facts import credits_exhausted, load_provider_availability_facts
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ def evaluate_cline_provider(
     data_dir: Path | None = None,
     *,
     preferred_free_model: str | None = None,
+    external_facts: Mapping[str, Any] | None = None,
 ) -> ProviderCandidate:
     """评估 Cline 单个 Provider 候选条目并评定梯队。"""
     now = now_ts if now_ts is not None else time.time()
@@ -204,7 +206,15 @@ def evaluate_cline_provider(
                 supports_reasoning=reasoning,
             ))
 
-    if prov_free_candidates:
+    # 可用性事实守卫（评估层补全，E1 观察 #2 / A3 残余根治）：is_free_model 命名匹配
+    # 此前在任何余额检查之前短路 TIER_1_FREE。通道携带 credits 耗尽 / 0 余额事实时
+    # 跳过该短路，通道按常规梯队继续评估并参与排序（聚合层守卫仍整体降级留痕）；
+    # 无任何耗尽事实时 credits_exhausted 恒为 False，本短路行为逐字节不变。
+    if prov_free_candidates and not credits_exhausted(
+        name,
+        info,
+        external_facts if external_facts is not None else load_provider_availability_facts(),
+    ):
         prov_free_candidates.sort(key=lambda c: c.rank_tuple)
         best_free, manifest = evaluate_and_select_free_model(
             prov_free_candidates,
@@ -337,12 +347,18 @@ def evaluate_zcode_candidates(
     *,
     preferred_domain: str | None = None,
     preferred_model: str | None = None,
+    external_facts: Mapping[str, Any] | None = None,
 ) -> list[ProviderCandidate]:
     """全量探查 ZCode 宿主环境中的候选通道（官方订阅、凭据、自定义规则）。"""
     v2 = v2_dir or (Path.home() / ".zcode" / "v2")
     candidates: list[ProviderCandidate] = []
     if not v2.is_dir():
         return candidates
+    # 可用性事实守卫（A3/D2 同型扩轴，与 cline 共用消费端 credits_exhausted）：
+    # 通道余额是机器本地事实、与宿主无关，故继续共用既有受控事实库
+    # （provider_facts.PROVIDER_FACTS_FILE，schema 键为通道名，向后兼容）；
+    # 缺失/损坏时 fail-open 返回空，无任何耗尽事实时行为逐字节不变。
+    facts = external_facts if external_facts is not None else load_provider_availability_facts()
 
     # 1. 探查 coding-plan-cache.json 中的官方订阅套餐 (Tier 2)
     cache_file = v2 / "coding-plan-cache.json"
@@ -458,7 +474,13 @@ def evaluate_zcode_candidates(
                     continue
 
                 # 检查是否有免费模型 (Tier 1)
-                has_free = any(is_free_model(str(m), base_url) for m in models)
+                # 可用性事实守卫（A3/D2 同型扩轴）：is_free_model 命名匹配此前在
+                # 任何余额检查之前短路 TIER_1_FREE。通道携带 credits 耗尽 / 0 余额
+                # 事实（条目显式声明优先，其次受控事实库）时跳过该短路，通道按
+                # 常规梯队继续评估并参与排序；无任何耗尽事实时本短路行为逐字节不变。
+                has_free = any(is_free_model(str(m), base_url) for m in models) and not credits_exhausted(
+                    p_id, rule, facts,
+                )
                 if has_free:
                     free_m = next(m for m in models if is_free_model(str(m), base_url))
                     score, cat, scale, r_text, _ = score_free_model_capability(str(free_m))
@@ -514,9 +536,13 @@ def evaluate_opencode_candidates(
     *,
     preferred_provider: str | None = None,
     preferred_model: str | None = None,
+    external_facts: Mapping[str, Any] | None = None,
 ) -> list[ProviderCandidate]:
     """全量探查 OpenCode 宿主环境中的候选通道。"""
     candidates: list[ProviderCandidate] = []
+    # 可用性事实守卫（A3/D2 同型扩轴）：与 cline/zcode 共用同一受控事实库
+    # （通道余额是机器本地事实，schema 键为通道名）；缺失/损坏 fail-open 返回空。
+    facts = external_facts if external_facts is not None else load_provider_availability_facts()
     target_file: Path | None = None
     if config_dir_or_file:
         target_file = config_dir_or_file if config_dir_or_file.is_file() else (config_dir_or_file / "opencode.json")
@@ -568,7 +594,12 @@ def evaluate_opencode_candidates(
             continue
 
         # 免费模型 (Tier 1)
-        has_free = any(is_free_model(str(m), base_url) for m in model_names)
+        # 可用性事实守卫（A3/D2 同型扩轴）：携带 credits 耗尽 / 0 余额事实的通道
+        # 跳过 is_free_model 命名短路，按常规梯队继续评估参与排序；
+        # 无任何耗尽事实时本短路行为逐字节不变。
+        has_free = any(is_free_model(str(m), base_url) for m in model_names) and not credits_exhausted(
+            p_name, p_info, facts,
+        )
         if has_free:
             free_m = next(m for m in model_names if is_free_model(str(m), base_url))
             score, cat, scale, r_text, _ = score_free_model_capability(str(free_m))
@@ -621,12 +652,16 @@ def evaluate_pi_candidates(
     *,
     preferred_provider: str | None = None,
     preferred_model: str | None = None,
+    external_facts: Mapping[str, Any] | None = None,
 ) -> list[ProviderCandidate]:
     """全量探查 Pi 宿主环境中的候选通道。"""
     candidates: list[ProviderCandidate] = []
     pi_dir = agent_dir or (Path.home() / ".pi" / "agent")
     if not pi_dir.is_dir():
         return candidates
+    # 可用性事实守卫（A3/D2 同型扩轴）：与 cline/zcode/opencode 共用同一受控
+    # 事实库（通道余额是机器本地事实，schema 键为通道名）；缺失/损坏 fail-open 返回空。
+    facts = external_facts if external_facts is not None else load_provider_availability_facts()
 
     auth_file = pi_dir / "auth.json"
     models_file = pi_dir / "models.json"
@@ -674,7 +709,12 @@ def evaluate_pi_candidates(
             ))
             continue
 
-        has_free = any(is_free_model(str(m), base_url) for m in model_ids)
+        # 可用性事实守卫（A3/D2 同型扩轴）：携带 credits 耗尽 / 0 余额事实的通道
+        # 跳过 is_free_model 命名短路，按常规梯队继续评估参与排序；
+        # 无任何耗尽事实时本短路行为逐字节不变。
+        has_free = any(is_free_model(str(m), base_url) for m in model_ids) and not credits_exhausted(
+            p_name, p_conf, facts,
+        )
         if has_free:
             free_m = next(m for m in model_ids if is_free_model(str(m), base_url))
             score, cat, scale, r_text, _ = score_free_model_capability(str(free_m))

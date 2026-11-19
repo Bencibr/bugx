@@ -43,8 +43,8 @@ CONTRACT_VERSION_RE = re.compile(
 def contract_version(value: object) -> str | None:
     """Return the compatibility contract version (``x.y.z``).
 
-    预发布与构建后缀被忽略：``0.1.0+2``、``0.1.0rc1``、``v0.1.0`` 都归一到
-    ``0.1.0``。这是门禁与 CLI 共用的唯一实现；任何一侧自行实现比较规则都会
+    预发布与构建后缀被忽略：``0.1.1+2``、``0.1.0rc1``、``v0.1.0`` 都归一到
+    ``0.1.1``。这是门禁与 CLI 共用的唯一实现；任何一侧自行实现比较规则都会
     重新引入"两个入口结论相反"的缺陷。
     """
     if not isinstance(value, str):
@@ -104,6 +104,8 @@ def _version_from_text(path: Path, pattern: re.Pattern[str],
     except (OSError, UnicodeError):
         return None
     value = match.group(1) if match else None
+    if value == "${BUGX_VERSION}":
+        value = os.environ.get("BUGX_VERSION", "0.1.1").strip()
     return value if value and VERSION_RE.fullmatch(value) else None
 
 
@@ -242,14 +244,19 @@ def version_status(root: Path, engine_root: Path,
         "cli": cli_version,
         "engine_metadata": _version_from_text(
             engine_root / "metadata.txt",
-            re.compile(r'bugx_version:\s*"([\d.]+(?:\+[0-9A-Za-z.-]+)?)"'),
+            re.compile(
+                r'bugx_version:\s*"([\d.]+(?:\+[0-9A-Za-z.-]+)?|\$\{BUGX_VERSION\})"',
+            ),
         ),
         "engine_integrity": _version_from_json(
             engine_root / "engine-integrity.json", "bugx_version",
         ),
         "engine_descriptor": _version_from_text(
             engine_root / "bugx.md",
-            re.compile(r"^version:\s*([\d.]+(?:\+[0-9A-Za-z.-]+)?)", re.M),
+            re.compile(
+                r"^version:\s*([\d.]+(?:\+[0-9A-Za-z.-]+)?|\$\{BUGX_VERSION\})",
+                re.M,
+            ),
         ),
     }
     legacy_manifest = _version_from_json(
@@ -403,6 +410,29 @@ def is_reparse_point(path: Path) -> bool:
         return False
 
 
+def _system_alias(path: Path) -> Path | None:
+    """Return the real path for macOS's harmless ``/tmp`` and ``/var`` aliases.
+
+    这两个别名是系统安装时就存在的（``/tmp -> /private/tmp``、
+    ``/var -> /private/var``），普通用户无法创建或篡改，不构成写入越界的
+    攻击面；把它们当成攻击特征会让「HOME 落在 /tmp」的隔离环境（mktemp
+    沙箱、CI）彻底装不了引擎。
+
+    判定必须**精确**：只有「父目录就是根、名字恰为 tmp/var、且确实解析到
+    ``/private/<name>``」才算系统别名。用户区里的同名目录、以及其它顶层
+    符号链接（``/opt`` 之类）一律按普通符号链接拒绝——这正是旧实现
+    （``current.parent == anchor`` 不限名字）过宽的地方。
+    """
+    if path.parent != Path(path.anchor) or path.name not in {"tmp", "var"}:
+        return None
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError:
+        return None
+    expected = Path("/private") / path.name
+    return resolved if resolved == expected else None
+
+
 def assert_no_symlink_components(
     path: Path,
     error_cls: type[Exception] = LayoutError,
@@ -419,13 +449,19 @@ def assert_no_symlink_components(
     DES-17：组件判定统一走 :func:`is_reparse_point`，Windows 上同时覆盖
     junction / reparse point；``src/bugx_cli/infra/security.py`` 与
     ``core/verify_life.py`` 均委托到本函数，不再各自维护一份实现。
+
+    ``allow_var_alias`` 豁免的是 :func:`_system_alias` 认定的**系统别名**
+    （精确到 ``/tmp``、``/var`` 解析到 ``/private/<name>``），不是「任意顶层
+    符号链接」。``core/secure_atomic.reject_symlink_components`` 一直按这个
+    语义判定，此前本函数用「父目录是根」做条件，两者口径不一致，导致同一
+    路径在安装器里被拒、在原子写入里被接受。
     """
     absolute = Path(os.path.abspath(str(path)))
     current = Path(absolute.anchor)
     for component in absolute.parts[1:]:
         current /= component
         if is_reparse_point(current):
-            if allow_var_alias and current.parent == Path(absolute.anchor):
+            if allow_var_alias and _system_alias(current) is not None:
                 continue
             if callable(message_formatter):
                 err_msg = message_formatter(current, path)
@@ -802,8 +838,7 @@ def _identity_mismatch(root: Path, manifest: dict) -> bool:
 
     判定依旧锚定路径指纹：把 ``.bugx`` 拷进另一个项目必须被拒绝——清单只是
     元数据，而账本、知识库、pollings 报告全在目录里，自动放行等于让源项目的
-    洞察/错题集/机密静默流进目标项目（``tests/gates/test_l1b_contract_assertions``
-    的 B4 红线）。
+    洞察/错题集/机密静默流进目标项目（B4 红线契约，以本注释为准）。
 
     可移植性由**显式迁移**提供，而不是自动放行：``bugx project rebind --migrate``
     把 ``project_id`` 重写为新根指纹，并保留持久化的 ``project_uid``——于是项目
@@ -1107,7 +1142,7 @@ def sync_global_projects(workspace: Path | None = None) -> list[dict[str, Any]]:
         if active_ws not in known_map:
             known_map[active_ws] = {}
 
-    # 3. Discover sibling workspaces under the active workspace container
+    # 3. Discover sibling workspaces (e.g. ~/workspace/*)
     # 核心硬防线：如果父目录是系统临时目录、家目录或根目录，绝对禁止扫描兄弟目录；已隐藏项目绝不复活！
     try:
         ws_parent = active_ws.parent.resolve()

@@ -232,8 +232,8 @@ def emit_policy_audit(policy: str, categories: list[str], redacted_count: int) -
 
 
 def prepare_records_for_sync(records: Mapping[str, list], *,
-                             policy: str = "allow") -> dict[str, Any]:
-    """DOC-211：push/upload 发网前的敏感策略统一入口。
+                             policy: str = "redact") -> dict[str, Any]:
+    """DOC-211：push/upload 发网前的敏感策略统一入口（默认档安全默认 redact，F-025）。
 
     必须在 manifest_hash/envelope 构建之前调用（redact 会改内容，幂等键在
     manifest 之后派生会错位）。block=三正则+凭据形状双扫描，命中即拒（原语义

@@ -61,7 +61,11 @@ class MiniProgramProbe(BaseProbe):
         return "miniprogram_probe"
 
     def is_available(self) -> bool:
-        """AUDIT-04: 极速探活 (<5ms，零阻塞)。"""
+        """AUDIT-04: 极速探活 (<5ms，零阻塞)。
+
+        降级契约：布尔返回值受 BaseProbe 布尔契约约束（execute_probe 以真值
+        判定是否降级）；(bool, detail) 明细结构见模块级 ``check_availability()``。
+        """
         for tool in ("miniprogram-ci", "cli", "wechat-cli"):
             if shutil.which(tool) is not None:
                 return True
@@ -126,11 +130,13 @@ class MiniProgramProbe(BaseProbe):
         cf_dir = Path(cloud_functions_dir)
         findings: list[dict[str, Any]] = []
         scanned_functions = 0
+        read_errors: list[str] = []
 
         if not cf_dir.exists():
             return {
                 "scanned_functions": 0,
                 "findings": [],
+                "read_errors": [f"cloud_functions_dir 不存在: {cf_dir}"],
             }
 
         # 遍历所有云函数目录
@@ -146,7 +152,8 @@ class MiniProgramProbe(BaseProbe):
             for src_file in source_files:
                 try:
                     code = src_file.read_text(encoding="utf-8", errors="replace")
-                except Exception:
+                except OSError as exc:
+                    read_errors.append(f"{src_file}: {exc}")
                     continue
 
                 has_privileged_op = any(op in code for op in self.PRIVILEGED_CLOUD_OPERATIONS)
@@ -195,6 +202,7 @@ class MiniProgramProbe(BaseProbe):
             "scanned_functions": scanned_functions,
             "findings": findings,
             "unprotected_cloud_functions": len(findings),
+            "read_errors": read_errors,
         }
 
     def _find_app_json(self, target: str | Path) -> Path | None:
@@ -267,47 +275,67 @@ class MiniProgramProbe(BaseProbe):
         context: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """AUDIT-04: 无微信 CLI 环境时，优雅降级为静态 WXML/JSON 路由遍历与云函数源码扫描。"""
+        """AUDIT-04: 无微信 CLI 环境时，优雅降级为静态 WXML/JSON 路由遍历与云函数源码扫描。
+
+        降级契约：输出与成功路径（run_dynamic，status="ok"）**可区分**——
+        status="degraded" + degraded=True + degraded_reason，绝不伪装成正常动态结果。
+        """
         all_findings: list[dict[str, Any]] = []
         routes_summary: list[str] = []
+        parse_errors: list[str] = []
 
-        # 1. 尝试解析 app.json
+        # 1. 尝试解析 app.json（解析失败显式留痕，禁止静默吞错）
         app_json_path = self._find_app_json(target)
         if app_json_path and app_json_path.exists():
-            route_res = self.parse_app_json(app_json_path)
+            try:
+                route_res = self.parse_app_json(app_json_path)
+            except Exception as exc:
+                parse_errors.append(
+                    f"{app_json_path}: {exc.__class__.__name__}: {exc}"
+                )
+                route_res = {"findings": [], "all_routes": []}
             all_findings.extend(route_res["findings"])
             routes_summary.extend(route_res["all_routes"])
         elif isinstance(target, str) and "pages" in target and "{" in target:
-            # 传入的是 app.json 文本
+            # 传入的是 app.json 文本；解析失败必须显式留痕，禁止静默吞错
             try:
                 route_res = self.parse_app_json(target)
                 all_findings.extend(route_res["findings"])
                 routes_summary.extend(route_res["all_routes"])
-            except Exception:
-                pass
+            except Exception as exc:
+                parse_errors.append(
+                    f"inline app.json: {exc.__class__.__name__}: {exc}"
+                )
 
         # 2. 扫描云函数源码
         cf_dir = self._find_cloud_functions_dir(target)
-        cf_res = {"scanned_functions": 0, "findings": []}
+        cf_res = {"scanned_functions": 0, "findings": [], "read_errors": []}
         if cf_dir:
             cf_res = self.probe_cloud_functions(cf_dir)
             all_findings.extend(cf_res["findings"])
 
         # 3. 静态扫描 WXML 导航标签
         wxml_nav_count = 0
+        read_errors: list[str] = []
         p = Path(target)
         if p.is_dir():
             for wxml in list(p.glob("**/*.wxml"))[:50]:
                 try:
                     txt = wxml.read_text(encoding="utf-8", errors="ignore")
-                    matches = re.findall(r'<navigator\s+[^>]*url=["\']([^"\']+)["\']', txt)
-                    wxml_nav_count += len(matches)
-                except Exception:
+                except OSError as exc:
+                    read_errors.append(f"{wxml}: {exc}")
                     continue
+                matches = re.findall(r'<navigator\s+[^>]*url=["\']([^"\']+)["\']', txt)
+                wxml_nav_count += len(matches)
 
+        parse_errors.extend(cf_res.get("read_errors", []))
         return {
             "success": True,
-            "status": "ok",
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": (
+                "wechat_cli_unavailable" if not self.is_available() else "static_mode_forced"
+            ),
             "probe_mode": "static_degraded",
             "findings": all_findings,
             "evidence": {
@@ -315,9 +343,43 @@ class MiniProgramProbe(BaseProbe):
                 "wxml_nav_links": wxml_nav_count,
                 "cloud_functions_scanned": cf_res.get("scanned_functions", 0),
                 "findings_count": len(all_findings),
+                "read_errors": parse_errors,
             },
             "metadata": {
                 "target": str(target),
                 "degraded_mode": "static_miniprogram_structure_analysis",
             },
         }
+
+
+def check_availability() -> dict[str, Any]:
+    """降级契约：小程序审计能力结构化探活明细（(bool, detail) 的结构化形态）。
+
+    机械探测微信开发者工具 CLI / miniprogram-ci 是否在 PATH（<5ms，零阻塞、
+    零子进程）；DEGRADED 时必须走 ``MiniProgramProbe.run_static_degraded``，
+    禁止伪装成动态审计结果。
+    """
+    tools = ("miniprogram-ci", "cli", "wechat-cli")
+    found = {tool: shutil.which(tool) for tool in tools}
+    hit = next((path for path in found.values() if path), None)
+    ready = hit is not None
+    return {
+        "name": "miniprogram_probe",
+        "status": "READY" if ready else "DEGRADED",
+        "available": ready,
+        "detail": hit or "微信开发者工具 CLI / miniprogram-ci 均未安装：动态探针不可用，降级为静态结构分析",
+        "checks": [
+            {
+                "name": tool,
+                "ok": path is not None,
+                "required": True,
+                "detail": path or f"未找到 {tool}",
+            }
+            for tool, path in found.items()
+        ],
+        "capabilities": ["miniprogram_dynamic_probe"] if ready else [],
+        "fallbacks": {} if ready else {
+            "audit": "MiniProgramProbe.run_static_degraded（app.json 路由 + WXML + 云函数静态扫描）",
+        },
+        "warnings": [],
+    }

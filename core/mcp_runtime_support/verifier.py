@@ -277,58 +277,6 @@ def load_lock(lock_path: Path) -> dict:
     return lock
 
 
-def parse_python_requires(spec: str) -> tuple[tuple[str, tuple[int, ...]], ...]:
-    """解析 ``python_requires``（支持 ``>=``/``>``/``<=``/``<``/``==``/``!=`` 逗号列表）。
-
-    **fail-closed**：任何无法解析的片段直接抛 ``McpRuntimeError``（DOC-235 设计项 3）。
-    """
-    clauses: list[tuple[str, tuple[int, ...]]] = []
-    for raw in str(spec).split(","):
-        clause = raw.strip()
-        if not clause:
-            continue
-        operator = ""
-        for candidate in PYTHON_REQUIRES_OPERATORS:
-            if clause.startswith(candidate):
-                operator = candidate
-                break
-        if not operator:
-            raise McpRuntimeError(f"python_requires 片段缺少合法运算符: {clause!r}")
-        version = clause[len(operator):].strip()
-        parts = version.split(".")
-        if not parts or any(not part.isdigit() for part in parts):
-            raise McpRuntimeError(f"python_requires 版本号非法: {version!r}")
-        clauses.append((operator, tuple(int(part) for part in parts)))
-    if not clauses:
-        raise McpRuntimeError("python_requires 不能为空")
-    return tuple(clauses)
-
-
-def check_python_requires(
-    spec: str, version: tuple[int, ...] | None = None,
-) -> tuple[bool, str]:
-    """校验解释器版本是否满足 ``python_requires``；返回 (是否满足, 说明)。"""
-    clauses = parse_python_requires(spec)
-    current = tuple(version) if version is not None else tuple(sys.version_info[:3])
-    shown = ".".join(str(item) for item in current)
-    for operator, wanted in clauses:
-        have = current[: len(wanted)]
-        satisfied = {
-            ">=": have >= wanted,
-            ">": have > wanted,
-            "<=": have <= wanted,
-            "<": have < wanted,
-            "==": have == wanted,
-            "!=": have != wanted,
-        }[operator]
-        if not satisfied:
-            return False, (
-                f"python_requires {spec!r} 不满足：当前解释器 {shown} "
-                f"（lock 由更高版本解析，禁止降级解析）"
-            )
-    return True, f"python_requires {spec!r} 满足（当前 {shown}）"
-
-
 def lock_hash(lock: dict) -> str:
     return sha256_hex(canonical_json_bytes(lock))
 

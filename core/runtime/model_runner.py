@@ -21,7 +21,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -31,6 +30,7 @@ from dataclasses import dataclass
 
 from core.secure_atomic import atomic_write_bytes, reject_symlink_components
 from core.governance.token_budget import estimate_tokens
+from core.runtime.platform_adapter import terminate_process_tree
 
 
 class RunnerAdapterError(ValueError):
@@ -315,43 +315,6 @@ class _OutputCollector:
         }
 
 
-def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
-        try:
-            process.send_signal(getattr(subprocess, "CTRL_BREAK_EVENT", 1))
-        except (OSError, ValueError):
-            pass
-        try:
-            process.terminate()
-        except OSError:
-            pass
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            try:
-                process.kill()
-            except OSError:
-                pass
-        return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except (OSError, ProcessLookupError):
-        try:
-            process.terminate()
-        except OSError:
-            pass
-    try:
-        process.wait(timeout=1)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            try:
-                process.kill()
-            except OSError:
-                pass
-
-
 def _run_bounded(command: list[str], cwd: Path, timeout: float,
                  output_limit: int) -> tuple[int, bool, bool, bytes, dict, bytes, dict]:
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
@@ -383,12 +346,12 @@ def _run_bounded(command: list[str], cwd: Path, timeout: float,
         while process.poll() is None:
             if stdout_collector.exceeded or stderr_collector.exceeded:
                 output_exceeded = True
-                _terminate_process_tree(process)
+                terminate_process_tree(process)
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
-                _terminate_process_tree(process)
+                terminate_process_tree(process)
                 break
             try:
                 process.wait(timeout=min(0.1, remaining))
@@ -396,7 +359,7 @@ def _run_bounded(command: list[str], cwd: Path, timeout: float,
                 continue
     finally:
         if timed_out or output_exceeded:
-            _terminate_process_tree(process)
+            terminate_process_tree(process)
         for reader in readers:
             reader.join(timeout=2)
         for stream in (process.stdout, process.stderr):

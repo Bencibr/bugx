@@ -322,5 +322,71 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if all(report.ready for report in reports) else 1
 
 
+_MEMORY_STACK_TOOLS: dict[str, tuple[str, ...]] = {
+    "native": ("clang", "gcc", "cc", "leaks", "heaptrack", "valgrind", "DrMemory", "devenv"),
+    "python": ("memray",),
+    "jvm": ("java", "jcmd", "jmap", "jfr"),
+    "electron": ("node", "npx", "npm"),
+    "android": ("adb",),
+    "apple": ("instruments", "xcrun", "leaks"),
+}
+
+
+def is_available(target: str = "native") -> tuple[bool, str]:
+    """降级契约：机械探活指定内存审计栈关键工具是否在 PATH（零子进程）。
+
+    只做 ``shutil.which`` 枚举，不启动任何工具子命令；具体栈的完整校验
+    （版本、模块可用性）仍归各 ``*_report()``。环境不满足时返回 False，
+    调用方必须走 ``run_static_degraded``，禁止伪装 profiling 可用。
+    """
+    names = _MEMORY_STACK_TOOLS.get(target)
+    if names is None:
+        return False, f"未知内存审计栈: {target}"
+    host = host_name()
+    if target == "native" and host == "unsupported":
+        return False, f"当前主机平台不受支持: {sys.platform}"
+    found = [name for name in names if _which(name)]
+    if not found:
+        return False, f"{target} 栈关键工具均未安装（候选: {', '.join(names)}）"
+    return True, f"{target} 栈可用工具: {', '.join(found)}"
+
+
+def run_static_degraded(target: str = "native", *, platform: str | None = None) -> dict:
+    """降级契约：内存 profiling 环境不满足时的降级输出，绝不伪装运行期数据。
+
+    输出与成功路径（``_finish`` 的 READY Report）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason``，只汇总
+    静态预检结论（which 级事实）并显式声明运行期 profiling 未执行。
+    """
+    available, availability_detail = is_available(target)
+    report = reports_for(target, platform=platform)[0]
+    failed_required = [
+        check.name for check in report.checks if check.required and not check.ok
+    ]
+    return {
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "memory_profiling_unavailable"
+        ),
+        "probe_mode": "static_degraded",
+        "target": target,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "failed_required_checks": failed_required,
+            "checks": [asdict(check) for check in report.checks],
+        },
+        "warnings": list(report.warnings),
+        "metadata": {
+            "degraded_mode": "static_precheck_only",
+            "runtime_profiling_executed": False,
+            "fallback": "运行期数据缺失时以静态证据边界声明替代，禁止把预检结论伪装成 profiling 完成",
+        },
+    }
+
+
 if __name__ == "__main__":
     sys.exit(main())

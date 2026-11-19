@@ -1,8 +1,8 @@
 # BugX 审计流程
 
-> **版本**: 0.1.0 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
+> **版本**: 0.1.1+build.627 | **更新日期**: 2026-11-19 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
 > 本文是 BugX 全生命周期审计时序、状态流转与门禁判定依据。面向人类工程师与系统架构师。
-> **当前基线**：0.1.0　|　**读者**：使用 BugX 的项目维护者
+> **当前基线**：0.1.1 / Build 627　|　**更新日期**: 2026-11-19　|　**读者**：使用 BugX 的项目维护者
 
 本文按首次接入、启动预飞、审查执行和结果处理，说明一轮 BugX 审计如何走完。安装细节见 [01_USER_GUIDE.md](../../docs/01_guides/01_USER_GUIDE.md)，系统分层见 [01_ARCHITECTURE.md](01_ARCHITECTURE.md)，宿主命令契约见 [01_AI_REFERENCE.md](../../docs/03_ai/01_AI_REFERENCE.md)。
 
@@ -165,7 +165,7 @@ Finding 模板生成商务正式轨（Formal）与技术交付轨（Visual）。
 默认报告目录是 `<root>/.bugx/reports`，`--out` 可改为指定目录；报告生成不等于真实攻防闭环。
 
 > [!NOTE]
-> **拟议编排，尚未实施**：设计记录
+> **拟议编排，尚未实施**：内部设计账本
 > 已按自用项目找 Bug 的场景闭合四项设计门，状态为 `AUDITED_OK（设计）`；代码、协议、宿主、
 > 平台和安装包验收仍为 `UNVERIFIED`。工作副本保护项目 WIP，不宣称 OS 安全沙箱。
 
@@ -927,7 +927,7 @@ sequenceDiagram
 
 ### 有界检索消费、切片自愈与 MCP 工具接入（源码落点记录）
 
-设计记录描述检索设计审计与当前源码落点；这不是协议闭环、真实宿主或全案验收结论。
+内部设计账本 与 内部设计账本 记录检索设计审计与当前源码落点；这不是协议闭环、真实宿主或全案验收结论。
 普通项目源码包含倒数排名融合（`RRFEngine`）、代码切片（`SliceExtractor`）、语法自愈（`SliceNormalizer`）与命名空间隔离记忆（`MemoryStore`）路径；大项目 Xerj Sidecar 的受管安装、发行资产、协议和真实宿主验收仍 `UNVERIFIED`。
 MCP 工具面包含 `bugx_retrieve_slice`、`bugx_extract_ego_subgraph` 与 `bugx_memory_query` 的实现/注册路径；局部 A/B 或模块证据不等于 Host 与 Worker 已完成真实 ACP 闭环，也不自动改变 coverage/finish。
 
@@ -1141,7 +1141,7 @@ sequenceDiagram
     H-->>H: 上限命中时持久记录 stop_reason
 ```
 
-进程组复核失败不会伪报成功；回收 leader 后不再向数值 PGID 发送信号。`max_attempts` 与方案阶梯同时结束时仍明确报告上限原因。探活锁无法安全建立时保持 `BLOCKED`；运行时锁和资产发现的边界以当前 CLI 与引擎实现为准。
+进程组复核失败不会伪报成功；回收 leader 后不再向数值 PGID 发送信号。`max_attempts` 与方案阶梯同时结束时仍明确报告上限原因。探活锁无法安全建立时保持 `BLOCKED`；runtime 锁和资产发现的具体边界见 [运行时边界规格](02_DESIGN_SPEC.md#2026-10-30-受控进程回收与自愈预算闭环)。
 
 ## Codex 快速调用规则（完整流程不减项）
 
@@ -1154,3 +1154,36 @@ Codex 从安装的项目 Skill 直接执行常规流程，无需每轮重读完�
 原生门禁问答取得真实答案 → pre/Harness/准备/Host 知识路由 → Supervisor 真实 Task 与原生 Worker → 审查/反事实/真实 probe/checkpoint/Finding/coverage → gate/finish → post。Codex 专属 Skill 只给出直接调用顺序，不能跳过任一步骤或以默认值代替用户选择。
 
 post 在已验证覆盖清单后按 UsageFacet 采集本轮本地用量，再写入新的终局报告。Codex 以当前 Round 窗口和真实线程族裁剪，只读计量并保留来源哈希；独立导出不回写旧报告。主聊天与原生子 Agent、逐模型分项、未知数据与未覆盖会话边界分别显示；用量采集不构成审计覆盖或 Worker handoff 证据，不增加云同步。
+
+## Web/UI 动态取证闭环
+
+`bugx probe ui` 从 `DESIGN.md` 读取规则，通过 `WebDynamicProbe.capture_browser_page`
+在桌面、平板、移动、横屏与原生缩放视口取证。浏览器直接采样计算样式、文本对比度和关键
+元素几何，运行本地 axe-core。`--journeys` 执行业务状态和键盘步骤。`--reference-url`
+启用视觉对照，修复前后的对照复用同一参考收据。
+
+Storybook 模式从 index 确认 story ID，画布就绪后再执行测量和断言。`token_source` 将项目
+JSON 中的期望值解析为 CSS，随后与当前渲染对照。index 和 token 文件哈希随收据记录。
+
+```mermaid
+flowchart LR
+    URL[页面 URL 或 Storybook] --> INPUT[解析 story 与 token 映射]
+    CONTRACT[DESIGN.md 与可选 token JSON] --> INPUT
+    INPUT --> CAPTURE[浏览器渲染与测量]
+    CAPTURE --> MANIFEST[页面、断言、截图收据]
+    MANIFEST --> DYNAMIC[清单哈希与 run ID]
+    DYNAMIC --> VERIFY[核验实际收据和截图]
+    VERIFY --> WCAG[Web 标准基线]
+    MANIFEST --> VISION[可选本机视觉点评]
+    REF[参考页面的匹配截图] --> DIFF[差异图和变化区域]
+    MANIFEST --> DIFF
+    MANIFEST --> PREVIEW[CSS 补丁预览]
+    PREVIEW -->|显式应用| RECHECK[有期限的浏览器复测]
+    DIFF --> RECHECK
+    RECHECK -->|证据一致| KEEP[保留]
+    RECHECK -->|回归或缺证据| ROLLBACK[回滚]
+```
+
+标准基线对失败和缺证据分别输出 `FAIL`、`UNVERIFIED` 或 `BLOCKED`。视觉点评单独保存
+为 `ADVISORY`。复测超时、结论退化或出现超阈值的新差异时，恢复原始 CSS。无法在不覆盖
+并发编辑的情况下回滚时，保留恢复收据和文件备份。

@@ -378,5 +378,58 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活动态调度扰动前提（对齐 ``check`` 动作判定，零子进程）。"""
+    has_switch = hasattr(sys, "getswitchinterval") and hasattr(sys, "setswitchinterval")
+    if not has_switch:
+        return False, "当前 Python 不支持 sys.setswitchinterval，调度扰动不可用"
+    if not sys.executable:
+        return False, "缺少 Python 解释器；并发压测目标执行不可用"
+    return True, f"调度扰动可用（switch interval {sys.getswitchinterval():.6f}s）"
+
+
+def run_static_degraded(
+    cmd: Sequence[str] | None = None,
+    *,
+    lock_detector: LockInversionDetector | None = None,
+) -> dict[str, Any]:
+    """降级契约：动态并发压测不可用时输出静态检查结论，绝不伪装压测完成。
+
+    输出与成功路径（``fuzz_command`` 的真实调度扰动压测报告）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason``，并显式声明
+    ``target_executed=False``；只汇总锁序检测器已捕获的静态违规线索。
+    """
+    available, availability_detail = is_available()
+    violations: list = []
+    if lock_detector is not None:
+        recorded = getattr(lock_detector, "violations", None)
+        if recorded:
+            violations = list(recorded)
+    return {
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "concurrency_dynamic_unavailable"
+        ),
+        "probe_mode": "static_degraded",
+        "target_executed": False,
+        "command": " ".join(str(item) for item in cmd) if cmd else None,
+        "race_detected": bool(violations),
+        "lock_order_violations": violations,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "iterations_executed": 0,
+        },
+        "metadata": {
+            "degraded_mode": "lock_order_static_clues_only",
+            "schedule_jitter_applied": False,
+            "fallback": "标准多线程测试（无调度扰动）；动态压测不可用时不得产出竞态确认结论",
+        },
+    }
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

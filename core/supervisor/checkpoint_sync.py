@@ -215,12 +215,21 @@ def apply_checkpoint_operation(
     )
     expected_target = state.target_fingerprint or supervisor.target_fingerprint
     target_drifted_units: list[str] = []
+    # F-RSI-20261118-002：记录 worker 实际提供的指纹（缺失记 None），事件层
+    # 一眼区分「worker 漏回填字段」与「worker 值漂移」两类根因（build.602 dsh
+    # 第三批真机排查实证：worker 侧漏回填是主形态，事件此前只有 expected 值）。
+    drift_worker_fingerprints: dict[str, str | None] = {}
     for item_unit, item in incoming_evidence.items():
         # This marker is Supervisor-owned; never trust a worker-supplied value.
         item.pop("target_drifted", None)
         item.pop("reproduced_crash", None)
         if item.get("target_fingerprint") != expected_target:
             target_drifted_units.append(item_unit)
+            raw_worker_fp = item.get("target_fingerprint")
+            drift_worker_fingerprints[item_unit] = (
+                str(raw_worker_fp)
+                if isinstance(raw_worker_fp, str) and raw_worker_fp else None
+            )
     # New work remains fail-closed in claim/start paths.  Checkpoint admission
     # is the recovery boundary for a claim already in hand: budget exhaustion or
     # a worker-reported target drift must not strand its valid artifacts.
@@ -386,6 +395,10 @@ def apply_checkpoint_operation(
             checkpoint_id=checkpoint_key,
             expected_target_fingerprint=expected_target,
             evidence_units=sorted(target_drifted_units),
+            worker_target_fingerprints={
+                unit: drift_worker_fingerprints[unit]
+                for unit in sorted(drift_worker_fingerprints)
+            },
         )
     if claim.execution_state == "claimed":
         if supervisor._parallel_required(state) and not budget_exhausted:
@@ -422,11 +435,12 @@ def apply_checkpoint_operation(
     for item in semantic_findings:
         key = supervisor._finding_key(item)
         if key in existing_by_key:
-            # 同指纹去重时不得丢弃来源单元链接。poc 型证据的
+            # PE-20261109-002：同指纹去重时不得丢弃来源单元链接。poc 型证据的
             # covered 单元靠 finding 的 unit_id/target_units 关联到结算校验
             # （post_coverage_sync）；变体归并场景（判读包单元不同、证据行重叠
-            # → 指纹改写到主指纹）在此处被静默跳过会导致主 finding 永远缺失
-            # 变体单元链接，post --final 被 fail-closed 拒绝。这里把 incoming 的单元链接并入
+            # → 指纹改写到主指纹）在此处被静默跳过曾导致主 finding 永远缺失
+            # 变体单元链接，post --final 被 fail-closed 拒绝（实测
+            # bugx-audit-zcode 2026-11-09）。这里把 incoming 的单元链接并入
             # 既有条目：幂等去重语义不变（不重复计命），只补链接。
             existing = existing_by_key.get(key)
             incoming_units: set[str] = set()

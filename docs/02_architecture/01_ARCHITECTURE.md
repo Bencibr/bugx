@@ -1,10 +1,21 @@
 # BugX 架构总览
 
-> **版本**: 0.1.0 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
+> **版本**: 0.1.1+build.627 | **更新日期**: 2026-11-19 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
 > 本文是 BugX 生产源仓的设计入口：一张图看懂分层、框架与数据流。面向使用、集成与二次开发的工程师。
 
-> [!NOTE]
-> 本公开副本只保留运行所需源码和公开说明；项目级状态与证据在目标项目的 `.bugx/` 目录中按需生成。
+> [!IMPORTANT]
+> **全域全景架构与权威目录拓扑白皮书**已单独独立归档至 **[`docs/02_architecture/04_REPOSITORY_TOPOLOGY.md`](04_REPOSITORY_TOPOLOGY.md)**。
+> 包含六大正交顶级领域（`interfaces/`、`core/`、`ecosystem/`、`skills/`、`verification/`）架构全景图、权威三级目录树与根目录 7 项法定白名单说明。
+
+---
+
+## 当前仓库资产与验证边界
+
+当前仓库不保留持久化 `tests/` 目录、测试注册表或提交测试门禁。单元/回归测试只作为
+仓库外临时过程文件，验证通过后必须物理删除；BugX 作为被测工具时，目标项目自带的
+`tests/` 仍由目标项目负责，不能与本仓库过程文件混淆。长期保留的验证资产统一位于
+`verification/`，评测数据的规范路径为 `verification/evals/`。发布构建统一调用
+`scripts/package_dist.py`，Jenkins 只负责解析发布通道、版本和凭据，不重复实现打包。
 
 ---
 
@@ -826,8 +837,8 @@ flowchart LR
     REPORT --> SERVER
 ```
 
-发布流水线根据受控发布通道选择 stable 或预发布标记，并在 staging 包中同步默认 Base URL 与
-marker；公共 PyPI/npm 发布阶段仅对 stable 开放。
+Jenkins 根据 `master/main`、`dev`、`uat` 选择 stable、dev alpha、uat alpha，并在 staging 包中同步
+默认 Base URL 与 marker；公共 PyPI/npm 发布 stage 仅对 stable 开放。
 
 ### 3.10 Cloud Vulnerability Cache
 
@@ -982,7 +993,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph ProfileCompile["1. 项目画像与策略编译"]
-        PP["project_profile.compile_audit_strategy"] --> SP["锁定 skill_plan (web-audit v0.1.0) & plan_hash"]
+        PP["project_profile.compile_audit_strategy"] --> SP["锁定 skill_plan (web-audit v1.0.0) & plan_hash"]
     end
 
     subgraph StreamingPipeline["2. 流式有向无环图调度 (Streaming DAG)"]
@@ -1130,7 +1141,7 @@ sequenceDiagram
 
 进程在任一边界退出后，下一条持寿命锁命令会检查 WAL：当前 life 只能精确匹配 before/after，ledger 中必须存在同一 transaction ID；缺失、冲突、损坏或路径越界都 fail-closed。`credited=0` 不写空 ledger，但 WAL 仍保留 fraud、轮费及 life 变化。`reset`/`restore` 也先经过同一恢复入口，不能丢弃未决结算。
 
-实现使用可选的 ledger audit `settlement_id` 保持旧 ledger 可读；旧 fingerprint 没有当前 transaction ID 时不猜测、不自动补账。WAL 只承诺崩溃一致性，不构成对同权限恶意篡改运行态文件的认证。
+实现使用可选的 ledger audit `settlement_id` 保持旧 ledger 可读；旧 fingerprint 没有当前 transaction ID 时不猜测、不自动补账。WAL 只承诺崩溃一致性，不构成对同权限恶意篡改运行态文件的认证。P1-4 的设计与实现回归见 `docs/08_internal/10_audits/020_ZCODE_REPAIR_DESIGN_RECHECK_2026-09-25_codex.md`。
 
 
 ## 5. 目录结构
@@ -1178,6 +1189,12 @@ Cline 3.x 没有工作区级 MCP 作用域，项目内 `<root>/.cline/mcp.json` 
 工作区里若存在 `.roo/` 则另写 `.roo/mcp.json` 供 Roo Code 使用。OpenCode 使用项目级
 `opencode.json`，MCP server map 位于 `mcp.servers`。
 
+可选的 `codindex` MCP 通过 `ecosystem/integrations/opencode/mcp-lock.json` 固定为
+`codindex@0.1.2`，宿主只调用 `bugx mcp-runtime start --server codindex`，不在运行时
+执行 `npx` 下载。Codindex 需要 Node.js >=22.5；当前接入保持其默认的 Node 内置
+`node:sqlite` 路径，不设置 `CODINDEX_SQLITE=better-sqlite3`，避免 native addon ABI
+和安装脚本成为 MCP 启动前置条件。
+
 
 ## 6. 版本策略
 
@@ -1190,9 +1207,9 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 同时验证 `coverage_complete=true` 与 `open_findings=[]`。
 
 依据系统发布与版本策略：本仓走
-`0.1.0-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
+`0.1.1-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
 `interfaces/cli/bugx_cli/__init__.py` 为唯一权威源，其余版本标记为引擎契约的功能性
-副本（doctor 依赖其一致性）。
+副本（doctor 依赖其一致性）。当前正式基线为 `0.1.1`。
 
 
 ## 7. 开发生命周期与设计文档同步门禁
@@ -1200,7 +1217,7 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 BugX 固化了“方案审计先行、定向测试守护、现有设计文档同步更新”的工程生命周期治理体系（由 `dev-doc` Skill 与 `scripts/dev_doc.py` 承载）：
 - **设计规划（plan）**：自动生成带 5 问逐条审计矩阵的 `DOC-XXX.md`，并强制注入现有核心设计文档更新清单（`02_DESIGN_SPEC.md`、`01_ARCHITECTURE.md`、`03_BUGX_AUDIT_FLOW.md`、`01_AI_REFERENCE.md`）；
 - **审计核验（check）**：核查所有设计项结论均为 `AUDITED_OK`，并在开发过程中实时提示现有设计文档的修改情况；
-- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `src/` 等功能代码变更时，强制核查现有核心设计文档是否已同步修改，未更新则阻断提交流程；通过门禁后生成 Build ID 发布说明、递增 `build_id` 并刷新全仓声明与哈希清单，语义版本保持 `0.1.0`。
+- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.1`。
 
 ### 远程补丁验证数据流
 
@@ -1283,7 +1300,7 @@ S2 纵切把插件变成唯一真源；收尾把**剩余 12 个文件的宿主�
 
 1. **候选必须包含安装载荷**：`_engine_root_candidates()` = `BUGX_GLOBAL_ENGINE_ROOT` →
    仓库 `core/`（开发态）→ `$BUGX_HOME/.bugx/core`（安装态）→ 打包载荷
-   `share/bugx-agent/core`（`BUGX_ASSET_ROOT` → `sysconfig data` → 仓库同位载荷；这是 wheel 内部资源目录，不是 PyPI 包名）。
+   `share/bugx-agent/core`（`BUGX_ASSET_ROOT` → `sysconfig data` → 仓库同位载荷）。
    仍然只采用**真的声明了 `hosts/<host>.py`** 的候选，过期快照不会顶替源码树。
 2. **import 期容忍缺失，消费点 fail-closed**：`PLUGIN_BACKED_HOSTS`（纯定位清单，零宿主事实）
    + `plugin_backed_components()` / `_plugin_backed_adapters()` 在快照不可用时**跳过**该宿主；
@@ -1307,7 +1324,8 @@ S2 纵切把插件变成唯一真源；收尾把**剩余 12 个文件的宿主�
 | acp | `AcpFacet(plugin="codex")` | 无（`codex-cli 0.163.0` 无 `acp` 子命令） |
 
 **ACP 状态不变量的收紧方式**（不是放宽）：旧断言「ready 插件 ⇒ `host_acp` ready」在 codex 上
-**无法成立**——产品没有该协议面（`codex --help` 无 `acp`）。新断言是
+**无法成立**——产品没有该协议面（`codex --help` 无 `acp`，2026-10-22 真机审计
+`docs/08_internal/11_research/002_HOST_LAUNCH_CONTRACT_AUDIT_2026-10-22.md`）。新断言是
 「ready 插件必须在 `host_acp` 账目里**出现**（ready 或显式 TODO），不得缺席」；
 codex 仍在 `TODO_HOSTS`，探针结论保持 `BLOCKED(adapter_status=todo)`，由
 `tests/hosts/test_host_acp_plugins.py::TodoFailClosedTestCase` 守。**「迁移」与「能跑 ACP」是两件事**：
@@ -1396,7 +1414,7 @@ flowchart TD
     end
 
     subgraph L2["Layer 2: 分析、切片与攻防探测矩阵 (Analysis & Probing Matrix)"]
-        P1["probes/ (多语言 SAST 规则分析器、动态污点与专用漏洞探针)"]
+        P1["probes/ (动态探针、Storybook 与 token 输入、UI 无障碍和视觉回归)"]
         P2["retrieval/ (局部自我中心网 graph_ego、代码切片与 RRF 检索)"]
         P3["planning/ (Git Diff 2-hop 符号波及剪枝器 impact_pruner 与领域规划)"]
         P4["coverage/ (双态代码覆盖率度量 module_coverage 与防恶化棘轮门禁)"]
@@ -1591,7 +1609,7 @@ Windows、macOS、Linux 的统一生命周期转发入口。Windows 不要求项
 
 `asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资源。即使 CLI 从
 editable checkout 导入，源码仓库的 `core/` 也不会自动成为资源候选；安装载荷缺失或不完整
-时由 `MissingAgentAssetError` 标记。Wheel 通过逐目录 `data-files` 声明提供 core 资源；发布流水线在改写 staged 版本、通道与默认云端地址后重签 `engine-integrity.json`，并在上传前逐项校验 wheel 清单文件哈希及 CLI/core 版本。真实 CLI 控制台入口只针对默认安装资源执行一次自动恢复：
+时由 `MissingAgentAssetError` 标记。Wheel 通过逐目录 `data-files` 声明提供 core 资源；Jenkins 发布流水线在改写 staged 版本、通道与默认云端地址后重签 `engine-integrity.json`，并在上传前逐项校验 wheel 清单文件哈希及 CLI/core Build ID。真实 CLI 控制台入口只针对默认安装资源执行一次自动恢复：
 先读取当前非 editable wheel distribution dist-info 内的原始 `RECORD` 文本（不能依赖会因目标文件缺失而漏项的 `distribution.files`）；只有 CLI 与全局引擎 Build ID 相同、且全局文件逐项匹配 `RECORD` 的 SHA-256 和大小时，才在 wheel 资源目录同级暂存、复验并原子恢复。否则才访问网络：优先从官方 stable 发行 API `https://bugx.dev` 获取 wheel；仅该 API 不可用时才查询官方 PyPI 的 `bugx-cli` stable wheel（不采用用户配置的云端同步地址、设备路由或其他镜像）。校验 HTTPS、响应摘要、发行身份、语义版本、纯 Python 标签与 Build ID 下限（至少达到当前 CLI、现有 asset 与共享引擎中的最高值），
 并在 pip 安装前验证完整核心载荷清单；安装后再次校验 distribution、非 editable 状态、资源路径
 和核心清单，再以同一 Python 解释器重启原命令。`bugx update --repair-assets` 可显式触发，仅执行资源恢复；
@@ -1732,13 +1750,13 @@ sequenceDiagram
 
 ### 自用项目原生 Agent 编排（设计完成，未实施）
 
-设计记录
+内部设计账本
 已按“给自己的项目找 Bug”收敛 G1–G4。目标是逻辑、状态、异常、并发、边界和回归问题，
 由多个宿主原生 Agent 分工读代码、构造最小复现、独立复核和可选修复预览。
 本次设计不依赖容器、VM 或远端执行服务；项目外工作副本用于保护原项目 WIP 和运行产物，
 不是抵御恶意代码的 OS 安全沙箱。
 
-历史版本仍有六角色线程池演练、模板 Finding、固定 mutator/patcher 与关键词 runner。
+Build 142 仍有六角色线程池演练、模板 Finding、固定 mutator/patcher 与关键词 runner。
 下图是拟议新流程，不表示现有 audit 入口已经取得原生图编排能力。
 
 ```mermaid
@@ -1834,7 +1852,7 @@ Finding 裁决、补丁应用、Git 提交、云发布或 MCP 控制端点；筛
 worktree 隔离、fail-closed 门禁和 ACP/宿主验收必须在代码和证据闭合后再把状态提升为完成。
 
 
-### 多语言勘测与 GHSA 闭环设计基线（当前实现边界）
+### Build 133 多语言勘测与 GHSA 闭环设计基线（当前实现边界）
 
 ```mermaid
 flowchart TD
@@ -1874,7 +1892,7 @@ AST/CFA 引擎，也不由该图单独证明“42 类”全覆盖。`verifier.py
 `PARTIAL/NEEDS_CHANGE`。
 
 
-### 证据裁决与恢复闭环
+### Build 32 证据裁决与恢复闭环
 
 当前实现把“能执行”与“证明目标缺陷”分成两层：
 
@@ -2738,9 +2756,9 @@ flowchart LR
 当前所有新增实现、性能与真实宿主/分发验收均 UNVERIFIED；核心五问与反例在提案逐项记录。
 模块、定向验证与静态报告不能替代 `claim → worker-start → tool_call/heartbeat → checkpoint → Finding/coverage → post`、ACP 宿主会话、故障恢复和发布证据；缺失这些证据时整体状态保持 `UNVERIFIED`。
 
-### 神经-符号双轨协同架构 2.0（源码落点与受控验证闭环）
+### 神经-符号双轨协同架构 2.0（源码落点与对抗靶场实测闭环）
 
-设计记录归纳并解决了受控验证中暴露的六项系统性设计缺陷（P1 ~ P6），实现符号 AST 与神经 AI 深度融合的双轨协同体系：
+内部设计账本 彻底解决在真实对抗靶场（`worktrees/l1-adversarial`）中暴露的六项系统性设计缺陷（P1 ~ P6），实现符号 AST 与神经 AI 深度融合的双轨协同体系：
 
 ```mermaid
 flowchart TD
@@ -2839,7 +2857,7 @@ flowchart TD
   21. **Claude Code 原生 Subagent 契约闭环与 L0-L7 木桶效应全流程性能重构 **：打通 Claude Code 原生无头 `claude -p` 与多子智能体调度契约（`kind="subagent"`, `worker_subagent=True`, `engine_run.native_task=True`, `worker_runtime.mode="multi"`, `extra-tracked-paths`）；消除递归渲染死循环与 `.mcp.json` 覆盖缺陷，实现用户全局 `~/.claude/agents/` 与项目级 `.claude/agents/` 双层部署及零残留干净卸载；根治全流程木桶效应 4 大性能瓶颈（纯启发式 AST 解析解耦大模型阻塞、Doctor 存储树哈希快验与 `--agent` 剪枝、版本探活并发化、真实模型网络推理异步重叠），将 L0-L7 对抗靶场实测耗时从 81.7s 压缩至 22.5s（提速 72.4%），15/15 Ground Truth 对抗验证达成 100% `ALL_PASSED`（收据 `state/claude-l0-l7-adversarial-receipt.json`）。
   22. **Pi 宿主六面插件契约纵切与一等插件迁移 (S5)**：将 Pi（`pi`）从 `TODO_HOSTS` 彻底移出并迁移为一等公民 `HostPlugin`（`core/hosts/pi.py`，`order=10`，`kind="skill"`，伴生扩展面 `.pi/extensions/bugx/` 与项目级 `.pi/mcp.json`）；确认真实无头调用通道 `pi --approve -p <prompt>` 与 `--mode json`，推翻历史假断言；机读声明 ACP `status="unavailable"`（`pi 0.85.1` 上游无 `acp` 子命令）；通用层 `supervisor_host` 完全收敛至 `PluginAdapter`，物理删除 `PiAdapter` 重复类；CLI 侧完成 `PLUGIN_BACKED_HOSTS` 映射与 `_plugin_backed_adapters(PiAdapter)` 动态投影；补齐防符号链接穿透审计与干净卸载闭环，测试套件 `tests/hosts/test_plugin_pi.py` 与双向注册守卫 100% 绿。
   23. **ZCode 宿主六面插件契约纵切与一等受管插件迁移 (S6)**：将 ZCode（`zcode`）从 `TODO_HOSTS` 彻底移出并迁移为一等公民 `HostPlugin`（`core/hosts/zcode.py`，`order=12`，`kind="subagent"`，`entry_mode="user-registration"`，伴生用户级子智能体 `~/.zcode/agents/` 与全局嵌套配置 `~/.zcode/cli/config.json#mcp.servers`）；确认真实无头调用通道 `zcode -p <prompt> --mode yolo` 与 `--json`；机读声明 ACP `status="unavailable"`（`zcode 0.17.0` 内置 `app-server` 运行严格专有 ZCode Protocol，拒绝标准 ACP 的 `jsonrpc` 字段）；通用层 `supervisor_host` 完全收敛至 `PluginAdapter`，物理删除 `ZCodeAdapter` 重复类；CLI 侧完成 `PLUGIN_BACKED_HOSTS` 映射与 `_plugin_backed_adapters(ZCodeAdapter)` 动态投影；升级通用 MCP 写入器支持点号嵌套容器键（`mcp.servers`）；测试套件 `tests/hosts/test_plugin_zcode.py` 覆盖六面契约、防符号链接攻击与生命周期干净卸载，全绿通过。
-  24. **判读式并发审计重构：机器做流程、AI 只判断**：新增确定性边界探针、判读包和机械收口路径；AI 只输出裁决 JSON，宿主负责真实执行、收据和结算。没有真实探针收据时，结果保持 `unverified`。
+  24. **判读式并发审计重构：机器做流程、AI 只判断 **：根治 2026-11-03 实测的 Worker 子代理结构性性能病灶——每个机械动作（claim/心跳/探针/手搓 checkpoint payload）都消耗一个模型回合（35 回合≈18 分钟，探针真实执行仅 0.4 秒），且 ZCode 子代理 600s 硬上限与 30 分钟任务包直接冲突导致两批全灭。新增 `core/planning/judge_pipeline.py`（确定性边界电池：~8 探针/单元覆盖 None/空串/0/-1/空容器/极端长串，dotted 符号 `reduce(getattr)` 解析，解析失败记 `symbol-missing` 不算缺陷证据）与 `core/launch_phases/judge_phase.py`（`bugx engine judge N` 批量预占+取证+出判读包；`--settle` 实跑 judge 复现命令生成防伪造收据后机械收口）；判读包（源码切片+电池实测）交给零协议工具的 `bugx-judge` 子代理（`plugins/bugx/agents/bugx-judge.md`，用户级/项目级/全局插件三作用域部署），一回合只输出裁决 JSON。settle 单元证据只取 `status=passed 且 exit_code=0` 的探针，电池全 error 时诚实降级 `unverified`。实测（bugxtest 24 单元副本）：collect 5.8s（5 单元 40 探针）+ 5 judge 并行 51s（最慢封顶，单个 ~15k tokens）+ settle 2s ≈ **60 秒/批**，对比旧 Worker 路径 18-32 分钟/批、90-240 万 tokens/worker，提速 ~20-30×、token 成本降两个数量级；墙钟收敛为最慢一个 judge 的推理时间，与单元数解耦。
   25. **判读式初筛与规则自进化闭环 **：在 judge 架构上叠加机器初审层与动态规则注册表。机器初审（`classify_unit`）：AST 白名单静态画像（安全调用表/安全模块表 + 12 类风险 token）× 动态伪影过滤（symbol-missing/解绑 AttributeError/缺位置参数可解释），三路路由——auto-clean 单元（`print("hello")` 类）在 collect 内直接 checkpoint **零模型回合**；差分哨兵实证（SENTINEL=True）单元带 machine_flag 进 judge L1 秒判；其余正常判读。动态规则注册表（`.bugx/knowledge/judge-rules.json`，项目级持久、跨生命周期）：代码默认层 < 文件增量层，judge 裁决经 `rule_feedback` 反哺——**不对称采纳**：risk_tokens（更严）校验后即时生效；safe_calls/artifact_markers（更松）进候选计数、独立单元 ≥3 次才晋升（同单元去重、形态校验、active 上限 20 项）。五轮闭环实测（/tmp/rules-loop）：R1 反哺 token 即时进 active → R2 下一批判读包 signals 即时可见 → R3 三次独立确认晋升 → R4 该类单元 0 模型回合关单（packages=[]、8/8 covered）→ R5 破坏性验证（同单元刷量 promoted=0、非法形态 rejected=3、白名单零污染）。配套差分哨兵电池（执行信号触发，`; touch`/`$(touch)` 双载荷，BASE_RET/PAYLOAD_RET/SENTINEL 结构化行）在靶场真注入点实弹命中 SENTINEL=True。
 
 
@@ -3061,7 +3079,7 @@ flowchart TB
 ### 核心演进规约与落地状态：
 1. **SPEC-07 根目录物理瘦身（已落地）**：
    - 清理误跟踪的 `.tmp-elevated-opencode/` 运行态夹具，强化 `.gitignore` 规则；
-   - 规整收据至 `state/fault-matrix-receipt.json`，历史排期不随公共发行副本分发；
+   - 规整收据至 `state/fault-matrix-receipt.json`，历史排期归档至 `docs/08_internal/13_history/`；
    - 彻底删除无用占坑目录 `contrib/`，架构图集中收敛至 `docs/06_diagrams/`。
 2. **Phase 0 架构指标基线与防恶化棘轮（已落地）**：
    - 通过 `scripts/arch_baseline.py` 静态采集 AST 建立真实基线（`verification/baselines/arch-baseline.json`；脚本 `DEFAULT_BASELINE_PATH` 在无 `verification/baselines/` 时才回落 `state/arch-baseline.json`）；

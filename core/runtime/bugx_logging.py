@@ -245,7 +245,9 @@ class _JsonFormatter(logging.Formatter):
             from core.infra import build_info
             payload["build_id"] = build_info.get_build_id()
         except Exception:
-            pass
+            # 降级必须可区分（F-RSI-20261115-288）：build_id 缺失时显式留痕，
+            # 让"日志缺字段"可被下游审计检索，而不是无声蒸发。
+            payload["build_id_unavailable"] = True
         fields = getattr(record, "bugx_fields", {})
         if isinstance(fields, dict):
             payload.update(safe_value(fields))
@@ -255,13 +257,58 @@ class _JsonFormatter(logging.Formatter):
 
 
 class _OtlpHttpHandler(logging.Handler):
-    """Asynchronous HTTP exporter to push spans to OTLP endpoint (e.g. Arize Phoenix / Langfuse)."""
+    """Asynchronous HTTP exporter to push spans to OTLP endpoint (e.g. Arize Phoenix / Langfuse).
+
+    Degradation policy (F-RSI-20261115-288): telemetry/audit exports must
+    never silently disappear. TLS policy construction failures refuse to send
+    (fail-closed, no downgrade to the bare system trust store), send failures
+    are counted on the handler, and first/every-20th occurrence is surfaced on
+    stderr. Plaintext ``http://`` endpoints warn once at construction unless
+    ``BUGX_OTLP_ALLOW_INSECURE=1`` acknowledges the choice.
+    """
 
     def __init__(self, endpoint: str) -> None:
         super().__init__()
         self.endpoint = endpoint
+        import threading
         import urllib.request
         self._request_mod = urllib.request
+        self._counter_lock = threading.Lock()
+        self.export_failure_count = 0
+        self.last_export_error: str | None = None
+        self.tls_degradation_count = 0
+        try:
+            from core.infra import build_info
+            self._scope_version = str(build_info.BASE_VERSION)
+        except Exception:
+            self._scope_version = "unknown"
+        if not endpoint.startswith("https://"):
+            self._warn_insecure_endpoint()
+
+    def _warn_insecure_endpoint(self) -> None:
+        """Plaintext OTLP endpoints must be an explicit, visible choice."""
+        if os.environ.get("BUGX_OTLP_ALLOW_INSECURE", "").strip() == "1":
+            return
+        print(
+            f"  ⚠ BUGX_OTLP_ENDPOINT 非 HTTPS ({self.endpoint})：诊断/审计 span 将"
+            "以明文传输。确需 http 端点时设置 BUGX_OTLP_ALLOW_INSECURE=1 显式确认。",
+            file=sys.stderr,
+        )
+
+    def _warn_export_failure(self, kind: str) -> None:
+        """Emit one bounded stderr line for an export failure.
+
+        Never the span payload, never a raise: the logging infrastructure must
+        not break the main flow, but its failures must stay observable. The
+        structured counters on this handler remain the machine-readable truth.
+        """
+        detail = str(safe_value(self.last_export_error))[:200]
+        print(
+            f"[bugx-otlp] {kind} failed"
+            f" (export_failures={self.export_failure_count},"
+            f" tls_degradations={self.tls_degradation_count}): {detail}",
+            file=sys.stderr,
+        )
 
     def emit(self, record: logging.LogRecord) -> None:
         fields = getattr(record, "bugx_fields", {})
@@ -331,7 +378,7 @@ class _OtlpHttpHandler(logging.Handler):
                         }],
                     },
                     "scopeSpans": [{
-                        "scope": {"name": "bugx.tracer", "version": "1.0.0"},
+                        "scope": {"name": "bugx.tracer", "version": self._scope_version},
                         "spans": [span],
                     }],
                 }],
@@ -348,12 +395,36 @@ class _OtlpHttpHandler(logging.Handler):
                 try:
                     from core.infra.client_metadata import tls_context
                     kwargs["context"] = tls_context(base_url=self.endpoint)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # TLS 策略构造失败必须 fail-closed 且可见（F-RSI-20261115-288）：
+                    # client_metadata.tls_context 对 BUGX_CA_BUNDLE 配置错误会显式
+                    # 抛错，静默吞掉会击穿其校验契约，把 https 上报降级为系统默认
+                    # 信任库。这里拒绝发送并留下结构化计数 + 可见告警。
+                    with self._counter_lock:
+                        self.tls_degradation_count += 1
+                        self.last_export_error = f"tls_policy: {type(exc).__name__}: {exc}"
+                        surface = (
+                            self.tls_degradation_count == 1
+                            or self.tls_degradation_count % 20 == 0
+                        )
+                    if surface:
+                        self._warn_export_failure("tls_policy")
+                    return
             with self._request_mod.urlopen(req, **kwargs) as resp:
                 pass
-        except Exception:
-            pass
+        except Exception as exc:
+            # 上报失败不可静默（F-RSI-20261115-288）：审计证据链可静默丢失与
+            # 本仓证据一致性门冲突。计数 + 有界 stderr 告警（首次与每第 20 次），
+            # 不抛出——logging 基础设施不得影响审计主流程。
+            with self._counter_lock:
+                self.export_failure_count += 1
+                self.last_export_error = f"{type(exc).__name__}: {exc}"
+                surface = (
+                    self.export_failure_count == 1
+                    or self.export_failure_count % 20 == 0
+                )
+            if surface:
+                self._warn_export_failure("export")
 
 
 class _SecureRotatingFileHandler(RotatingFileHandler):

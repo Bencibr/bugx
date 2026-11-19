@@ -1,6 +1,6 @@
 # BugX Skills & MCP Subsystem (技能包与 MCP 协议子系统)
 
-`core/skills/` 统一收拢 BugX 的技能包管理、动态技能合成、安全工具知识库、标准 Model Context Protocol (MCP) 服务端实现、离线 MCP Runtime 与移动端 UI 几何巡检能力。公开架构说明见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+`core/skills/` 统一收拢 BugX 的技能包管理、动态技能合成、安全工具知识库、标准 Model Context Protocol (MCP) 服务端实现、离线 MCP Runtime 与移动端 UI 几何巡检能力。设计规约与演进准则参见 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)。
 
 ---
 

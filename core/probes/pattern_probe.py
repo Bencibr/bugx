@@ -343,5 +343,111 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _mechanical_checks() -> list[dict]:
+    """降级契约的机械自检清单（零子进程）：账本适配器 + 内置正则库。
+
+    异常一律带类型名与原因写入 ``detail`` 上报，禁止静默吞掉；不产出能力
+    声明（能力声明归 ``check_readiness``）。
+    """
+    checks: list[dict] = []
+    try:
+        ledger = _ledger_module()
+        ledger_ready = callable(getattr(ledger, "retrieve", None))
+        checks.append({
+            "name": "lesson_ledger_adapter",
+            "ok": ledger_ready,
+            "detail": (
+                "账本检索适配器已加载" if ledger_ready
+                else "账本检索适配器缺少 retrieve 接口"
+            ),
+        })
+    except Exception as exc:  # noqa: BLE001 - 适配器加载失败必须带原因上报
+        checks.append({
+            "name": "lesson_ledger_adapter",
+            "ok": False,
+            "detail": f"账本检索适配器不可用: {type(exc).__name__}: {exc}",
+        })
+    try:
+        regex_count = 0
+        for expressions in PROBE_LIBRARY.values():
+            if expressions is None:
+                continue
+            for expression in expressions:
+                re.compile(expression)
+                regex_count += 1
+        checks.append({
+            "name": "pattern_library", "ok": regex_count > 0,
+            "detail": f"已校验 {regex_count} 条内置规则",
+        })
+    except (re.error, TypeError) as exc:
+        checks.append({
+            "name": "pattern_library", "ok": False,
+            "detail": f"内置规则不可编译: {type(exc).__name__}: {exc}",
+        })
+    return checks
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探针自检（零子进程）：账本适配器可加载 + 内置正则可编译。
+
+    本探针的目标依赖是 lesson-ledger 检索适配器（``retrieve``）与内置
+    ``PROBE_LIBRARY`` 正则库；扫描本身是纯标准库（``re``）有界读，不发子进程。
+    依赖缺失时调用方必须走 :func:`run_static_degraded`，禁止伪装扫描就绪。
+    """
+    failed = [check for check in _mechanical_checks() if not check["ok"]]
+    if failed:
+        return False, "；".join(
+            f"{check['name']}: {check['detail']}" for check in failed
+        )
+    return True, "账本检索适配器与内置正则库就绪"
+
+
+def run_static_degraded(root: Path | str | None = None) -> dict:
+    """依赖缺失/静态降级时的输出：只声明机械事实，绝不伪造扫描命中。
+
+    与成功路径（``scan()`` 的 ``status="ok"`` 报告）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason`` +
+    ``scan_executed=False``；runtime-only 类别保持「需动态验证」声明。
+    """
+    available, availability_detail = is_available()
+    checks = _mechanical_checks()
+    failed_names = {check["name"] for check in checks if not check["ok"]}
+    if available:
+        degraded_reason = "static_mode_forced"
+    elif "lesson_ledger_adapter" in failed_names:
+        degraded_reason = "lesson_ledger_adapter_missing"
+    else:
+        degraded_reason = "pattern_library_not_compilable"
+    return {
+        "probe": "pattern",
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": degraded_reason,
+        "probe_mode": "static_degraded",
+        "root": str(root) if root else None,
+        "scan_executed": False,
+        "checks": checks,
+        "probe_categories": sorted(
+            name for name, expressions in PROBE_LIBRARY.items() if expressions
+        ),
+        "runtime_only_categories": sorted(
+            name for name, expressions in PROBE_LIBRARY.items()
+            if expressions is None
+        ),
+        "findings": [],
+        "evidence": {"availability_detail": availability_detail},
+        "fallback": (
+            "内置 PROBE_LIBRARY 正则库可机械枚举；scan() 需要 "
+            ".bugx/knowledge/lesson-ledger.json 检索模式，先沉淀经验账本"
+        ),
+        "metadata": {
+            "degraded_mode": "mechanical_dependency_check_only",
+            "runtime_validation": "runtime-only 类别需动态验证，静态扫描不覆盖",
+        },
+    }
+
+
 if __name__ == "__main__":
     sys.exit(main())

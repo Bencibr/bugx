@@ -2,8 +2,8 @@
 """core/host_acp/__init__.py - 宿主 ACP 插件注册表（发现即注册）。
 
 **新增宿主的完整动作**：在 ``core/host_acp/`` 下加一个模块（导出 ``PLUGIN``），
-再从下面的 ``TODO_HOSTS`` 删掉该宿主名。探针代码一行都不用改——这就是
-``tests/test_host_acp_plugins.py`` 里「探针源码不得出现宿名字面量」守卫要保护的性质。
+再从下面的 ``TODO_HOSTS`` 删掉该宿主名。探针代码一行都不用改——
+「探针源码不得出现宿主字面量」的性质以本注释为契约。
 
 失败姿态：注册期不静默跳过任何模块。缺 ``PLUGIN``、重复名字、``ready`` 却没有实现
 ``acp_argv``，一律在 import 期 ``RuntimeError``——用声明支持的空实现去跑真实宿主，
@@ -34,8 +34,8 @@ __all__ = [
 REGISTRY_VERSION = 1
 
 # 显式登记为「本仓尚未适配 ACP」的受支持宿主。它们是合法一等状态（探针据此直接
-# BLOCKED + adapter_status=todo），不是特权默认值。账目一致性由
-# tests/test_host_acp_plugins.py 双向守护：ready ∪ todo ∪ unavailable 必须等于
+# BLOCKED + adapter_status=todo），不是特权默认值。账目一致性契约（以本注释
+# 为准）：ready ∪ todo ∪ unavailable 必须等于
 # ``host_registry.SUPPORTED_HOSTS``，且三者两两不相交。
 # 反例（务必别再把它们混进来）：``codex`` 是 ``unavailable``（上游无 ACP 面，
 # 见 ``core/host_acp/codex.py``），不是本仓拖欠的 TODO。

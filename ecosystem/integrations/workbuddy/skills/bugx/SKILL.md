@@ -1,7 +1,7 @@
 ---
 name: bugx
 description: Use BugX to find, reproduce, verify, fix, and report bugs in an app or codebase.
-version: 0.1.0
+version: ${BUGX_VERSION}
 author: BugX
 ---
 

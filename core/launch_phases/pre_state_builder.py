@@ -11,7 +11,6 @@ import json
 import math
 import os
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping
@@ -43,6 +42,7 @@ from core.launch_phases.common import (
     bugx_paths,
 )
 from core.launch_phases.session_runtime import (
+    baseline_json,
     set_review_mode,
     set_polling_policy,
     set_commit_policy,
@@ -64,15 +64,18 @@ from core.launch_phases.supervisor_bridge import (
 )
 from core.launch_phases.report_sharing import normalize_report_policy
 from core.launch_phases.startup_gates import (
-    compile_strategy_plan as _orig_compile_strategy_plan,
-    strategy_plan_gate as _orig_strategy_plan_gate,
-    report_policy_startup_gate as _orig_report_policy_startup_gate,
     aborted_session_gate,
     check_global_budget_gate,
     check_stage_prompts_integrity,
     coverage_startup_gate,
+    detect_startup_environment,
     mark_strategy_customized,
     refresh_startup_todo,
+)
+from core.launch_phases.startup_interaction import (
+    compile_strategy_plan,
+    report_policy_startup_gate,
+    strategy_plan_gate,
 )
 
 #: 运行态 ``report_policy_source`` 的「用户已决策」取值集合。
@@ -80,176 +83,20 @@ from core.launch_phases.startup_gates import (
 #: ``autonomous`` 是系统兜底，不算用户决策。
 _REPORT_POLICY_DECIDED_SOURCES = frozenset({"cli", "profile", "config", "gate"})
 
-def compile_strategy_plan(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "compile_strategy_plan"):
-        fn = getattr(pp, "compile_strategy_plan")
-        if fn is not compile_strategy_plan:
-            return fn(*args, **kwargs)
-    return _orig_compile_strategy_plan(*args, **kwargs)
+def _startup_policy_config(
+    root: Path, cli_overrides: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Load the pre-phase policy resolver without a module-level import cycle."""
+    from core.launch_phases.pre_phase import startup_policy_config as resolve_policy
 
-def strategy_plan_gate(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "strategy_plan_gate"):
-        fn = getattr(pp, "strategy_plan_gate")
-        if fn is not strategy_plan_gate:
-            return fn(*args, **kwargs)
-    return _orig_strategy_plan_gate(*args, **kwargs)
-
-def report_policy_startup_gate(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "report_policy_startup_gate"):
-        fn = getattr(pp, "report_policy_startup_gate")
-        if fn is not report_policy_startup_gate:
-            return fn(*args, **kwargs)
-    return _orig_report_policy_startup_gate(*args, **kwargs)
-
-def startup_policy_explicit_keys(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "startup_policy_explicit_keys"):
-        fn = getattr(pp, "startup_policy_explicit_keys")
-        if fn is not startup_policy_explicit_keys:
-            return fn(*args, **kwargs)
-    return frozenset()
+    return resolve_policy(root, cli_overrides)
 
 
-def baseline_json(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "baseline_json"):
-        fn = getattr(pp, "baseline_json")
-        if fn is not baseline_json:
-            return fn(*args, **kwargs)
-    from core.launch_phases.session_runtime import baseline_json as real
-    return real(*args, **kwargs)
+def startup_policy_explicit_keys(root: Path) -> frozenset[str]:
+    """Load the pre-phase explicit-policy reader without dynamic dispatch."""
+    from core.launch_phases.pre_phase import startup_policy_explicit_keys as read_keys
 
-def _startup_policy_config(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "_startup_policy_config"):
-        fn = getattr(pp, "_startup_policy_config")
-        if fn is not _startup_policy_config:
-            return fn(*args, **kwargs)
-    raise RuntimeError("pre_phase._startup_policy_config not available")
-
-def resolve_project_root(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "resolve_project_root"):
-        fn = getattr(pp, "resolve_project_root")
-        if fn is not resolve_project_root:
-            return fn(*args, **kwargs)
-    from core.launch_phases.common import resolve_project_root as real
-    return real(*args, **kwargs)
-
-def load_runtime(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "load_runtime"):
-        fn = getattr(pp, "load_runtime")
-        if fn is not load_runtime:
-            return fn(*args, **kwargs)
-    from core.launch_phases.session_runtime import load_runtime as real
-    return real(*args, **kwargs)
-
-def save_runtime(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "save_runtime"):
-        fn = getattr(pp, "save_runtime")
-        if fn is not save_runtime:
-            return fn(*args, **kwargs)
-    from core.launch_phases.session_runtime import save_runtime as real
-    return real(*args, **kwargs)
-
-
-def detect_startup_environment(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "detect_startup_environment"):
-        fn = getattr(pp, "detect_startup_environment")
-        if fn is not detect_startup_environment:
-            return fn(*args, **kwargs)
-    try:
-        from core.launch_phases.startup_gates import detect_startup_environment as real
-        return real(*args, **kwargs)
-    except Exception:
-        return "terminal"
-
-def run_tools_kb(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "run_tools_kb"):
-        fn = getattr(pp, "run_tools_kb")
-        if fn is not run_tools_kb:
-            return fn(*args, **kwargs)
-    from core.launch_phases.supervisor_bridge import run_tools_kb as real
-    return real(*args, **kwargs)
-
-def run_preflight_probes(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "run_preflight_probes"):
-        fn = getattr(pp, "run_preflight_probes")
-        if fn is not run_preflight_probes:
-            return fn(*args, **kwargs)
-    from core.launch_phases.supervisor_bridge import run_preflight_probes as real
-    return real(*args, **kwargs)
-
-def report_degraded_probes(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "report_degraded_probes"):
-        fn = getattr(pp, "report_degraded_probes")
-        if fn is not report_degraded_probes:
-            return fn(*args, **kwargs)
-    from core.launch_phases.supervisor_bridge import report_degraded_probes as real
-    return real(*args, **kwargs)
-
-def auto_provision_accelerators(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "auto_provision_accelerators"):
-        fn = getattr(pp, "auto_provision_accelerators")
-        if fn is not auto_provision_accelerators:
-            return fn(*args, **kwargs)
-    from core.launch_phases.supervisor_bridge import auto_provision_accelerators as real
-    return real(*args, **kwargs)
-
-def degraded_gate(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "degraded_gate"):
-        fn = getattr(pp, "degraded_gate")
-        if fn is not degraded_gate:
-            return fn(*args, **kwargs)
-    from core.launch_phases.supervisor_bridge import degraded_gate as real
-    return real(*args, **kwargs)
-
-def run_verify_life(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "run_verify_life"):
-        fn = getattr(pp, "run_verify_life")
-        if fn is not run_verify_life:
-            return fn(*args, **kwargs)
-    from core.launch_phases.common import run_verify_life as real
-    return real(*args, **kwargs)
-
-def refresh_startup_todo(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "refresh_startup_todo"):
-        fn = getattr(pp, "refresh_startup_todo")
-        if fn is not refresh_startup_todo:
-            return fn(*args, **kwargs)
-    from core.launch_phases.startup_gates import refresh_startup_todo as real
-    return real(*args, **kwargs)
-
-def uses_project_layout(*args, **kwargs):
-    pp = _pp()
-    if pp and hasattr(pp, "uses_project_layout"):
-        fn = getattr(pp, "uses_project_layout")
-        if fn is not uses_project_layout:
-            return fn(*args, **kwargs)
-    from core.launch_phases.common import uses_project_layout as real
-    return real(*args, **kwargs)
-
-def _pp():
-    return sys.modules.get("core.launch_phases.pre_phase") or sys.modules.get("launch_phases.pre_phase")
-
-def _get_pp_attr(name: str, fallback=None):
-    pp = _pp()
-    if pp and hasattr(pp, name):
-        return getattr(pp, name)
-    return fallback
+    return read_keys(root)
 
 def begin_new_session(
     bootstrap_coverage: bool = False, *, autonomous: bool = False,
@@ -713,7 +560,7 @@ def run_preflight_budget_gates(st: "_PreState") -> int:
     原 ``pre()`` 476-496 逐字迁移。"""
     ignore_global_budget = st.ignore_global_budget
     # DOC-034 阶段 3：阶段提示词加载完整性防偷懒门禁（缺失立即阻断，不静默继续）
-    check_prompts_fn = _get_pp_attr("check_stage_prompts_integrity", check_stage_prompts_integrity)
+    check_prompts_fn = check_stage_prompts_integrity
     prompts_ok, prompts_err = check_prompts_fn()
     if not prompts_ok:
         err = f"[launch_bugx] ✗ 阶段提示词章节缺失/加载失败: {prompts_err}（防偷懒门禁阻断）"
@@ -723,7 +570,7 @@ def run_preflight_budget_gates(st: "_PreState") -> int:
         return 1
 
     # DOC-049 全局每日预算与配额熔断门禁（超限立即阻断，防止 API 账单穿透）
-    check_budget_fn = _get_pp_attr("check_global_budget_gate", check_global_budget_gate)
+    check_budget_fn = check_global_budget_gate
     budget_ok, budget_err = check_budget_fn(ignore_budget=ignore_global_budget)
     if not budget_ok:
         err = f"[launch_bugx] ✗ 全局预算熔断阻断: {budget_err}"

@@ -13,7 +13,8 @@
    - 修复前运行：退出码为 0（证明 Bug 存在）；
    - 修复后运行：退出码为 1（证明已闭环）。
 3. **退出码方向必须与补丁包红绿回放一致**：`bugx patch-forge` 的 manifest 校验硬性要求
-   `repro[].before_exit=0 / after_exit=1`（以当前补丁包 schema 为准）。方向写反的 repro 会在
+   `repro[].before_exit=0 / after_exit=1`（见
+   `docs/08_internal/11_research/patch-engine/schemas/patch-manifest.schema.json`）。方向写反的 repro 会在
    Phase 1 被判「Repro 预检失败 (未复现缺陷)」，整包 fail-closed 拒绝。
 
 ### 2.1 黄金自包含复现脚本范式（Golden Repro Template）
@@ -42,7 +43,7 @@ if __name__ == "__main__":
 ## 3. TDD 最小代码修复纪律（DOC-194）
 1. **定向修复原则**：只改与该 Bug 直接相关的最小代码行，严禁借机扩大重构范围。
 2. **严禁修复 Agent 跑全量（硬红线）**：
-   - **禁止**修复 Agent 运行任何全仓/全量测试（如 `python3 tests/run_tests.py`、`unittest discover` 等）；
+   - **禁止**修复 Agent 在 BugX 仓库内运行全仓/全量测试（如 `unittest discover` 等）；需要回归时只在仓库外生成最小临时验证，或调用被测目标项目的测试，并在完成后删除过程文件；
    - 修复 Agent 仅需且只能运行：
      ```bash
      # 自动解析当前工作树/改动所受影响的最小测试子集并执行

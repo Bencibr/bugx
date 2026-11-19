@@ -441,10 +441,16 @@ def lookup_incidents(
             data = canonical_bytes(row)
             size = len(data)
             toks, _ = estimate_tokens(data)
-            if byte_budget is not None and total_b + size > byte_budget:
-                continue
-            if token_budget is not None and total_t + toks > token_budget:
-                continue
+            # F-RSI-20261115-127：identity 精确命中是调用方显式 signatures 的
+            # 查询意图本体，不得被预算挤掉——context 合法上限 64KB 可超
+            # byte_budget 20480，被 continue 跳过后低分 text 行反被塞入，
+            # 显式签名查询静默落空。预算只约束文本扫描的加分行；limit 硬顶
+            # 对全部行仍生效。
+            if not _identity_exact_hit:
+                if byte_budget is not None and total_b + size > byte_budget:
+                    continue
+                if token_budget is not None and total_t + toks > token_budget:
+                    continue
             result.append(row)
             total_b += size
             total_t += toks

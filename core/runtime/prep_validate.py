@@ -23,6 +23,8 @@ try:
 except ImportError:  # pragma: no cover - standalone source copy fallback
     bugx_paths = None  # type: ignore[assignment]
 
+from core.infra.build_info import BASE_VERSION
+
 AGENT_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = AGENT_DIR.parent.parent if AGENT_DIR.parent.name == ".bugx" else AGENT_DIR.parent
 REQUIRED = (
@@ -298,7 +300,7 @@ def ensure_prep_record(root: Path | None = None, *, force: bool = False) -> int:
     commit = commit or "working-tree"
 
     metadata_path = AGENT_DIR / "metadata.txt"
-    version = "0.1.0"
+    version = BASE_VERSION
     if metadata_path.is_file() and not metadata_path.is_symlink():
         try:
             for line in metadata_path.read_text(encoding="utf-8").splitlines():

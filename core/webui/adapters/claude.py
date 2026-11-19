@@ -74,7 +74,11 @@ class ClaudeHostAdapter(BaseHostAdapter):
         auto_approve: bool = True,
         target_files: list[str] | None = None,
     ) -> tuple[list[str], dict[str, str]]:
-        bin_path = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+        bin_path = shutil.which("claude")
+        if not bin_path:
+            raise RuntimeError(
+                "claude CLI 未在 PATH 中找到；请先安装 Claude Code 并确认 claude 可执行"
+            )
         clean_msg = prompt.strip()
 
         env = os.environ.copy()

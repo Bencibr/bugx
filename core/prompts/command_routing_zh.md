@@ -28,7 +28,7 @@
 - **单点复现与变异**：`bugx test-generate --root <ROOT> --scope <PATH::SYM> --out <FILE>` / `bugx test-verify verify --scope <SCOPE>`
 - **Supervisor 与并发排查**：`bugx supervisor status --root <ROOT>`
 - **脱敏飞轮与日志**：`bugx telemetry inspect` / `bugx log --root <ROOT> --errors`
-- **双轨报告与预览**：`bugx report both --eval-dir evals/oss --out evals/oss` / `bugx report serve --port 18991`
+- **双轨报告与预览**：`bugx report both --eval-dir verification/evals/oss --out verification/evals/oss` / `bugx report serve --port 18991`
 
 ### 4. 紧凑型命令全景雷达（41 个顶层命令分类索引）
 如需调用以下命令，通过 `bugx help <命令>` 动态获取具体参数与子命令，严禁盲猜：
@@ -39,4 +39,4 @@
 
 ### 5. 核心军规与废弃命令重定向
 - **阻断不授权暴力修复**：`FATAL_BLOCKED` 严禁使用 `init`、`reset`、`--force` 绕过，先保留报告和日志。
-- **废弃命令重定向**：`matrix` -> `bugx audit`；`console` -> `bugx report serve`；`watch` -> `bugx log --watch`；`test` 为内部脚本改用 `scripts/test_selector.py`。
+- **废弃命令重定向**：`matrix` -> `bugx audit`；`console` -> `bugx report serve`；`watch` -> `bugx log --watch`；`test` 不是公共命令。开发验证请在仓库外生成最小临时验证脚本，或运行被测目标项目自带的测试，完成后删除过程文件。

@@ -7,8 +7,8 @@
 ``supervisor_host.ClineAdapter`` / ``worker_orchestrator`` 的 ``== "cline"`` 分支。
 旧实现的注释被逐字搬到这里（它们是实测结论，不是解释）。
 
-仍然在插件外、由「遗漏普查」守护登记的 Cline 事实（``tests/test_host_plugins.py``
-的 ``OUTSIDE_PLUGIN`` 按文件+符号逐一核对；新增未登记字面量即测试失败）：
+仍然在插件外、由「遗漏普查」登记的 Cline 事实（``OUTSIDE_PLUGIN``
+按文件+符号逐一核对，新增未登记字面量即违反登记契约，以本注释为准）：
 
 * ``core/worker_runtime.py``：claim 级 ``.cline_data`` 沙箱、凭据同步、provider/model
   对齐——那是**执行器实现**，不是宿主声明；清单与本模块 ``sandbox_sync`` 同源。
@@ -206,6 +206,10 @@ PLUGIN = HostPlugin(
         autonomous_cli=True,
         # 原 ``autonomous`` 的 ``2 <= workers <= 6`` 硬校验。
         concurrency_bounds=(2, 6),
+        # 单 claim 墙钟预算：慢模型全 agent 闭环实测 ~6min（22 迭代）；原 tier 阶梯
+        # recon 180s（attempt=2 退避 270s）会让 worker 在 checkpoint 提交前到点退出
+        # （E1 验收 5/5 expired 的直接根因）。
+        worker_timeout_seconds=600.0,
     ),
     mcp_write=McpWriteFacet(
         container_key="mcpServers",

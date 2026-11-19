@@ -77,7 +77,7 @@ def _canonical_bugx_paths():
     if _CANONICAL_LAYOUT_MODULE is not None:
         return _CANONICAL_LAYOUT_MODULE
     try:
-        from bugx_cli.infra.engine_installer import asset_root, global_engine_root
+        from ..infra.engine_installer import asset_root, global_engine_root
     except Exception:  # noqa: BLE001 - 引导期导入失败时回落
         return None
     candidates = []
@@ -152,9 +152,16 @@ def _assert_no_symlink_components(path: Path) -> None:
     """Reject existing symlink/reparse-point components before any BugX write.
 
     DES-17：委托 ``bugx_paths.assert_no_symlink_components``——符号链接防越界
-    只保留一份实现（含 Windows junction/reparse 平台分支）。``allow_var_alias``
-    保持旧版本函数的严格语义（不豁免顶层 ``/var`` 别名）；仅当权威模块不可
-    加载时才使用下方等价的最小本地实现。
+    只保留一份实现（含 Windows junction/reparse 平台分支）。
+
+    ``allow_var_alias=True``：豁免 ``bugx_paths._system_alias`` 认定的系统别名
+    （精确到 ``/tmp``、``/var`` 解析到 ``/private/<name>``）。此前这里传
+    ``False``，与 ``core/secure_atomic.reject_symlink_components`` 的口径相反，
+    导致 HOME 落在 ``/tmp`` 的隔离环境（mktemp 沙箱、CI）装引擎时报
+    「拒绝通过符号链接写入」——同一条路径在原子写入里却是允许的。
+
+    仅在权威模块不可加载时才使用下方的最小本地实现，此时保持严格
+    （fail-closed，不豁免任何别名）：拿不到精确判定函数就不放宽边界。
     """
     canonical = _canonical_bugx_paths()
     if canonical is not None:
@@ -166,7 +173,7 @@ def _assert_no_symlink_components(path: Path) -> None:
                 f"拒绝通过符号链接写入: {target}",
                 path=target,
             ),
-            False,
+            True,
         )
         return
     absolute = Path(os.path.abspath(str(path)))
@@ -310,7 +317,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _safe_record_target(root: Path, relative: str) -> Path:
-    from bugx_cli.infra.engine_installer import global_engine_root
+    from ..infra.engine_installer import global_engine_root
     relative_path = Path(relative) if isinstance(relative, str) else Path("")
     if not isinstance(relative, str) or not relative or relative_path.is_absolute():
         raise CliError(_i18n_exc("common.uninstall_manifest_invalid_path", f"卸载清单包含无效路径: {relative!r}", relative=repr(relative)))

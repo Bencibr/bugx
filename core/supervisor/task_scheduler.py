@@ -112,7 +112,7 @@ TRAVERSAL_STRATEGIES = frozenset({"auto", "dfs", "bfs", "hybrid"})
 #:   * ``supervisor_models.MAX_LEASE_SECONDS``（核心侧接受上限）；
 #:   * ``bugx_mcp_server`` 的 ``lease_seconds.inputSchema.maximum``。
 #: 三处漂移会让「推荐值」与「接受上限」脱节：调用方按推荐值申请却拿到更长的
-#: 租约，或反之。``tests/test_audit_supervisor.py`` 有一致性守护。
+#: 租约，或反之。一致性契约以本注释为准。
 LEASE_SECONDS_CEILING = 3600.0
 _SENSITIVE_SURFACES = {
     "auth": 3.0, "login": 3.0, "payment": 3.0, "billing": 3.0,
@@ -1038,7 +1038,7 @@ class AdaptiveConcurrencyController:
                     "Pages free", "Pages inactive", "Pages speculative",
                     "Pages purgeable", "File-backed pages",
                 ):
-                    match = re.search(rf"^{re.escape(name)}:\\s+(\d+)", output, re.MULTILINE)
+                    match = re.search(rf"^{re.escape(name)}:\s+(\d+)", output, re.MULTILINE)
                     if match:
                         available_pages += int(match.group(1))
                 available = available_pages * int(page_match.group(1))

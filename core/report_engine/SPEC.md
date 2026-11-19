@@ -24,5 +24,5 @@ open("report.md", "w", encoding="utf-8").write(report.render_markdown())
 ```
 
 ## 5. Maintenance & Verification
-- Unit & regression tests for this package are registered in `tests/test_registry.json`.
+- Verification is performed with short-lived tests outside the repository; no persistent `tests/` registry is retained.
 - Changes to exported interfaces must be synchronized via `python3 scripts/gen_interface_spec.py --package core/report_engine --write`.

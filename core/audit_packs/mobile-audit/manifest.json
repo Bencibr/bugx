@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "skill_id": "mobile-audit",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "scope": "engine",
   "applies_if": {
     "forms": [

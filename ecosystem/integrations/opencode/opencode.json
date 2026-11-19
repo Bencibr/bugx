@@ -33,29 +33,39 @@
       },
       "postmcp": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
           "start",
           "--server",
           "postmcp"
-        ]
+        ],
+        "codemode": false
       },
       "playwright": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
           "start",
           "--server",
           "playwright"
-        ]
+        ],
+        "codemode": false
+      },
+      "codindex": {
+        "type": "local",
+        "command": [
+          "bugx",
+          "mcp-runtime",
+          "start",
+          "--server",
+          "codindex"
+        ],
+        "codemode": false
       },
       "bugx-docs": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp",
@@ -65,11 +75,11 @@
           ".",
           "--db",
           ".bugx/knowledge/docs.sqlite3"
-        ]
+        ],
+        "codemode": false
       },
       "dbhub": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
@@ -77,11 +87,11 @@
           "--server",
           "dbhub"
         ],
+        "codemode": false,
         "disabled": true
       },
       "redis": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
@@ -89,29 +99,30 @@
           "--server",
           "redis"
         ],
+        "codemode": false,
         "disabled": true
       },
       "semgrep": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
           "start",
           "--server",
           "semgrep"
-        ]
+        ],
+        "codemode": false
       },
       "mobile": {
         "type": "local",
-        "codemode": false,
         "command": [
           "bugx",
           "mcp-runtime",
           "start",
           "--server",
           "mobile"
-        ]
+        ],
+        "codemode": false
       }
     }
   }

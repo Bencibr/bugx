@@ -30,6 +30,10 @@
 
 这五条都是**可机械检查**的。守卫的价值就在于它不需要理解改动意图，
 只看形状就能拦下绝大多数跑偏。
+
+F-RSI-20261110-026 补第六条：**6. 不许纯内容修改既有条目**——ID 集合
+不变但指纹变了（改 minimum_severity/severity 期望值）与「保住形状、改掉
+答案」同构，full 模式与 guarded 一样由 content_digests 拦截。
 """
 
 from __future__ import annotations
@@ -46,15 +50,11 @@ VALID_MODES = (GUARDED, FULL)
 
 #: 模式 2 下允许触碰的评测文件（相对仓库根）。
 ASSERTION_FILES = (
-    "evals/cases.json",
-    "evals/golden-findings.json",
     "verification/evals/cases.json",
     "verification/evals/golden-findings.json",
 )
 #: 模式 2 下**永远**不许改的文件。门槛数值一改，一切都能通过。
 FORBIDDEN_FILES = (
-    "evals/scenario-baseline.json",
-    "evals/baseline-metrics.json",
     "verification/evals/scenario-baseline.json",
     "verification/evals/baseline-metrics.json",
 )
@@ -88,10 +88,7 @@ def _load(path: Path) -> dict:
 
 
 def _eval_file(root: Path, name: str) -> Path:
-    p = root / "verification" / "evals" / name
-    if p.exists() or (root / "verification" / "evals").is_dir():
-        return p
-    return root / "evals" / name
+    return root / "verification" / "evals" / name
 
 
 def _case_ids(root: Path) -> set[str]:
@@ -231,6 +228,28 @@ def check_assertion_change(before: dict, after: dict,
         problems.append(
             "阈值被修改。降低 min_recall 之类能让一切通过，"
             "这比修 bug 容易得多——所以永远不许自动改。"
+        )
+
+    # F-RSI-20261110-026：full 模式必须沿用 content_digests 防线。
+    # guarded 模式有指纹检查（ID 不变但期望值被改写→拦），full 模式此前
+    # 只查 ID 集合与阈值——同 ID 纯内容修改（cases 的 minimum_severity
+    # high→low、golden 的 severity high→info）既不增也不减，四项形状检查
+    # 全部通过=「保住形状、改掉答案」的 Goodhart 入口敞开（红探针实锤）。
+    # 机械判据与模块哲学一致：指纹变了但 ID 集合没变 → 拒。
+    # 合法的新增路径（配对加 case+golden）会同时改 ID 集合与指纹，不命中。
+    ids_changed = (
+        set(before.get("case_ids") or []) != set(after.get("case_ids") or [])
+        or set(before.get("golden_case_ids") or [])
+        != set(after.get("golden_case_ids") or [])
+    )
+    digests_changed = (
+        before.get("content_digests") != after.get("content_digests")
+    )
+    if digests_changed and not ids_changed:
+        problems.append(
+            "断言文件内容被修改但无任何 ID 增删：对既有条目的纯内容编辑"
+            "（如改 minimum_severity/severity 期望值）是「保住形状、改掉答案」"
+            "的 Goodhart 入口，full 模式同样禁止。新增知识走配对新增路径。"
         )
     return problems
 

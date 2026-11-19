@@ -269,7 +269,7 @@ bugx config set cloud.sync_scope_default all|project|global
 |---|---|---|
 | `cloud.sync_scope_default=all|project|global` | 未显式传 `cloud sync --scope` 时选择同步层；当前默认是 `all` | 不会限制 `onboard on` 或某些启动路径的全部行为；`pre` 仍需核对实际 onboarding 策略 |
 | `cloud.sync_detail_mode=full|summary` | 控制知识记录的详细程度；`summary` 会去掉部分 pattern/incident 详情字段 | `summary` 不是脱敏保证，也不等于不上传业务内容 |
-| `cloud.sensitive_policy=block|redact|allow` | `block` 检测到敏感形状即拒绝，`redact` 替换后再扫描，`allow` 按原内容发送 | `allow` 可能发送完整内容；`redact`/`summary` 也不能替代凭据轮换 |
+| `cloud.sensitive_policy=block|redact|allow` | `block` 检测到敏感形状即拒绝，`redact` 替换后再扫描（配置缺失时的默认档），`allow` 按原内容发送（显式 opt-in） | `allow` 可能发送完整内容；`redact`/`summary` 也不能替代凭据轮换 |
 
 设置敏感策略后，按源码实际审计文件检查策略记录：
 
@@ -617,7 +617,7 @@ bugx cloud sync \
 
 - `full` 可能包含 pattern/incident 的详细字段、工具经验、消费事件和 tombstone。
 - `summary` 会清掉部分 pattern/incident 细节字段，但仍可能发送知识内容、工具经验、统计和状态；它不是“无敏感数据”保证。
-- `block` 遇到敏感形状拒绝发送；`redact` 替换匹配片段并重新扫描；`allow` 按原记录发送。配置缺失时当前实现的敏感策略缺省为 `allow`，生产使用前应显式选择策略。
+- `block` 遇到敏感形状拒绝发送；`redact` 替换匹配片段并重新扫描（**默认档**，配置缺失时生效）；`allow` 按原记录发送（必须显式设置，原样出网是显式选择）。生产使用前仍应显式选择策略。
 - 非 `allow` 策略会把决策摘要写入 `~/.bugx/logs/sync-policy-audit.jsonl`；审计文件不应上传到公开位置。
 
 成功和失败判定：

@@ -94,6 +94,13 @@ _EXECUTION_RECEIPT_FIELDS = frozenset({
 _POC_CARRY_FIELDS = ("poc_cmd", "poc_input", "poc_negative_input")
 MAX_CHECKPOINT_BYTES = 512 * 1024
 _STAGED_EVIDENCE_TTL_NS = 10 * 60 * 1_000_000_000
+# DEF-2：证据校验拒绝的有界自纠回路。首次校验 + ≤2 轮自纠 = 最多 3 次评估
+# 机会；同因第三次仍失败则按既有语义中止并如实记录。自纠只做"真相保持"的
+# 格式改写（path:line 拆分 / file→path 键名 / workspace 内绝对路径相对化 /
+# 反斜杠归一 / line 数字字符串转整数），每一步改写都必须重新通过原契约的
+# 真实文件校验才被采纳——契约本身不放宽，伪造 path 无法被自纠成有效证据。
+MAX_EVIDENCE_SELFCORRECTION_ROUNDS = 2
+_EVIDENCE_FEEDBACK_MAX_CHARS = 1600
 
 
 def _preserve_poc_carry_fields(item: dict[str, object]) -> None:
@@ -517,6 +524,198 @@ def _verify_observation_artifacts(finding: dict, workspace_root: Path) -> list[s
     return verify_observation_artifacts(finding, workspace_root)
 
 
+def _repair_evidence_item(item: object, root: Path) -> object:
+    """单条 evidence 项的真相保持格式自纠；无有效改写时原样返回。
+
+    每个候选改写必须通过 ``agent_eval.evidence_item_valid``（与契约同一
+    判定）才被采纳：自纠只能把"真实证据的格式写错"修正为契约形状，
+    绝不构造、猜测或放宽任何事实。DEF-2。
+    """
+    from core.agent import agent_eval
+
+    if not isinstance(item, dict):
+        # "path:line" 字符串（worker 指令明令禁止的写法）：按最后一处冒号
+        # 拆分；仅当拆分结果落在真实 workspace 文件上才采纳。
+        if isinstance(item, str):
+            text = item.strip()
+            path_part, sep, line_part = text.rpartition(":")
+            if (
+                sep
+                and path_part.strip()
+                and line_part.isdigit()
+                and len(line_part) <= 7
+            ):
+                candidate: dict[str, object] = {
+                    "path": path_part.strip(),
+                    "line": int(line_part),
+                }
+                candidate = _repair_evidence_item(candidate, root)
+                if isinstance(candidate, dict) and agent_eval.evidence_item_valid(
+                    candidate, root,
+                ):
+                    return candidate
+        return item
+    repaired = dict(item)
+    path = repaired.get("path")
+    if not isinstance(path, str) or not path.strip():
+        # {"file": ...} 键名自纠：worker 指令契约键是 path。
+        file_value = repaired.pop("file", None)
+        if isinstance(file_value, str) and file_value.strip():
+            repaired["path"] = file_value
+            path = repaired["path"]
+    if isinstance(path, str):
+        raw = path.strip()
+        candidate_path = Path(raw)
+        if candidate_path.is_absolute():
+            # workspace 内绝对路径 → 相对化（仍须是真实文件）。
+            try:
+                rel = candidate_path.resolve(strict=True).relative_to(
+                    root.resolve()
+                )
+                raw = rel.as_posix()
+            except (OSError, ValueError):
+                pass
+        elif "\\" in raw:
+            # Windows 分隔符笔误 → 正斜杠（POSIX 语义下的格式自纠）。
+            raw = raw.replace("\\", "/")
+        if (
+            raw != path
+            and agent_eval.evidence_item_valid({**repaired, "path": raw}, root)
+        ):
+            repaired["path"] = raw
+    # line 数字字符串 → int（仍须通过行数校验；布尔/越界一律不自纠）。
+    line = repaired.get("line")
+    if isinstance(line, str) and line.strip().isdigit():
+        candidate = dict(repaired)
+        candidate["line"] = int(line.strip())
+        if agent_eval.evidence_item_valid(candidate, root):
+            repaired = candidate
+    if repaired != item and agent_eval.evidence_item_valid(repaired, root):
+        return repaired
+    return item
+
+
+def _repair_finding_evidence(finding: dict, root: Path) -> dict | None:
+    """对单个 finding 的 evidence 数组做有界格式自纠；无改写返回 None。"""
+    evidence = finding.get("evidence")
+    if not isinstance(evidence, list):
+        return None
+    changed = False
+    new_evidence: list[object] = []
+    for item in evidence:
+        repaired = _repair_evidence_item(item, root)
+        if repaired != item:
+            changed = True
+        new_evidence.append(repaired)
+    if not changed:
+        return None
+    repaired_finding = dict(finding)
+    repaired_finding["evidence"] = new_evidence
+    return repaired_finding
+
+
+def finding_evidence_rejections(
+    findings: list[dict], workspace_root: Path,
+) -> list[dict]:
+    """结构化拒绝原因：每个证据无效 finding 的逐项违规（回注原料）。"""
+    from core.agent import agent_eval
+
+    records: list[dict] = []
+    for finding in findings:
+        violations = agent_eval.finding_evidence_violations(finding, workspace_root)
+        if violations:
+            records.append({
+                "finding_id": str(
+                    finding.get("id") or finding.get("fingerprint") or "<unnamed>"
+                ),
+                "violations": violations,
+                "correct_sample": agent_eval.CORRECT_EVIDENCE_SAMPLE,
+            })
+    return records
+
+
+def selfcorrect_finding_evidence(
+    findings: list[dict],
+    workspace_root: Path,
+    *,
+    max_rounds: int = MAX_EVIDENCE_SELFCORRECTION_ROUNDS,
+) -> tuple[list[dict], list[dict]]:
+    """DEF-2 有界证据自纠回路（finalize 有界重提语义的管道内等效通道）。
+
+    每轮先把当前违规 finding 的结构化拒绝原因记录下来（回注原料），再做
+    真相保持的格式改写，随后按**原契约**全量复检；最多 ``max_rounds`` 轮
+    （默认 2，与首次校验合计 3 次评估机会）。同因第三次仍失败由调用方按
+    既有语义中止；轮次记录如实保留每一轮的拒绝原因供回写与诊断。
+    返回 ``(自纠后的 findings, 轮次记录列表)``。
+    """
+    from core.agent import agent_eval
+
+    rounds: list[dict] = []
+    current = findings
+    for round_no in range(1, max_rounds + 1):
+        rejection_records = finding_evidence_rejections(current, workspace_root)
+        if not rejection_records:
+            break
+        rejected_ids = {record["finding_id"] for record in rejection_records}
+        repaired: list[dict] = []
+        repaired_ids: list[str] = []
+        for finding in current:
+            fid = str(
+                finding.get("id") or finding.get("fingerprint") or "<unnamed>"
+            )
+            new_finding = (
+                _repair_finding_evidence(finding, workspace_root)
+                if fid in rejected_ids
+                else None
+            )
+            if new_finding is not None:
+                repaired_ids.append(fid)
+                repaired.append(new_finding)
+            else:
+                repaired.append(finding)
+        still_invalid = agent_eval.invalid_evidence_ids(repaired, workspace_root)
+        rounds.append({
+            "round": round_no,
+            "rejections": rejection_records,
+            "repaired_ids": repaired_ids,
+            "invalid_after": list(still_invalid),
+        })
+        current = repaired
+        if not still_invalid:
+            break
+    return current, rounds
+
+
+def _evidence_retry_prompt(
+    rejection_records: list[dict],
+    correction_rounds: list[dict],
+) -> str:
+    """把结构化拒绝原因渲染成可回注 worker 重试提示词的自纠文本（有界）。"""
+    from core.agent import agent_eval
+
+    lines = [
+        (
+            f"[evidence 自纠回路] 摄入侧已有界自纠 {len(correction_rounds)} 轮"
+            "仍未通过证据契约，本次 checkpoint 按既有语义拒绝："
+        ),
+    ]
+    for record in rejection_records[:8]:
+        violations = record.get("violations") or []
+        lines.append(
+            f"- finding {record.get('finding_id')}: "
+            + "；".join(str(v) for v in violations[:4])
+        )
+    lines.append(
+        "正确格式: " + agent_eval.CORRECT_EVIDENCE_SAMPLE
+        + "（path=workspace 内真实文件的相对路径；line=正整数行号且 ≤ 文件行数）；"
+        "请修正 evidence 后重新提交 checkpoint。"
+    )
+    text = "\n".join(lines)
+    if len(text) > _EVIDENCE_FEEDBACK_MAX_CHARS:
+        text = text[:_EVIDENCE_FEEDBACK_MAX_CHARS] + "…(截断)"
+    return text
+
+
 def normalize_findings(
     findings: Iterable[Mapping[str, object]] | None,
     workspace_root: Path | None = None,
@@ -590,16 +789,49 @@ def normalize_findings(
         )
     result = [normalized[key] for key in sorted(normalized)]
     if workspace_root is not None and result:
+        root_path = Path(workspace_root)
         try:
             from core.agent import agent_eval
 
-            invalid = agent_eval.invalid_evidence_ids(result, Path(workspace_root))
+            invalid = agent_eval.invalid_evidence_ids(result, root_path)
         except (ImportError, OSError, TypeError, ValueError) as exc:
             raise InvalidCheckpoint(f"finding evidence 校验失败: {exc}") from exc
         if invalid:
-            raise InvalidCheckpoint(
-                "finding 缺真实 workspace evidence: " + ", ".join(invalid)
+            # DEF-2：证据校验拒绝不再直接中止 attempt——先走有界自纠回路
+            # （≤MAX_EVIDENCE_SELFCORRECTION_ROUNDS 轮）。每轮以结构化拒绝
+            # 原因为回注原料做真相保持的格式改写，改写后仍按原契约全量复检；
+            # 同因第三轮（首次校验 + 2 轮自纠）仍失败才按既有语义中止，
+            # 并把结构化拒绝原因 + 正确格式样例随拒绝带回（evidence_feedback），
+            # 使宿主/模型在下一通道（MCP 错误回包 / failure 回写 / finalize
+            # CLI）能拿到可执行的自纠指令。
+            result, correction_rounds = selfcorrect_finding_evidence(
+                result, root_path,
             )
+            try:
+                invalid = agent_eval.invalid_evidence_ids(result, root_path)
+            except (ImportError, OSError, TypeError, ValueError) as exc:
+                raise InvalidCheckpoint(f"finding evidence 校验失败: {exc}") from exc
+            if invalid:
+                rejection_records = finding_evidence_rejections(result, root_path)
+                feedback = {
+                    "schema_version": 1,
+                    "contract": (
+                        "finding.evidence 必须是对象数组：path 为 workspace 内"
+                        "真实文件的相对路径，line 为正整数且不超过文件行数"
+                    ),
+                    "correct_sample": agent_eval.CORRECT_EVIDENCE_SAMPLE,
+                    "self_correction_rounds": len(correction_rounds),
+                    "findings": rejection_records,
+                    "retry_prompt": _evidence_retry_prompt(
+                        rejection_records, correction_rounds,
+                    ),
+                }
+                exc = InvalidCheckpoint(
+                    "finding 缺真实 workspace evidence: " + ", ".join(invalid)
+                    + "；" + feedback["retry_prompt"]
+                )
+                exc.evidence_feedback = feedback
+                raise exc
     return result
 
 
@@ -623,13 +855,22 @@ def attach_evidence_receipts(
     """
     if not findings or not isinstance(evidence, Mapping) or not evidence:
         return
+    # F-RSI-20261110-044：关联键逐条 os.path.normpath 归一——coverage unit id
+    # 是路径形态（coverage_unit_id），worker 回传的 evidence 键/finding 的
+    # case_id 可能携带 "./x.py"/"sub/../x.py" 别名变体；不归一 = receipt
+    # **静默不附着**（关联不上保持原样），结算裁决器失去引擎台账可查。
+    # 与 F-019/F-028/F-029 同根因：路径比较前必须归一。非路径键
+    # （业务单元等）normpath 无斜杠时原样保留。
+    def _norm_unit_key(value: object) -> str:
+        return os.path.normpath(str(value).strip())
+
     receipt_by_unit: dict[str, Mapping[str, object]] = {}
     for unit, item in evidence.items():
         if not isinstance(item, Mapping):
             continue
         receipt = item.get("execution_receipt")
         if isinstance(receipt, Mapping) and receipt:
-            receipt_by_unit[str(unit).strip()] = receipt
+            receipt_by_unit[_norm_unit_key(unit)] = receipt
     if not receipt_by_unit:
         return
     for finding in findings:
@@ -639,8 +880,9 @@ def attach_evidence_receipts(
             continue
         for key in ("case_id", "unit"):
             unit_key = str(finding.get(key) or "").strip()
-            if unit_key and unit_key in receipt_by_unit:
-                finding["evidence_receipt"] = dict(receipt_by_unit[unit_key])
+            normalized = _norm_unit_key(unit_key)
+            if normalized and normalized in receipt_by_unit:
+                finding["evidence_receipt"] = dict(receipt_by_unit[normalized])
                 break
 
 

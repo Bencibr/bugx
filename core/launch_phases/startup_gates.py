@@ -584,6 +584,23 @@ _report_policy_startup_gate = report_policy_startup_gate
 _interactive_startup_decisions = interactive_startup_decisions
 
 
+def _map_coverage_bootstrap_answer(value: str | None) -> bool | None:
+    """coverage_bootstrap 选择值→动作映射单一真源（TTY / 信箱两通道共用）。
+
+    TTY 文本菜单经 ``ask_interaction`` 返回选项序号（"1"/"2"）；信箱通道
+    （``bugx interaction answer coverage_bootstrap``）经 ``take_answer`` 返回
+    结构化门禁的语义 value（"bootstrap"/"later"）。两通道必须落到同一动作，
+    否则语义答案会在 ask 内被消费（consumed_at 已置位）却被映射丢弃，
+    门禁无限重发。
+    """
+    low = (value or "").strip().lower()
+    if low in {"1", "bootstrap"}:
+        return True
+    if low in {"2", "later"}:
+        return False
+    return None
+
+
 def _ask_coverage_bootstrap() -> bool | None:
     """通过统一组件询问是否创建覆盖清单。"""
     result = ask_interaction(
@@ -593,12 +610,7 @@ def _ask_coverage_bootstrap() -> bool | None:
         ],
         default=0,
     )
-    value = answered_value(result)
-    if value == "1":
-        return True
-    if value == "2":
-        return False
-    return None
+    return _map_coverage_bootstrap_answer(answered_value(result))
 
 #: 显式审计范围入口（`autonomous --coverage-manifest` / 手工 ``BUGX_COVERAGE_MANIFEST``）。
 #:
@@ -826,6 +838,23 @@ def coverage_startup_gate(
     )
     return 0
 
+def _map_aborted_session_answer(value: str | None) -> str | None:
+    """aborted_session 选择值→动作映射单一真源（TTY / 信箱两通道共用）。
+
+    TTY 文本菜单经 ``ask_interaction`` 返回选项序号（"1"/"2"）；信箱通道
+    （``bugx interaction answer aborted_session``）经 ``take_answer`` 返回
+    结构化门禁的语义 value（"resume"/"new"）。两通道必须落到同一动作，
+    否则语义答案会在 ask 内被消费（consumed_at 已置位）却被映射丢弃，
+    门禁无限重发。
+    """
+    low = (value or "").strip().lower()
+    if low in {"1", "resume"}:
+        return "resume"
+    if low in {"2", "new"}:
+        return "new"
+    return None
+
+
 def _ask_aborted_session_choice() -> str | None:
     """通过统一组件询问已中断会话的显式去向：恢复或新建。"""
     result = ask_interaction(
@@ -835,8 +864,7 @@ def _ask_aborted_session_choice() -> str | None:
         ],
         default=0,
     )
-    value = answered_value(result)
-    return {"1": "resume", "2": "new"}.get(value or "")
+    return _map_aborted_session_answer(answered_value(result))
 
 def aborted_session_gate(
     previous_runtime: dict, explicit_choice: str | None = None, *,

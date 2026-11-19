@@ -284,9 +284,33 @@ logic_command 只能是 validate、bind 或 bind-finding；--input 必填。
 
 probe_kind 必须为：
 
-efficiency、sast、mobile、ios_binary、codebase-memory、platform、memory、pattern、differential、openwiki。
+efficiency、sast、mobile、ui、ios_binary、codebase-memory、platform、memory、pattern、differential、openwiki。
 
 其余 probe_args 由具体 probe 透传；probe 可能读取项目或产生 artifact，不应按纯 parser 查询处理。
+
+Web UI 审计使用同一 Python 环境安装 `bugx-cli[ui]`，再执行 `python3 -m playwright install chromium`。
+
+    bugx probe ui --root . --url http://127.0.0.1:8080 --journeys --strict
+
+默认审查桌面、平板、手机、横屏和 Chromium 原生 200%/400% 缩放，读取项目根 `DESIGN.md`
+中的 `bugx-ui` JSON 围栏。`--design` 可指定其他文件，`--viewport NAME=WIDTHxHEIGHT` 可重写
+普通视口，`--color-scheme dark` 可审查深色主题。`--journeys` 在目标测试环境执行已声明的
+业务状态和键盘旅程。渲染检查使用随包分发的 axe-core，Web 标准检查器可核验同轮收据。
+默认输出目录由系统创建，`--out-dir` 接收空目录，收据路径从 stdout 读取。`--strict` 对有失败
+或缺证据的机器检查返回 2。
+
+`--vision-model <本地模型标签>` 把截图和设计文档正文交给本机 Ollama，返回带截图哈希的设计点评。
+`--reference-url <参考地址>` 启用视觉对照，`--visual-mask <CSS 选择器>` 可重复，默认容许
+0.1% 像素差异，可通过 `--visual-max-diff <比例>` 调整。对照结果可随 CSS 修复一同复测。
+`--repair-css tokens.css` 生成 token 补丁预览，附加 `--apply` 后对回环地址执行真实复测并按收据
+保留或回滚。规则、适用边界和样例见 [Web UI 审计卡](../../core/report_engine/web-conformance.md#项目-ui-规则)。
+
+    bugx probe ui --storybook http://127.0.0.1:6006 --list-stories
+    bugx probe ui --storybook http://127.0.0.1:6006 --story button--default --journeys --strict
+
+`--storybook` 以已部署的组件预览替代 `--url`，支持从索引列出或选择 story。
+场景可用 `story` 指定预览 ID。用 `DESIGN.md` 的 `token_source` 字段将 DTCG 或
+Style Dictionary JSON 映射到 CSS 变量。详情见 [Storybook 与 token](../../core/report_engine/web-conformance.md#接入-storybook-和设计-token)。
 
 ### 6.4 knowledge
 
@@ -522,7 +546,7 @@ status 在未初始化项目上可以执行有限的只读检查；其他动作�
 - sync 的 scope 默认 None，读取 cloud config 的默认值；detail mode 为 full 或 summary。
 - export 的 scope 默认 project，detail mode 默认 full，--output 必填，写本地 bundle。
 - upload 的 --mode 默认 merge，local_authoritative 会改变冲突权威方向；这是显式网络动作。两种 mode 都可能采用服务端 snapshot 并更新本地同步基线，必须核对 `snapshot_id`、`snapshot_version` 和上传后的 `cloud status`。
-- sync 每个 scope 的实现顺序是 baseline pull → push → post-push pull；`summary` 只降低部分记录详情，不等于敏感数据清除。敏感策略由 `cloud.sensitive_policy` 控制，允许值为 `block|redact|allow`，配置缺失时当前实现缺省为 `allow`。
+- sync 每个 scope 的实现顺序是 baseline pull → push → post-push pull；`summary` 只降低部分记录详情，不等于敏感数据清除。敏感策略由 `cloud.sensitive_policy` 控制，允许值为 `block|redact|allow`；配置缺失时缺省为 `redact`（安全默认，F-025）——原样出网必须显式设置 `allow`。
 - `cloud sync` 未指定 `--scope` 时使用 `cloud.sync_scope_default`，缺省为 `all`；`onboard on` 和启动 onboarding 可能直接同步 global + project，不能把它们当 project-only。
 - 失败时先看 `cloud status --scope ... --json`、`cloud conflicts list`、`cloud dead-letter list`。`ack_pending` 表示本地可能已提交而 ACK 未完成，不要直接 reset 或盲目重复 upload；`--calibrate` 只用于明确的可恢复 cursor/baseline 失配。
 

@@ -1,0 +1,321 @@
+/* =========================================================================
+   DOC-255 Upgrade Styles: Waffle Grid, Model Config, IDE, Docs, Marketplace
+   ========================================================================= */
+
+/* Header Action Buttons (IDE Open, Archive, Delete) */
+.bx-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: nowrap;
+}
+
+.bx-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-select-border);
+  color: var(--bx-text-main);
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.bx-action-btn:hover {
+  border-color: var(--bx-accent-cyan);
+  color: var(--bx-accent-cyan);
+}
+
+.bx-action-btn.primary {
+  background: linear-gradient(135deg, var(--bx-sky-600), var(--bx-emerald-500));
+  color: var(--bx-white);
+  border: none;
+  font-weight: 600;
+}
+
+.bx-action-btn.primary:hover {
+  opacity: 0.92;
+  color: var(--bx-white);
+}
+
+.bx-action-btn.danger:hover {
+  border-color: var(--bx-accent-red);
+  color: var(--bx-accent-red);
+}
+
+/* Strategy-Group Waffle Coverage Matrix (REQ-07) */
+.bx-waffle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-7);
+  border-top: 1px solid var(--bx-border-subtle);
+}
+
+.bx-waffle-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+  font-size: var(--fs-label-sm);
+  color: var(--bx-text-muted);
+}
+
+.bx-waffle-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bx-waffle-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-xs);
+  display: inline-block;
+}
+
+.bx-waffle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding: var(--sp-6);
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-lg);
+}
+
+.bx-waffle-cell {
+  aspect-ratio: 1 / 1;
+  min-height: 24px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  user-select: none;
+}
+
+.bx-waffle-cell:hover {
+  transform: scale(1.16);
+  z-index: var(--z-cell-hover);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.bx-waffle-cell.state-pending {
+  background: #334155;
+  color: var(--bx-text-tertiary);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.bx-waffle-cell.state-running {
+  background: var(--bx-sky-600);
+  border: 1px solid var(--bx-sky-400);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+  animation: bxWafflePulse 1.4s infinite ease-in-out;
+}
+
+.bx-waffle-cell.state-covered_clean {
+  background: var(--bx-emerald-500);
+  border: 1px solid #34d399;
+}
+
+.bx-waffle-cell.state-covered_suspect {
+  background: #f59e0b;
+  border: 1px solid #fbbf24;
+}
+
+.bx-waffle-cell.state-covered_vulnerable {
+  background: #ef4444;
+  border: 1px solid #f87171;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.45);
+}
+
+@keyframes bxWafflePulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.06); opacity: 0.82; }
+}
+
+.bx-waffle-drawer {
+  margin-top: var(--sp-5);
+  padding: var(--sp-6) var(--sp-7);
+  background: var(--bx-card-bg);
+  border: 1px solid var(--bx-accent-cyan);
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-body);
+  display: none;
+}
+
+.bx-waffle-drawer.active {
+  display: block;
+}
+
+/* Model Parameter Sliders & Inputs (REQ-03) */
+.bx-model-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sp-7);
+  margin-top: var(--sp-5);
+}
+
+.bx-param-box {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6) var(--sp-7);
+}
+
+.bx-param-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--bx-text-main);
+}
+
+.bx-param-val {
+  font-family: ui-monospace, monospace;
+  font-size: var(--fs-body);
+  color: var(--bx-accent-cyan);
+  background: var(--bx-card-bg);
+  padding: 1px var(--sp-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bx-card-border);
+}
+
+.bx-range-slider {
+  width: 100%;
+  accent-color: var(--bx-accent-green);
+  cursor: pointer;
+}
+
+/* Marketplace Grid (REQ-09) */
+.bx-mkt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sp-6);
+  margin-top: var(--sp-5);
+}
+
+.bx-mkt-card {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6) var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.bx-mkt-card.recommended {
+  border-color: var(--bx-accent-green);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.2);
+}
+
+/* Document Center Split Layout (REQ-05) */
+.bx-docs-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--sp-8);
+  min-height: 460px;
+}
+
+.bx-docs-sidebar {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  max-height: 540px;
+}
+
+.bx-docs-list {
+  overflow-y: auto;
+  flex: 1;
+  margin-top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.bx-doc-item {
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  color: var(--bx-text-main);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  transition: background 0.15s ease;
+}
+
+.bx-doc-item:hover, .bx-doc-item.active {
+  background: var(--bx-table-row-hover);
+  color: var(--bx-accent-cyan);
+  font-weight: 600;
+}
+
+.bx-docs-viewer {
+  background: var(--bx-card-bg);
+  border: 1px solid var(--bx-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-8) var(--sp-10);
+  display: flex;
+  flex-direction: column;
+  max-height: 540px;
+  overflow-y: auto;
+}
+
+.bx-doc-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bx-mini-card-bg);
+  padding: var(--sp-7);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bx-mini-card-border);
+  color: var(--bx-text-main);
+  margin: 0;
+}
+
+/* =========================================================================
+   Composer Host Brand Icons & Separate Model Picker Pill (REQ-01 Polish)
+   ========================================================================= */
+.bx-host-brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--sp-3);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.bx-host-brand-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+

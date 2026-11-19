@@ -1,6 +1,6 @@
-# BugX 后端服务示例配置（不是 BugX CLI 配置）
+# BugX 后端服务示例配置（不是 bug-hunter CLI 配置）
 #
-# 归属：后端服务/部署模板。当前 BugX CLI 不读取本文件；CLI 使用项目根目录
+# 归属：后端服务/部署模板。当前 bug-hunter CLI 不读取本文件；CLI 使用项目根目录
 # 的 opencode.json，云端客户端使用 BUGX_CLOUD_CONFIG 或 ~/.bugx/cloud-config.json。
 #
 # 安全边界：本文件不可直接用于生产。`${BUGX_...}` 是必须由部署系统或 Secret
@@ -9,7 +9,7 @@
 
 app:
   name: "bugx"
-  version: "0.1.0"
+  version: "${BUGX_VERSION}"
   environment: "dev"  # dev, test, prod
   debug: false  # 仅允许在本机临时调试时显式开启；生产环境必须为 false
   timezone: "Asia/Shanghai"

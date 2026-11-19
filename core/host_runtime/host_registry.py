@@ -10,8 +10,7 @@
 
 本模块是引擎侧唯一的宿主名与项目标记来源。``supervisor_host`` 与
 ``startup_environment`` 都必须从这里取，不得再写本地字面量；CLI 侧
-``host_adapters.HOST_ADAPTERS`` 由 ``tests/test_consistency.py`` 与本清单做
-双向一致性守护。
+``host_adapters.HOST_ADAPTERS`` 与本清单由宿主注册完整性检查做双向一致性守护。
 
 依赖约束：本模块只允许依赖标准库，避免成为新的 import 环。
 """
@@ -30,7 +29,7 @@ except ImportError:
 
 # 受支持宿主（顺序即稳定展示顺序）。新增宿主必须同时更新：
 #   1. 本清单；2. HOST_MARKERS；3. CLI 侧 src/bugx_cli/host_adapters.py。
-# 缺任何一处都会被 tests/test_consistency.py 拦下。
+# 缺任何一处都会被宿主注册完整性检查拦下。
 SUPPORTED_HOSTS: tuple[str, ...] = (
     "opencode",
     "claude",
@@ -540,12 +539,20 @@ def build_recon_scout_env(host_name: str, root: Path) -> dict[str, str]:
 
 def host_project_mcp_relpaths() -> list[str]:
     """返回所有已适配宿主声明的项目级 MCP 配置相对路径 (DOC-243 消除硬编码宿主事实字面量)。"""
-    relpaths: list[str] = []
+
+    return list(host_project_mcp_containers())
+
+
+def host_project_mcp_containers() -> dict[str, str | None]:
+    """项目级 MCP 配置相对路径 → 该宿主的容器键（点分，如 ``mcp.servers``）。"""
+
+    containers: dict[str, str | None] = {}
     for plugin in _HOST_PLUGINS.values():
-        rel = getattr(getattr(plugin, "mcp_write", None), "project_relpath", None)
-        if rel and isinstance(rel, str) and rel not in relpaths:
-            relpaths.append(rel)
-    return relpaths
+        facet = getattr(plugin, "mcp_write", None)
+        rel = getattr(facet, "project_relpath", None)
+        if rel and isinstance(rel, str):
+            containers.setdefault(rel, getattr(facet, "container_key", None) or None)
+    return containers
 
 
 def resolve_scout_host(root: Path, preferred: str | None = None) -> str:

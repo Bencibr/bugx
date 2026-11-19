@@ -36,6 +36,38 @@ _ledger = LedgerProxy()
 # _ledger.SCHEMA_VERSION delegates to _ledger.SCHEMA_VERSION
 FTS_COLUMNS = ("pattern_id", "category", "title", "root_cause", "reflection", "probes", "aliases")
 
+#: F-134: 归档 root_hash 的**库外只读锚**文件名。root_hash 不能再只与 manifest
+#: 同存 DB meta 由库内两份数据互证；必须另存到与 DB 物理分离的独立文件，
+#: 深度校验以「DB manifest 重算值 vs 库外锚」判定，缺失/损坏一律 fail-closed。
+ARCHIVE_ANCHOR_NAME = ".archive-root.anchor"
+
+
+def _archive_anchor_path(outdir: str | os.PathLike[str]) -> Path:
+    return Path(outdir) / ARCHIVE_ANCHOR_NAME
+
+
+def _write_archive_anchor(anchor: Path, root_hash: str,
+                          manifest: list[dict[str, Any]]) -> None:
+    """把归档根哈希原子写入库外只读锚（与 SQLite DB 物理分离）。"""
+    payload = {
+        "archive_root_hash": root_hash,
+        "manifest_sha256": hashlib.sha256(_canon(manifest)).hexdigest(),
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=".anchor-", suffix=".tmp", dir=anchor.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(blob)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o444)
+        os.replace(tmp, anchor)
+    except BaseException:
+        if tmp.is_file():
+            tmp.unlink()
+        raise
+
 
 class _ErrorMeta(type):
     def __instancecheck__(cls, instance):
@@ -435,9 +467,25 @@ def validate_deep(path: str | os.PathLike[str]) -> dict[str, Any]:
         archived_seq = _meta_value(c, "archive_last_seq")
         if manifest:
             root = hashlib.sha256(_canon(manifest)).hexdigest()
+            # F-134: 只比 DB 内 manifest 与 DB 内 archive_root_hash 不算完整性校验；
+            # 必须与库外只读锚互证，锚缺失/损坏/不符一律 fail-closed。
+            archive_dir = _meta_value(c, "archive_dir")
+            anchor = _archive_anchor_path(archive_dir) if archive_dir else None
+            if anchor is None or not anchor.is_file():
+                issues.append("archive_root_hash 库外锚缺失，拒绝通过深度校验")
+            else:
+                try:
+                    anchor_data = json.loads(anchor.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    issues.append(f"archive_root_hash 库外锚损坏: {exc}")
+                    anchor_data = None
+                if anchor_data is not None:
+                    if str(anchor_data.get("archive_root_hash", "")) != root:
+                        issues.append("archive_root_hash 与库外锚不一致")
+                    if str(anchor_data.get("manifest_sha256", "")) != root:
+                        issues.append("archive manifest 摘要与库外锚不一致")
             if _meta_value(c, "archive_root_hash") != root:
                 issues.append("archive_root_hash 与 manifest 不一致")
-            archive_dir = _meta_value(c, "archive_dir")
             if not archive_dir or not Path(archive_dir).is_dir():
                 issues.append("archive_dir 缺失，无法验证归档段")
             else:
@@ -482,7 +530,8 @@ def archive_events(path: str | os.PathLike[str], output_dir: str | os.PathLike[s
       2) segment 以临时文件写入、fsync 后原子发布到最终路径；
       3) 再开写事务：校验 head 未变 → 删除已归档区间 → 写入 manifest、
          archive root hash、最后归档 seq/hash（新的连续起点证明）→ 提交；
-      4) 发布成功但事务失败的进程内异常会删除未登记的 segment 文件；
+         同批把 root_hash 原子写入库外只读锚（与 DB 物理分离，F-134）；
+      4) 发布成功但事务失败的进程内异常会删除未登记的 segment 文件与库外锚；
       5) 进程中断留下的孤儿文件内容是确定性的，重跑会用相同字节覆盖收敛。
     """
     if not isinstance(keep_tail, int) or isinstance(keep_tail, bool) or keep_tail < 0:
@@ -528,6 +577,8 @@ def archive_events(path: str | os.PathLike[str], output_dir: str | os.PathLike[s
     fd, tmp_name = tempfile.mkstemp(prefix=".segment-", suffix=".tmp", dir=outdir)
     tmp = Path(tmp_name)
     published = False
+    anchor_path: Path | None = None
+    anchor_published = False
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(blob)
@@ -535,6 +586,11 @@ def archive_events(path: str | os.PathLike[str], output_dir: str | os.PathLike[s
             os.fsync(handle.fileno())
         os.replace(tmp, final)
         published = True
+
+        # F-134: 库外只读锚与 DB 分离写入；若 DB 事务失败，异常路径一并撤销。
+        anchor_path = _archive_anchor_path(outdir)
+        _write_archive_anchor(anchor_path, root_hash, new_manifest)
+        anchor_published = True
 
         def go(c):
             if _meta_value(c, "head_hash") != head_snapshot:
@@ -567,6 +623,8 @@ def archive_events(path: str | os.PathLike[str], output_dir: str | os.PathLike[s
                 final.unlink()
             elif tmp.is_file():
                 tmp.unlink()
+            if anchor_published and anchor_path is not None:
+                anchor_path.unlink()
         except OSError:
             pass
         raise

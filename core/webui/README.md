@@ -46,7 +46,7 @@ flowchart TD
 | `INTERFACE.md` | WebUI API 接口契约说明文档，包含完整 REST 端点清单与返回格式 | HTTP 端点规范 |
 | `mcp_inspector.py` | MCP 工具检查器，提供可视化测试 MCP 工具、查看 Schema 和状态的能力 | `MCPInspectorService` |
 | `SPEC.md` | Web 工作台设计规范，包括安全凭据认证与 CORS 限制规范 | 设计规范说明 |
-| `static/` | 嵌入式前端工作台静态资源（SVG 矢量图标、响应式样式、离线运行时） | 前端静态资产 |
+| `static/` | 嵌入式前端工作台静态资源（SVG 矢量图标、响应式样式、离线运行时）。CSS 架构（F-023 v1）：`design-tokens.css`（实测等值 token 层：2px 间距坡道/rem 字号刻度/圆角/语义色板）→ 13 个分节样式文件（00-base…12-profile-tab，按序加载）→ `index.html` 以 `?v=` 缓存戳接线；原 6458 行单文件 override 层已拆分，拆分经字节级等值探针 + Playwright 像素差分（bbox=None）双验收 | 前端静态资产 |
 | `workspace_service.py` | 工作区状态服务，实时拉取文件变更、Git 状态与覆盖率数据给前端渲染 | `WorkspaceService` |
 
 ---

@@ -1,7 +1,8 @@
 # BugX Core Infrastructure & Primitives (核心基础设施与底层操作系统原语子系统)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 0: 基础设施与操作系统抽象`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 0: 基础设施与操作系统抽象`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/infra/` 构成了 BugX 微内核底层的纯净基础设施与底层操作系统原生能力抽象，为上层分析规划、攻防探针、并发调度与宿主集成提供高可靠、零脆弱性的基础原语支撑。
 
@@ -14,6 +15,7 @@ core/infra/
 ├── __init__.py              # 统一导出门面
 ├── build_info.py            # 固化单调自增 Build ID，提供运行时版本与编译元数据
 ├── client_metadata.py       # 采集宿主硬件架构、操作系统版本与 Node/Python 运行时信息
+├── json_utils.py            # 严格 JSON 对象解析辅助，拒绝重复键
 ├── python_runtime.py        # 探测并驱动独立的受控 Python 解释器执行隔离代码
 └── safe_xml.py              # 防御 XXE (XML 外部实体注入) 的安全解析适配器
 ```
@@ -27,6 +29,7 @@ core/infra/
 | `__init__.py` | 统一导出门面 | 聚合导出核心基础设施与系统原语接口 | `__all__` |
 | `build_info.py` | 构建信息固化 | 固化单调自增 Build ID，提供运行时版本、Build ID 与编译元数据查询 | `build_id`, `build_version` |
 | `client_metadata.py` | 元数据采集器 | 采集当前宿主机硬件架构、操作系统内核与 Node/Python 运行时环境信息 | `collect_client_metadata` |
+| `json_utils.py` | JSON 容器校验 | 构建并校验无重复键的 JSON 对象，供协议解析器复用 | `unique_json_object` |
 | `python_runtime.py` | 隔离解释器 | 探测、校验并驱动独立的受控 Python 解释器环境执行隔离代码 | `transparent_reexec_if_needed`, `resolve_python` |
 | `safe_xml.py` | 安全 XML 解析 | 防御 XXE (XML 外部实体注入)、DTD 实体膨胀与超深 XML 递归的安全解析适配器 | `parse_xml`, `parse_xml_file`, `XmlSecurityError` |
 

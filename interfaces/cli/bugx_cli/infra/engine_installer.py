@@ -19,8 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import bugx_cli
-from bugx_cli import __version__
+from .. import __build_id__, __version__
 from .security import (
     CliError,
     _assert_no_symlink_components,
@@ -1058,6 +1057,8 @@ def _installed_engine_version(destination: Path) -> str | None:
         except (OSError, ValueError):
             payload = None
         version = payload.get("bugx_version") if isinstance(payload, dict) else None
+        if version == "${BUGX_VERSION}":
+            version = os.environ.get("BUGX_VERSION", __version__)
         if isinstance(version, str) and version.strip():
             return _full_engine_version(version.strip(), destination)
     marker = destination / "metadata.txt"
@@ -1068,7 +1069,10 @@ def _installed_engine_version(destination: Path) -> str | None:
             return None
         match = re.search(r'bugx_version:\s*"([^"]+)"', content)
         if match:
-            return _full_engine_version(match.group(1), destination)
+            version = match.group(1)
+            if version == "${BUGX_VERSION}":
+                version = os.environ.get("BUGX_VERSION", __version__)
+            return _full_engine_version(version, destination)
     return None
 
 
@@ -1786,6 +1790,8 @@ def _version_marker(path: Path, pattern: re.Pattern[str], *, allow_symlink: bool
     except (OSError, UnicodeError, CliError):
         return None
     value = match.group(1) if match else None
+    if value == "${BUGX_VERSION}":
+        value = os.environ.get("BUGX_VERSION", __version__)
     return value if value and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
 
@@ -1798,6 +1804,8 @@ def _json_version_marker(path: Path, key: str) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError, CliError):
         return None
     value = payload.get(key) if isinstance(payload, dict) else None
+    if value == "${BUGX_VERSION}":
+        value = os.environ.get("BUGX_VERSION", __version__)
     return value if isinstance(value, str) and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
 
@@ -1806,12 +1814,12 @@ def _version_contract_status(root: Path, engine: Path) -> tuple[bool, str]:
     source_root = asset_root()
     raw_values: dict[str, str | None] = {
         "cli": (
-            f"{__version__}+build.{getattr(bugx_cli, '__build_id__', None)}"
-            if getattr(bugx_cli, "__build_id__", None) is not None
+            f"{__version__}+build.{__build_id__}"
+            if __build_id__ is not None
             else _full_engine_version(__version__, source_root)
         ),
         "source": _full_engine_version(_version_marker(
-            source_root / "bugx.md", re.compile(r"^version:\s*([0-9A-Za-z.+-]+)", re.M),
+            source_root / "bugx.md", re.compile(r"^version:\s*(\S+)", re.M),
         ), source_root),
         "engine_metadata": _version_marker(
             engine / "metadata.txt", re.compile(r'bugx_version:\s*"([0-9A-Za-z.+-]+)"'),
@@ -1820,7 +1828,7 @@ def _version_contract_status(root: Path, engine: Path) -> tuple[bool, str]:
             engine / ENGINE_INTEGRITY_NAME, "bugx_version",
         ),
         "engine_descriptor": _version_marker(
-            engine / "bugx.md", re.compile(r"^version:\s*([0-9A-Za-z.+-]+)", re.M),
+            engine / "bugx.md", re.compile(r"^version:\s*(\S+)", re.M),
         ),
     }
     for name in ("engine_metadata", "engine_integrity", "engine_descriptor"):

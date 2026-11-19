@@ -11,6 +11,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -302,6 +303,11 @@ def execute_check_plan(
     except (OSError, ValueError) as exc:
         raise ExecutionError(f"CheckPlan process could not be started: {exc}") from exc
 
+    # Bind the kernel identity at creation time, before any poll()/wait() can
+    # reap the leader and release its PID for reuse.  The numeric PGID below is
+    # observation-only; all group signals are gated by this handle.
+    identity = _GroupIdentity.bind(process)
+
     assert process.stdout is not None and process.stderr is not None
     for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
         thread = threading.Thread(target=capture.drain, args=(name, pipe), daemon=True)
@@ -322,7 +328,7 @@ def execute_check_plan(
     # Cleanup also runs after a normal parent exit: descendants are not allowed
     # to outlive the CheckPlan or keep captured pipes open.
     try:
-        _terminate_and_reap_group(process)
+        _terminate_and_reap_group(process, identity)
     except (ExecutionError, OSError) as exc:
         cleanup_error = str(exc)
     for thread in threads:
@@ -407,65 +413,222 @@ class _BoundedCapture:
             )
 
 
-def _terminate_and_reap_group(process: subprocess.Popen[bytes]) -> None:
-    """Terminate descendants before reaping the leader, then verify cleanup."""
-    pgid = process.pid
-    # Signal before poll()/wait(): those calls reap an exited leader and release
-    # its PID. Keeping the leader unreaped until this first group signal avoids
-    # a fast PID reuse racing cleanup after a short-lived command.
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
-    except OSError as exc:
-        raise ExecutionOutcomeUnknown(
-            f"could not signal process group {pgid}: {exc}", _unknown_observation(process)
-        ) from exc
+def _group_identity_token(pid: int) -> tuple[object, ...] | None:
+    """Return a kernel-backed incarnation token for ``pid`` (or ``None``).
 
-    # Do not reap the leader before the last group signal.  Its PID is also the
-    # process-group ID; after wait() another process could reuse that ID and a
-    # late killpg(SIGKILL) would target an unrelated group.
-    if not _wait_group_gone(pgid, _TERM_GRACE_SECONDS):
+    The token is *not* just the numeric PID: it also binds the process start
+    time and its process group, so a recycled PID can never reproduce the same
+    token.  This is the portable equivalent of a Linux pidfd identity handle.
+
+    Platform landing points:
+      * Linux: ``/proc/<pid>/stat`` starttime (field 22) + pgrp (field 5).
+      * macOS: libproc ``proc_pidinfo(PROC_PIDTBSDINFO)`` start time + pgid.
+      * Other POSIX: ``None`` -> the caller fails closed (never sends a group
+        signal it cannot bind to a verified incarnation).
+    """
+    if sys.platform == "linux":
         try:
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError as exc:
-            # On POSIX hosts a terminated group leader may remain as a zombie
-            # until its parent reaps it. Some kernels report EPERM for both
-            # killpg(0) and SIGKILL while that zombie is the only group member.
-            # Reap the leader, then only observe the numeric PGID: never signal
-            # it again after reaping, since the identifier could be reused.
+            with open(f"/proc/{pid}/stat", "r", encoding="ascii") as handle:
+                stat = handle.read()
+            # comm may contain spaces/parentheses; everything after the last ')'
+            # begins at field 3 (state).  pgrp=field5 -> index 2,
+            # starttime=field22 -> index 19 relative to field 3.
+            fields = stat[stat.rindex(")") + 2:].split()
+            pgrp = int(fields[2])
+            starttime = int(fields[19])
+            return ("linux", pid, starttime, pgrp)
+        except (OSError, ValueError, IndexError):
+            return None
+    if sys.platform == "darwin":
+        try:
+            import ctypes
+            import ctypes.util
+
+            class _ProcBsdInfo(ctypes.Structure):
+                _fields_ = [
+                    ("pbi_flags", ctypes.c_uint32),
+                    ("pbi_status", ctypes.c_uint32),
+                    ("pbi_xstatus", ctypes.c_uint32),
+                    ("pbi_pid", ctypes.c_uint32),
+                    ("pbi_ppid", ctypes.c_uint32),
+                    ("pbi_uid", ctypes.c_uint32),
+                    ("pbi_gid", ctypes.c_uint32),
+                    ("pbi_ruid", ctypes.c_uint32),
+                    ("pbi_rgid", ctypes.c_uint32),
+                    ("pbi_svuid", ctypes.c_uint32),
+                    ("pbi_svgid", ctypes.c_uint32),
+                    ("rfu_1", ctypes.c_uint32),
+                    ("pbi_comm", ctypes.c_char * 16),
+                    ("pbi_name", ctypes.c_char * 32),
+                    ("pbi_nfiles", ctypes.c_uint32),
+                    ("pbi_pgid", ctypes.c_uint32),
+                    ("pbi_pjobc", ctypes.c_uint32),
+                    ("e_tdev", ctypes.c_uint32),
+                    ("e_tpgid", ctypes.c_uint32),
+                    ("pbi_nice", ctypes.c_int32),
+                    ("pbi_start_tvsec", ctypes.c_uint64),
+                    ("pbi_start_tvusec", ctypes.c_uint64),
+                ]
+
+            name = ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib"
+            libproc = ctypes.CDLL(name)
+            libproc.proc_pidinfo.argtypes = [
+                ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                ctypes.c_void_p, ctypes.c_int,
+            ]
+            libproc.proc_pidinfo.restype = ctypes.c_int
+            info = _ProcBsdInfo()
+            read = libproc.proc_pidinfo(
+                pid, 3, 0, ctypes.byref(info), ctypes.sizeof(info)  # 3 = PROC_PIDTBSDINFO
+            )
+            if read <= 0 or info.pbi_pid != pid:
+                return None
+            return (
+                "darwin", info.pbi_pid, info.pbi_start_tvsec,
+                info.pbi_start_tvusec, info.pbi_pgid,
+            )
+        except (OSError, ValueError, AttributeError):
+            return None
+    return None
+
+
+class _GroupIdentity:
+    """Kernel-backed identity binding for a spawned process group.
+
+    The numeric PGID is retained only for observation / diagnostics.  Sending a
+    group signal is allowed only while ``matches()`` confirms the bound
+    incarnation still owns that PGID; otherwise the caller fails closed.
+    """
+
+    def __init__(self, pid: int, pgid: int, token: tuple[object, ...] | None, pidfd: object | None) -> None:
+        self.pid = pid
+        self.pgid = pgid
+        self._token = token
+        self._pidfd = pidfd
+
+    @classmethod
+    def bind(cls, process: subprocess.Popen[bytes]) -> "_GroupIdentity":
+        """Capture the incarnation identity at creation time, before any reap."""
+        pid = process.pid
+        token = _group_identity_token(pid)
+        pidfd = None
+        if sys.platform == "linux":
             try:
-                process.wait(timeout=_KILL_VERIFY_SECONDS)
-            except subprocess.TimeoutExpired as wait_exc:
-                raise ExecutionOutcomeUnknown(
-                    f"process leader {process.pid} could not be reaped",
-                    _unknown_observation(process),
-                ) from wait_exc
-            if not _wait_group_gone(pgid, _KILL_VERIFY_SECONDS):
-                raise ExecutionOutcomeUnknown(
-                    f"process group {pgid} remains after SIGKILL was denied: {exc}",
-                    _unknown_observation(process),
-                ) from exc
-            return
+                pidfd = os.pidfd_open(pid)  # type: ignore[attr-defined]
+            except (OSError, AttributeError):
+                pidfd = None
+        return cls(pid, pid, token, pidfd)
+
+    def matches(self) -> bool:
+        """True only if the bound incarnation still owns the numeric PGID."""
+        if self._token is None:
+            return False
+        current = _group_identity_token(self.pid)
+        return current is not None and current == self._token
+
+    def close(self) -> None:
+        if self._pidfd is not None:
+            try:
+                os.close(self._pidfd)  # type: ignore[arg-type]
+            except OSError:
+                pass
+            self._pidfd = None
+
+
+def _terminate_and_reap_group(
+    process: subprocess.Popen[bytes], identity: _GroupIdentity
+) -> None:
+    """Terminate descendants before reaping the leader, then verify cleanup.
+
+    Every group signal is gated by ``identity.matches()``: the numeric PGID is
+    observation-only and is never used as a send credential on its own.
+    """
+    pgid = identity.pgid
+
+    def send(sig: int) -> None:
+        """Send one group signal only after proving the group identity.
+
+        Fails closed with ``ExecutionOutcomeUnknown`` when identity cannot be
+        proven but the group still appears alive (never signals an unverified
+        or possibly-reused group).  A gone group is a no-op.  OS errors from
+        the actual ``killpg`` propagate to the caller's typed handlers below.
+        """
+        if not identity.matches():
+            # Observation only: signal 0 delivers nothing.  If the group is
+            # already gone there is nothing to clean up; if it is still alive
+            # we must not send unverified signals to it.
+            try:
+                os.killpg(pgid, 0)
+            except OSError:
+                return
+            raise ExecutionOutcomeUnknown(
+                f"process group identity for {pgid} could not be confirmed; "
+                f"refusing to send signal {sig}",
+                _unknown_observation(process),
+            )
+        os.killpg(pgid, sig)
+
+    try:
+        # Signal before poll()/wait(): those calls reap an exited leader and
+        # release its PID.  Keeping the leader unreaped until this first
+        # identity-checked group signal avoids a fast PID reuse racing cleanup.
+        try:
+            send(signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
         except OSError as exc:
             raise ExecutionOutcomeUnknown(
-                f"could not force-kill process group {pgid}: {exc}",
+                f"could not signal process group {pgid}: {exc}",
                 _unknown_observation(process),
             ) from exc
-    try:
-        process.wait(timeout=_KILL_VERIFY_SECONDS)
-    except subprocess.TimeoutExpired as exc:
-        raise ExecutionOutcomeUnknown(
-            f"process leader {process.pid} could not be reaped",
-            _unknown_observation(process),
-        ) from exc
-    if not _wait_group_gone(pgid, _KILL_VERIFY_SECONDS):
-        raise ExecutionOutcomeUnknown(
-            f"process group {pgid} remains after termination",
-            _unknown_observation(process),
-        )
+
+        # Do not reap the leader before the last group signal.  Its PID is also
+        # the process-group ID; after wait() another process could reuse that
+        # ID, so every send re-proves the bound identity first.
+        if not _wait_group_gone(pgid, _TERM_GRACE_SECONDS):
+            try:
+                send(signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError as exc:
+                # On POSIX hosts a terminated group leader may remain as a
+                # zombie until its parent reaps it. Some kernels report EPERM
+                # for both killpg(0) and SIGKILL while that zombie is the only
+                # group member. Reap the leader, then only observe the numeric
+                # PGID: never signal it again after reaping, since the
+                # identifier could be reused.
+                try:
+                    process.wait(timeout=_KILL_VERIFY_SECONDS)
+                except subprocess.TimeoutExpired as wait_exc:
+                    raise ExecutionOutcomeUnknown(
+                        f"process leader {process.pid} could not be reaped",
+                        _unknown_observation(process),
+                    ) from wait_exc
+                if not _wait_group_gone(pgid, _KILL_VERIFY_SECONDS):
+                    raise ExecutionOutcomeUnknown(
+                        f"process group {pgid} remains after SIGKILL was denied: {exc}",
+                        _unknown_observation(process),
+                    ) from exc
+                return
+            except OSError as exc:
+                raise ExecutionOutcomeUnknown(
+                    f"could not force-kill process group {pgid}: {exc}",
+                    _unknown_observation(process),
+                ) from exc
+        try:
+            process.wait(timeout=_KILL_VERIFY_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise ExecutionOutcomeUnknown(
+                f"process leader {process.pid} could not be reaped",
+                _unknown_observation(process),
+            ) from exc
+        if not _wait_group_gone(pgid, _KILL_VERIFY_SECONDS):
+            raise ExecutionOutcomeUnknown(
+                f"process group {pgid} remains after termination",
+                _unknown_observation(process),
+            )
+    finally:
+        identity.close()
 
 
 def _wait_group_gone(pgid: int, timeout: float) -> bool:
@@ -515,14 +678,15 @@ def _match_target_frame(
 ) -> TargetCallEvidence | None:
     normalized_frame = frame_path.replace("\\", "/")
     for target in targets:
-        suffix = target.module_path.replace("\\", "/").lstrip("./")
+        suffix = _strip_dot_prefix(target.module_path.replace("\\", "/"))
         if suffix.endswith(".py") or re.search(r"\.(?:[cm]?js|tsx?)$", suffix):
             expected = suffix
         elif "." in suffix and "/" not in suffix:
             expected = suffix.replace(".", "/") + ".py"
         else:
             expected = suffix
-        if not normalized_frame.endswith(expected):
+        if not (normalized_frame == expected
+                or normalized_frame.endswith("/" + expected)):
             continue
         if target.function_names and function_name not in target.function_names:
             continue

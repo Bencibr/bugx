@@ -79,6 +79,12 @@ PATTERNS: tuple[tuple[str, str, re.Pattern[str], float], ...] = (
 )
 
 
+def _strip_dot_prefix(path: str) -> str:
+    """剥 "./" 前缀（F-029）：str.lstrip("./") 是字符集剥离，会吃掉
+    点前缀文件名（.bugx/.tests/.github）的开头点——symbol_index.py:198
+    已记载该坑，本仓其余站点此番统一对齐。"""
+    return path[2:] if path.startswith("./") else path
+
 def discover_surfaces(root: Path) -> list[dict]:
     root = root.resolve()
     surfaces: dict[tuple[str, str, str, str, int], Surface] = {}
@@ -242,10 +248,10 @@ def query_behavior_graph(
     graph = build_behavior_graph(project_root)
 
     if file_filter:
-        norm = file_filter.strip().lstrip("./").rstrip("/")
+        norm = _strip_dot_prefix(file_filter.strip()).rstrip("/")
 
         def matches(path: str) -> bool:
-            path = str(path).replace("\\", "/").lstrip("./")
+            path = _strip_dot_prefix(str(path).replace("\\", "/"))
             return path == norm or path.startswith(norm + "/")
 
         surfaces = [s for s in graph["surfaces"] if matches(s["path"])]

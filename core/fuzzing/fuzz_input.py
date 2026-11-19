@@ -150,11 +150,18 @@ class _PayloadLimitError(ValueError):
     """单个 fuzz 样本超过执行边界。"""
 
 
-def split_argv(template: str) -> list[str]:
+def split_argv(
+    template: str,
+    *,
+    error_type: type[Exception] = ValueError,
+    parse_error_prefix: str = "命令无法解析",
+    empty_message: str = "命令不能为空",
+    operator_message: str = "命令包含 shell 运算符；如确需使用，请显式传入 --allow-shell",
+) -> list[str]:
     """解析 argv 模板，并拒绝未授权的 shell 语法。
 
-    这是全仓命令拆分的唯一实现（QUA-03）：``minimize_repro`` 与
-    ``differential_probe`` 直接复用本函数，不再各自复制一份。
+    这是全仓命令拆分的唯一实现（QUA-03）。调用方如需领域异常，只能通过
+    ``error_type`` 和消息参数适配，不得复制 lexer 与运算符校验。
     """
     lexer = shlex.shlex(template, posix=True, punctuation_chars=_SHELL_PUNCTUATION)
     lexer.whitespace_split = True
@@ -162,11 +169,11 @@ def split_argv(template: str) -> list[str]:
     try:
         argv = list(lexer)
     except ValueError as exc:
-        raise ValueError(f"命令无法解析: {exc}") from exc
+        raise error_type(f"{parse_error_prefix}: {exc}") from exc
     if not argv:
-        raise ValueError("命令不能为空")
+        raise error_type(empty_message)
     if any(token in _SHELL_OPERATORS for token in argv):
-        raise ValueError("命令包含 shell 运算符；如确需使用，请显式传入 --allow-shell")
+        raise error_type(operator_message)
     return argv
 
 
@@ -1182,6 +1189,102 @@ def main(argv: list[str] | None = None) -> int:
     if evolve:
         print("  进化模式: 新行为样本已回填种子，下一轮 --evolve 同目录继续。")
     return 0
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活模糊执行前提（解释器 + CPU + 可写临时目录，零子进程）。"""
+    if not sys.executable:
+        return False, "缺少 Python 解释器；模糊目标执行不可用"
+    cpu = os.cpu_count()
+    if not cpu:
+        return False, "无法确定 CPU 数量；并发变异调度不可用"
+    tmp = tempfile.gettempdir()
+    if not os.path.isdir(tmp) or not os.access(tmp, os.W_OK):
+        return False, f"模糊样本临时目录不可写: {tmp}"
+    return True, f"执行前提就绪（cpu={cpu}, tmp={tmp}）"
+
+
+def run_static_degraded(
+    input_path: str | Path | None = None,
+    *,
+    count: int = 8,
+    seed: int | None = None,
+    gap_tokens: list[bytes] | None = None,
+) -> dict[str, Any]:
+    """降级契约：只生成变异样本（不执行目标），显式声明为变异发生器自检。
+
+    输出与成功路径（``main`` 的并发轰靶 summary.json 工件）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason`` +
+    ``target_executed=False``；只产出变异策略直方图，绝不产出任何
+    「异常样本/crash」结论，禁止把变异发生器自检伪装成模糊测试完成。
+    """
+    available, availability_detail = is_available()
+    if input_path is None:
+        return {
+            "schema_version": 1,
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "seed_input_missing",
+            "probe_mode": "static_degraded",
+            "target_executed": False,
+            "mutations_generated": 0,
+            "strategy_histogram": {},
+            "findings": [],
+            "evidence": {"availability_detail": availability_detail},
+            "metadata": {"degraded_mode": "mutation_generator_selfcheck"},
+        }
+    src = Path(input_path)
+    if not src.is_file():
+        return {
+            "schema_version": 1,
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "seed_input_not_found",
+            "probe_mode": "static_degraded",
+            "target_executed": False,
+            "mutations_generated": 0,
+            "strategy_histogram": {},
+            "findings": [],
+            "evidence": {
+                "availability_detail": availability_detail,
+                "seed_input": str(src),
+            },
+            "metadata": {"degraded_mode": "mutation_generator_selfcheck"},
+        }
+    data = src.read_bytes()
+    rng = random.Random(seed if seed is not None else 0)
+    sample_count = max(1, min(int(count), 64))
+    strategy_histogram: dict[str, int] = {}
+    distinct_variants: set[str] = set()
+    for _ in range(sample_count):
+        strategy, variant = mutate(data, rng, gap_tokens)
+        strategy_histogram[strategy] = strategy_histogram.get(strategy, 0) + 1
+        distinct_variants.add(hashlib.sha256(variant).hexdigest())
+    return {
+        "schema_version": 1,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "target_execution_unavailable"
+        ),
+        "probe_mode": "static_degraded",
+        "target_executed": False,
+        "seed_input": str(src),
+        "seed_sha256": hashlib.sha256(data).hexdigest(),
+        "mutations_generated": sample_count,
+        "distinct_variants": len(distinct_variants),
+        "strategy_histogram": strategy_histogram,
+        "findings": [],
+        "evidence": {"availability_detail": availability_detail},
+        "metadata": {
+            "degraded_mode": "mutation_generator_selfcheck",
+            "anomalies_reported": 0,
+            "fallback": "目标执行不可用时只验证变异发生器；禁止产出任何 crash/异常样本结论",
+        },
+    }
 
 
 if __name__ == "__main__":

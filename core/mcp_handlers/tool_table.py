@@ -943,6 +943,21 @@ def _build_tool_table() -> tuple[tuple[frozenset[str], dict[str, object]], ...]:
                 + " 重试必须复用同一 checkpoint_id。"
             )
             break
+    # F-RSI-20261110-048：角色专属工具的 caller_role 声明由 roles 派生
+    # 补齐（构建期自愈）。此前 11 个 worker/host 专属工具的 inputSchema
+    # 缺 caller_role 属性——schema 不告诉调用方该显式声明角色，与
+    # submit_finding 范式（required + enum）漂移。共享工具免声明
+    # （通道缺省回退即正确语义）。
+    for roles, definition in table:
+        schema = definition.get("inputSchema")
+        if not isinstance(schema, dict):
+            continue
+        props = schema.setdefault("properties", {})
+        if roles != _SHARED_ROLES and "caller_role" not in props:
+            props["caller_role"] = {"type": "string", "enum": sorted(roles)}
+            required = schema.setdefault("required", [])
+            if "caller_role" not in required:
+                required.insert(0, "caller_role")
     return table
 
 

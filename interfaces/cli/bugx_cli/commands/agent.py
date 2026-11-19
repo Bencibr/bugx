@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -1505,7 +1506,7 @@ def _command_agent_impl(
                 print(f"  Claude Desktop 独立安装包：已生成 bugx.plugin 与 bugx.skill（{packages_res['dist']}）")
             plugins_res = claude_user_agents.get("plugins")
             if isinstance(plugins_res, dict) and plugins_res.get("registered"):
-                print(f"  Claude Desktop 插件系统：已就绪并启用 bugx@bugx（版本 0.1.0）")
+                print(f"  Claude Desktop 插件系统：已就绪并启用 bugx@bugx（版本 {__version__}）")
         if (qoder_user_agents := user_agents_by_host.get(HOST_NAME_QODER)) is not None:
             reported_user_agents.add(HOST_NAME_QODER)
             changed = [
@@ -1940,7 +1941,7 @@ def _ensure_dsh_patch(root: Path) -> tuple[str, dict[str, object] | None]:
     # MCP」——修好调用却报告缺失，是更难排查的破窗。
     if patch_path.is_file():
         project_patch = patch_path.read_text(encoding="utf-8")
-        with_overlay = _ensure_official_mcp_overlay(project_patch)
+        with_overlay = _ensure_official_mcp_overlay(project_patch, root)
         if with_overlay != project_patch:
             _atomic_write_global_file_tx(patch_path, with_overlay.encode("utf-8"))
             patched = True
@@ -1948,7 +1949,7 @@ def _ensure_dsh_patch(root: Path) -> tuple[str, dict[str, object] | None]:
     # Deploy BugX's agent preset and the browser UI bundle to their native
     # DSH user-level locations.
     try:
-        _deploy_dsh_preset()
+        _deploy_dsh_preset(root)
         ui_plugin = _deploy_dsh_ui_plugin()
     except (CliError, OSError) as exc:
         raise CliError(_i18n_exc("agent.dsh_preset_write_failed", f"写入 dsh 全局预设失败：{exc}", exc=exc)) from exc
@@ -1958,7 +1959,7 @@ def _ensure_dsh_patch(root: Path) -> tuple[str, dict[str, object] | None]:
     return ("unchanged", ui_plugin)
 
 
-def _deploy_dsh_preset() -> None:
+def _deploy_dsh_preset(root: Path) -> None:
     """Deploy the BugX preset cleanly to ~/.dsh/.agent-presets/bugx/.
 
     Reads the installed standard preset, replaces the persona text with BugX's
@@ -1973,62 +1974,31 @@ def _deploy_dsh_preset() -> None:
     standard_preset = next((p for p in candidates if p.is_file()), None)
 
     composition_path = preset_dir / "agent.cordis.yml"
+    # F-RSI-20261119-011/013/014：插件名与行集合都必须跟随**每个 dsh home
+    # 实际使用的运行时**。CLI dsh 0.1.1-rc.2 只有 worker-thread；DSH Desktop
+    # 0.14+ 随 app.asar 内置 dsh 0.2.2（只认 workflow-ptc，且启动校验会把
+    # worker-thread 判为 blocking 错误）。desktop home 直接使用 Desktop 自带
+    # 的官方 standard preset 模板（dsh-web-app/presets/standard.patch.yml），
+    # CLI home 继续用 CLI dsh 包内模板——两侧都与其运行时自洽。
     if standard_preset and standard_preset.is_file():
         lines = standard_preset.read_text(encoding="utf-8").splitlines()
-        out_lines = []
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            if line.strip() == "- id: persona":
-                # Emit a single persona entry with the BugX persona text.
-                out_lines.append("- id: persona")
-                out_lines.append("  name: '@deepseek-ai/dsh-persona'")
-                out_lines.append("  config:")
-                out_lines.append("    prefix: >-")
-                out_lines.append("      You are BugX, an autonomous adversarial code-audit agent. Before")
-                out_lines.append("      any exploration, first run bugx engine path --name bugx-quick.md (the L0 protocol card), then consult the global AGENT_GUIDE.md and bugx.md sections on demand, and")
-                out_lines.append("      follow the life-ledger, supervisor lease, evidence and report protocol. The DSH package checkout and DSH_HOME are not the project root; use the active Session cwd for every project path and run pwd when paths are ambiguous.")
-                # Skip every remaining line of the original persona entry.
-                i += 1
-                while i < len(lines) and not lines[i].strip().startswith("- id:"):
-                    i += 1
-                continue
-            if line.strip() == "- id: workflow-worker-thread":
-                indent = len(line) - len(line.lstrip())
-                line = (" " * indent) + "- id: workflow-ptc"
-            elif "@deepseek-ai/dsh-workflow-worker-thread" in line:
-                indent = len(line) - len(line.lstrip())
-                line = (" " * indent) + "name: '@deepseek-ai/dsh-workflow-ptc'"
-            out_lines.append(line)
-            i += 1
+        out_lines = _apply_bugx_persona(lines)
     else:
         # Fallback: minimal viable preset composition when the installed dsh
         # standard template is not discoverable (e.g. isolated test HOME).
-        out_lines = [
+        out_lines = _apply_bugx_persona([
             "# BugX minimal preset composition (fallback).",
             "- id: persona",
             "  name: '@deepseek-ai/dsh-persona'",
             "  config:",
-            "    prefix: >-",
-            "      You are BugX, an autonomous adversarial code-audit agent. Before",
-            "      any exploration, first run bugx engine path --name bugx-quick.md (L0 card), then consult the global AGENT_GUIDE.md and bugx.md sections on demand,",
-            "      and follow the life-ledger, supervisor lease, evidence protocol. The DSH package checkout and DSH_HOME are not the project root; use the active Session cwd for every project path and run pwd when paths are ambiguous.",
+            "    prefix: placeholder",
             "- id: skill-filesystem",
             "  name: '@deepseek-ai/dsh-skill-filesystem'",
-        ]
+        ])
 
     # Native DSH questions are an agent capability, not merely a skill
-    # instruction. Older standard presets and the isolated fallback may not
-    # include the model-facing tool, so make the registration idempotently
-    # explicit. The Web/TUI answerer remains host-owned and is not mounted
-    # into the agent preset.
-    if "@deepseek-ai/dsh-tool-ask-user" not in "\n".join(out_lines):
-        out_lines.extend([
-            "",
-            "# ── BugX native question interaction ───────────────────────────────────",
-            "- id: tool-ask-user",
-            "  name: '@deepseek-ai/dsh-tool-ask-user'",
-        ])
+    # instruction; the check below runs on the final per-home composition
+    # inside the write loop (Desktop's official template already carries it).
 
     # 预设层**不再**注入 MCP client。三条通道（supervisor / supervisor-worker /
     # docs）由 ``core/hosts/dsh.py::_mcp_insert_block`` 以官方
@@ -2049,9 +2019,31 @@ def _deploy_dsh_preset() -> None:
         "适合在项目提测发版前、安全合规体检或排查疑难缺陷时开启；日常开发与普通交流不打扰。"
     )
     preset_order = 0
-    composition_text = "\n".join(out_lines) + "\n"
 
     for home in _all_dsh_homes():
+        preset_plugin, workflow_plugin = _dsh_runtime_plugin_names(home)
+        if "dsh-desktop" in home.parts:
+            # F-RSI-20261119-014：desktop home 使用 Desktop 自带的官方
+            # standard preset 模板——CLI 0.1.1 模板里的 0.1.x 专属行
+            # （tool-ralph、tool-subagent-codex/claude-code/list-agents）在
+            # 0.2.x 官方 preset 中已被移除，其激活在 0.2.x 运行时上会失败，
+            # registry 据此把整个 preset 判为 broken（UI 显示「加载失败」）。
+            desktop_template = _dsh_desktop_standard_template()
+            base_lines = (
+                _apply_bugx_persona(_dsh_desktop_preset_rows(desktop_template))
+                if desktop_template else out_lines
+            )
+        else:
+            base_lines = out_lines
+        composition_lines = _rewrite_dsh_workflow_plugin(base_lines, workflow_plugin)
+        if "@deepseek-ai/dsh-tool-ask-user" not in "\n".join(composition_lines):
+            composition_lines.extend([
+                "",
+                "# ── BugX native question interaction ───────────────────────────────────",
+                "- id: tool-ask-user",
+                "  name: '@deepseek-ai/dsh-tool-ask-user'",
+            ])
+        composition_text = "\n".join(composition_lines) + "\n"
         p_dir = home / ".agent-presets" / "bugx"
         _assert_no_symlink_components(p_dir)
         p_dir.mkdir(parents=True, exist_ok=True)
@@ -2074,7 +2066,239 @@ def _deploy_dsh_preset() -> None:
             name=preset_name,
             description=preset_desc.replace("\n", " "),
             order=preset_order,
+            preset_plugin_name=preset_plugin,
+            root=root,
         )
+
+
+_DSH_LEGACY_WORKFLOW_PLUGIN = "@deepseek-ai/dsh-workflow-worker-thread"
+_DSH_PTC_WORKFLOW_PLUGIN = "@deepseek-ai/dsh-workflow-ptc"
+
+
+def _dsh_desktop_asar_candidates() -> list[Path]:
+    """Return DSH Desktop ``app.asar`` paths that may carry the bundled runtime."""
+    resources = Path("Contents", "Resources", "app.asar")
+    return [
+        Path.home().resolve() / "Applications" / "DSH Desktop.app" / resources,
+        Path("/Applications") / "DSH Desktop.app" / resources,
+    ]
+
+
+def _asar_lists_bundled_package(asar: Path, package: str) -> bool:
+    """Check an Electron ``app.asar`` header for ``node_modules/@deepseek-ai/<package>``.
+
+    DSH Desktop bundles its entire dsh runtime inside app.asar instead of the
+    harness profile, so probing the profile's node_modules tells us what the
+    *CLI* installed there, not what the Desktop runtime resolves at launch.
+    Only the asar header is read; file payloads are never touched.
+    """
+    try:
+        with asar.open("rb") as handle:
+            head = handle.read(8)
+            if len(head) < 8:
+                return False
+            header_size = struct.unpack("<I", head[4:8])[0]
+            if header_size <= 0 or header_size > 64 * 1024 * 1024:
+                return False
+            header = handle.read(header_size)
+    except OSError:
+        return False
+    # The asar header is a nested file tree, so the package path never appears
+    # as one contiguous byte string; parse the JSON and walk the "files" maps.
+    start = header.find(b'{"files":')
+    if start < 0:
+        return False
+    try:
+        tree, _ = json.JSONDecoder().raw_decode(
+            header[start:].decode("utf-8", "ignore"),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    node: Any = tree
+    for part in ("files", "node_modules", "files", "@deepseek-ai", "files", package):
+        if not isinstance(node, dict):
+            return False
+        node = node.get(part)
+    return isinstance(node, dict)
+
+
+def _dsh_desktop_runtime_names() -> tuple[str, str] | None:
+    """Detect the preset/workflow plugin names DSH Desktop's bundled runtime accepts.
+
+    DSH Desktop 0.14 bundles dsh 0.2.2: ``@deepseek-ai/dsh-agent-preset``
+    (singular) and ``@deepseek-ai/dsh-workflow-ptc``. Older Desktop builds
+    bundled the 0.1.x names (plural preset plugin + worker-thread). The
+    bundled app.asar is the only authoritative source for the desktop home.
+    """
+    for asar in _dsh_desktop_asar_candidates():
+        if not asar.is_file():
+            continue
+        if _asar_lists_bundled_package(asar, "dsh-workflow-ptc"):
+            return ("@deepseek-ai/dsh-agent-preset", _DSH_PTC_WORKFLOW_PLUGIN)
+        if _asar_lists_bundled_package(asar, "dsh-workflow-worker-thread"):
+            return ("@deepseek-ai/dsh-agent-presets", _DSH_LEGACY_WORKFLOW_PLUGIN)
+    return None
+
+
+def _dsh_runtime_plugin_names(home: Path) -> tuple[str, str]:
+    """Return ``(preset_plugin_name, workflow_plugin_name)`` for one dsh home.
+
+    F-RSI-20261119-012/013：包名随 dsh 版本变化——0.1.1-rc.2 是
+    复数 ``dsh-agent-presets`` + ``dsh-workflow-worker-thread``；0.2.x 是
+    单数 ``dsh-agent-preset`` + ``dsh-workflow-ptc``。DSH Desktop 的运行时
+    内置在 app.asar 中，必须先探测 asar；其余 home 以
+    ``profiles/node_modules`` 为准（那是其插件解析根）。
+    """
+    if "dsh-desktop" in home.parts:
+        detected = _dsh_desktop_runtime_names()
+        if detected is not None:
+            return detected
+    base = home / "profiles" / "node_modules" / "@deepseek-ai"
+    if (base / "dsh-agent-preset").is_dir():
+        preset_plugin = "@deepseek-ai/dsh-agent-preset"
+    else:
+        preset_plugin = "@deepseek-ai/dsh-agent-presets"
+    if (base / "dsh-workflow-ptc").is_dir():
+        workflow_plugin = _DSH_PTC_WORKFLOW_PLUGIN
+    else:
+        workflow_plugin = _DSH_LEGACY_WORKFLOW_PLUGIN
+    return preset_plugin, workflow_plugin
+
+
+def _rewrite_dsh_workflow_plugin(
+    lines: list[str], workflow_plugin: str,
+) -> list[str]:
+    """Rewrite the template's worker-thread row to the home's workflow plugin."""
+    if workflow_plugin == _DSH_LEGACY_WORKFLOW_PLUGIN:
+        return list(lines)
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if stripped == "- id: workflow-worker-thread":
+            line = (" " * indent) + "- id: workflow-ptc"
+        elif _DSH_LEGACY_WORKFLOW_PLUGIN in line:
+            line = (" " * indent) + f"name: '{_DSH_PTC_WORKFLOW_PLUGIN}'"
+        out.append(line)
+    return out
+
+
+_BUGX_PERSONA_TEXT = (
+    "You are BugX, an autonomous adversarial code-audit agent. Before any "
+    "exploration, first run bugx engine path --name bugx-quick.md (the L0 "
+    "protocol card), then consult the global AGENT_GUIDE.md and bugx.md "
+    "sections on demand, and follow the life-ledger, supervisor lease, "
+    "evidence and report protocol. The DSH package checkout and DSH_HOME are "
+    "not the project root; use the active Session cwd for every project path "
+    "and run pwd when paths are ambiguous."
+)
+
+
+def _persona_block_lines(indent: str) -> list[str]:
+    """One persona entry with the BugX persona text at ``indent`` (may be empty)."""
+    lines = [
+        f"{indent}- id: persona",
+        f"{indent}  name: '@deepseek-ai/dsh-persona'",
+        f"{indent}  config:",
+        f"{indent}    prefix: >-",
+    ]
+    # Folded scalar (>-): line breaks fold into spaces, so wrapping is cosmetic.
+    words = _BUGX_PERSONA_TEXT.split(" ")
+    row: list[str] = []
+    for word in words:
+        row.append(word)
+        if len(" ".join(row)) >= 96:
+            lines.append(f"{indent}      {' '.join(row)}")
+            row = []
+    if row:
+        lines.append(f"{indent}      {' '.join(row)}")
+    return lines
+
+
+def _apply_bugx_persona(lines: list[str]) -> list[str]:
+    """Replace the template's persona entry with BugX's, preserving indentation."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == "- id: persona":
+            indent = " " * (len(line) - len(line.lstrip()))
+            out.extend(_persona_block_lines(indent))
+            # Skip every remaining line of the original persona entry.
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("- id:"):
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return out
+
+
+def _asar_read_text(asar: Path, member: str) -> str | None:
+    """Read one UTF-8 file out of an Electron ``app.asar`` by archive path."""
+    try:
+        with asar.open("rb") as handle:
+            head = handle.read(8)
+            if len(head) < 8:
+                return None
+            header_size = struct.unpack("<I", head[4:8])[0]
+            if header_size <= 0 or header_size > 64 * 1024 * 1024:
+                return None
+            header = handle.read(header_size)
+            start = header.find(b'{"files":')
+            if start < 0:
+                return None
+            tree, _ = json.JSONDecoder().raw_decode(
+                header[start:].decode("utf-8", "ignore"),
+            )
+            node: Any = tree
+            for part in member.split("/"):
+                if not isinstance(node, dict):
+                    return None
+                node = node.get("files", {}).get(part) if "files" in node else node.get(part)
+                if node is None:
+                    return None
+            if not isinstance(node, dict) or "offset" not in node:
+                return None
+            handle.seek(int(node["offset"]) + 8 + header_size)
+            return handle.read(int(node["size"])).decode("utf-8")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
+_DSH_DESKTOP_STANDARD_PRESET_MEMBER = (
+    "node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml"
+)
+
+
+def _dsh_desktop_standard_template() -> str | None:
+    """DSH Desktop 自带的官方 standard preset 组态（0.2.x 行集合）。
+
+    F-RSI-20261119-014：desktop home 的 preset 行集合必须与其内置运行时
+    同代。CLI dsh 包内模板是 0.1.x 行集合（tool-ralph 等），在 0.2.x 上
+    激活失败会让 registry 把 preset 判 broken；Desktop 随包分发的
+    ``dsh-web-app/presets/standard.patch.yml`` 是唯一与其运行时自洽的
+    官方行集合来源。旧版 Desktop 没有该文件时返回 None（回退 CLI 模板）。
+    """
+    for asar in _dsh_desktop_asar_candidates():
+        if not asar.is_file():
+            continue
+        text = _asar_read_text(asar, _DSH_DESKTOP_STANDARD_PRESET_MEMBER)
+        if text:
+            return text
+    return None
+
+
+def _dsh_desktop_preset_rows(template_text: str) -> list[str]:
+    """Extract the plugin rows under the official template's ``plugins:`` key."""
+    lines = template_text.splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() == "plugins:":
+            rows = lines[idx + 1:]
+            while rows and not rows[-1].strip():
+                rows.pop()
+            return rows
+    return []
 
 
 def _format_dsh_preset_patch(
@@ -2083,6 +2307,7 @@ def _format_dsh_preset_patch(
     name: str,
     description: str,
     order: int = 0,
+    preset_plugin_name: str = "@deepseek-ai/dsh-agent-presets",
 ) -> str:
     """Format an agent-preset patch block for DSH profile cordis.patch.yml."""
     fields = [f"        id: {preset_id}"]
@@ -2092,13 +2317,15 @@ def _format_dsh_preset_patch(
     fields.append(f"        order: {order}")
 
     rows = []
-    for line in composition_text.strip().splitlines():
+    # rstrip（而非 strip）：desktop 官方模板的组态首行自带缩进，strip 会把
+    # 首行缩进剥掉，产出错位的 patch 块（YAML 解析失败 → preset broken）。
+    for line in composition_text.rstrip("\n").splitlines():
         rows.append(f"          {line}" if line.strip() else "")
 
     header = (
         f"- insert:\n"
         f"    - id: preset-{preset_id}\n"
-        f"      name: '@deepseek-ai/dsh-agent-preset'\n"
+        f"      name: '{preset_plugin_name}'\n"
         f"      config:"
     )
     return (
@@ -2116,17 +2343,40 @@ def _sync_dsh_profile_patch(
     name: str,
     description: str,
     order: int = 0,
+    preset_plugin_name: str = "@deepseek-ai/dsh-agent-presets",
+    root: Path | None = None,
 ) -> None:
-    """Ensure profiles/web/cordis.patch.yml carries the latest preset patch block."""
-    profile_dir = home / "profiles" / "web"
-    if not profile_dir.is_dir():
-        return
+    """Ensure profiles/{web,desktop}/cordis.patch.yml carry the latest preset block.
+
+    F-RSI-20261119-012：DSH Desktop 的会话实际读 ``profiles/desktop`` 的
+    legacy preset 块；此前只同步 ``profiles/web``，导致 desktop 侧残留旧
+    preset（错误插件名）并使「自定义 agent 加载失败」。
+    """
+    patch_block = _format_dsh_preset_patch(
+        preset_id, composition_text, name, description, order,
+        preset_plugin_name=preset_plugin_name,
+    )
+    for profile_name in ("web", "desktop"):
+        profile_dir = home / "profiles" / profile_name
+        if not profile_dir.is_dir():
+            continue
+        _sync_one_profile_patch(
+            profile_dir, profile_name, preset_id, patch_block, root=root,
+        )
+
+
+def _sync_one_profile_patch(
+    profile_dir: Path,
+    profile_name: str,
+    preset_id: str,
+    patch_block: str,
+    root: Path | None = None,
+) -> None:
+    """把 preset 块写入/替换到单个 profile 的 cordis.patch.yml。"""
     patch_path = profile_dir / "cordis.patch.yml"
     _assert_no_symlink_components(patch_path)
-    patch_block = _format_dsh_preset_patch(preset_id, composition_text, name, description, order)
-
     if not patch_path.is_file():
-        content = f"# Web profile user patch layer\n\n{patch_block}\n"
+        content = f"# {profile_name.capitalize()} profile user patch layer\n\n{patch_block}\n"
         _atomic_write_global_file_tx(patch_path, content.encode("utf-8"))
         return
 
@@ -2150,7 +2400,9 @@ def _sync_dsh_profile_patch(
         else:
             updated = f"{content.rstrip()}\n\n{patch_block}\n"
 
-    updated = _ensure_official_mcp_overlay(updated)
+    if root is None:
+        raise CliError("_sync_one_profile_patch 需要 root 以绝对化 MCP --root/--db（F-RSI-20261119-015）")
+    updated = _ensure_official_mcp_overlay(updated, root)
 
     if updated != content:
         _atomic_write_global_file_tx(patch_path, updated.encode("utf-8"))
@@ -2160,16 +2412,27 @@ def _sync_dsh_profile_patch(
 _OFFICIAL_MCP_CLIENT = "@deepseek-ai/dsh-mcp-client"
 #: 三条受控通道；serverName 必须唯一，且与 core/hosts/dsh.py 的声明一致。
 _OFFICIAL_MCP_SERVERS = (
-    ("bugx-supervisor", ["mcp", "serve", "--root", "."]),
-    ("bugx-supervisor-worker", ["mcp", "serve", "--root", ".", "--role", "worker"]),
-    ("bugx-docs", ["mcp", "docs", "serve", "--root", ".", "--db",
-                   ".bugx/knowledge/docs.sqlite3"]),
+    # F-RSI-20261119-015：与 core/hosts/dsh.py::_MCP_SERVERS 同一契约——
+    # dsh 的 MCP server 由宿主进程 spawn，cwd 不是工作区，``--root .`` 会解析
+    # 到宿主自己的 cwd（实测报「缺少有效的 .bugx 项目运行布局」）。因此这里
+    # 与 install 侧一样使用 {ROOT} 占位，由 overlay 以**绝对项目根**替换。
+    # 修改任一侧时必须同步另一侧，两处常量必须逐字一致。
+    ("bugx-supervisor", ["mcp", "serve", "--root", "{ROOT}"]),
+    ("bugx-supervisor-worker", ["mcp", "serve", "--root", "{ROOT}", "--role", "worker"]),
+    ("bugx-docs", ["mcp", "docs", "serve", "--root", "{ROOT}", "--db",
+                   "{ROOT}/.bugx/knowledge/docs.sqlite3"]),
 )
 _OFFICIAL_MCP_MARKER = "# BugX MCP overlay — official dsh-mcp-client (stdio)"
 
 
-def _ensure_official_mcp_overlay(content: str) -> str:
+def _ensure_official_mcp_overlay(content: str, root: Path) -> str:
     """向 profile patch 追加/更新官方 MCP 三通道 ``- insert:`` 块。
+
+    ``root`` 是安装时项目根：``--root``/``--db`` 必须随根绝对化（契约见
+    core/hosts/dsh.py::_MCP_SERVERS 注释——宿主进程 spawn 的 MCP server cwd
+    不是工作区，相对路径会解析到宿主 cwd）。此前这里写死 ``--root .``，与
+    install 侧的绝对根互相覆盖：install 写对、deploy 又改回相对路径，两条
+    路径产物永不相等（F-RSI-20261119-015）。
 
     为什么必须由 install 自己写：``bugx install --agent dsh`` 之后
     ``bugx doctor`` 的「DeepSeek Harness MCP 配置」会扫项目 patch 与全局预设，
@@ -2180,6 +2443,7 @@ def _ensure_official_mcp_overlay(content: str) -> str:
     不再承载 MCP，若 install 也不写，doctor 就会判定「缺少 bugx-supervisor
     MCP」，形成「修好调用却报告缺失」的新破窗。
     """
+    root_text = str(Path(root).resolve())
     lines = [_OFFICIAL_MCP_MARKER, "- insert:"]
     for server_name, argv in _OFFICIAL_MCP_SERVERS:
         lines.extend([
@@ -2191,7 +2455,9 @@ def _ensure_official_mcp_overlay(content: str) -> str:
             "        command: bugx",
             "        args:",
         ])
-        lines.extend(f"          - '{arg}'" for arg in argv)
+        lines.extend(
+            f"          - '{arg.replace('{ROOT}', root_text)}'" for arg in argv
+        )
     block = "\n".join(lines) + "\n"
 
     # 归一算法（2026-11-08 实测重写，两次迭代）：按**条目 id** 识别受控块，
@@ -2539,8 +2805,8 @@ def _unlink_global_pi_skill(root: Path, removed: list[str], preserved: list[str]
 def _sync_workbuddy_private_venv(
     source: Path, *, target_version: str | None = None,
 ) -> tuple[bool, str]:
-    """探测并同步 WorkBuddy 私有 Python 虚拟环境中的 bugx-cli 包。"""
-    from bugx_cli.host_adapters import workbuddy_cli_venv
+    """探测并同步 WorkBuddy 私有 Python 虚拟环境中的 bugx-cli 包 (DOC-181)。"""
+    from ..host_adapters import workbuddy_cli_venv
     venv = workbuddy_cli_venv()
     if not venv:
         return False, "未检测到 WorkBuddy 私有虚拟环境"
@@ -2879,7 +3145,7 @@ def _ensure_workbuddy_custom_expert(
     # 3. Plugin manifest
     plugin_meta = {
         "name": "bugx",
-        "version": "0.1.0",
+        "version": __version__,
         "expertType": "agent",
         "displayName": {
             "zh": "BugX",
@@ -3500,7 +3766,7 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
         return False, "缺少 .agents/plugins/marketplace.json；请运行 bugx install --agent chatgpt"
 
     if host_name == "workbuddy":
-        from bugx_cli.host_adapters import WORKBUDDY_PROJECT_PATHS
+        from ..host_adapters import WORKBUDDY_PROJECT_PATHS
 
         missing = [relative for relative in WORKBUDDY_PROJECT_PATHS
                    if not (root / relative).is_file()]
@@ -3527,7 +3793,7 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
             return False, user_detail
 
         # DOC-181 方案 2：WorkBuddy 沙箱 Python 运行态一致性检查与自愈
-        from bugx_cli.host_adapters import workbuddy_cli_venv, workbuddy_cli_venv_version
+        from ..host_adapters import workbuddy_cli_venv, workbuddy_cli_venv_version
         venv = workbuddy_cli_venv()
         venv_detail = ""
         if venv is not None:

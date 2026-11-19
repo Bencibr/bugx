@@ -87,8 +87,10 @@ def extract_sink_snippets(root: Path, sinks: list[dict[str, Any]], max_snippets:
         if not s_file or not isinstance(s_line, int) or (s_file, s_line) in seen:
             continue
         seen.add((s_file, s_line))
-        f_path = root / s_file
-        if not f_path.is_file() or f_path.is_symlink():
+        if Path(s_file).is_absolute():
+            continue
+        f_path = (root / s_file).resolve()
+        if not f_path.is_relative_to(root.resolve()) or not f_path.is_file():
             continue
         try:
             lines = f_path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -114,50 +116,61 @@ def extract_project_readme_summary(root: Path, max_chars: int = 2000) -> str:
     return ""
 
 
+def _mcp_server_names(payload: Any, container_key: str | None) -> list[str]:
+    """从宿主声明的容器键（可点分）里取出 MCP 服务器名；兼容通用键位。"""
+    containers = [container_key] if container_key else []
+    containers += ["mcpServers", "mcp_servers", "mcp.servers"]
+    names: list[str] = []
+    for key in dict.fromkeys(c for c in containers if c):
+        node: Any = payload
+        for part in key.split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            names.extend(str(k) for k in node)
+        elif isinstance(node, list):
+            names.extend(str(s.get("name") or s) for s in node if s)
+    return names
+
+
 def collect_mcp_skills_inventory(root: Path) -> dict[str, Any]:
     """扫描项目中已配置的 MCP 服务器和 Skills 清单，供 AI 评估 tooling 充足性。"""
     inventory: dict[str, Any] = {"mcp_servers": [], "skills": [], "mcp_config_files": []}
-    # 常见 MCP 配置文件位置（通用配置 + 各宿主插件声明的项目级相对路径）
-    mcp_config_candidates = [
-        root / ".bugx" / "mcp-config.json",
-        root / ".bugx" / "mcp_config.json",
-        root / "mcp-lock.json",
-        root / ".mcp.json",
-    ]
+    # 宿主声明的项目级 MCP 配置路径 → 该宿主的容器键（opencode 是 ``mcp.servers``，
+    # codex 是 TOML ``mcp_servers``）。写入面是唯一事实，这里不重复硬编码。
+    relpaths: dict[str, str | None] = {}
     try:
         from core.host_runtime import host_registry
-        for rel in host_registry.host_project_mcp_relpaths():
-            cand = root / rel
-            if cand not in mcp_config_candidates:
-                mcp_config_candidates.append(cand)
+        relpaths = dict(host_registry.host_project_mcp_containers())
     except Exception:
         pass
-    for cfg_path in mcp_config_candidates:
+    mcp_config_candidates: list[tuple[Path, str | None]] = [
+        (root / rel, key) for rel, key in relpaths.items()
+    ]
+    for extra in (".bugx/mcp-config.json", ".bugx/mcp_config.json", "mcp-lock.json", ".mcp.json"):
+        if not any(p == root / extra for p, _ in mcp_config_candidates):
+            mcp_config_candidates.append((root / extra, None))
+    for cfg_path, container_key in mcp_config_candidates:
         if not cfg_path.is_file():
             continue
         inventory["mcp_config_files"].append(str(cfg_path.relative_to(root)))
         try:
             text = cfg_path.read_text(encoding="utf-8", errors="replace")
-            # JSON 格式
-            if cfg_path.suffix == ".json":
-                data = json.loads(text)
-                servers = data.get("mcpServers") or data.get("mcp_servers") or {}
-                if isinstance(servers, dict):
-                    inventory["mcp_servers"].extend(list(servers.keys()))
-                elif isinstance(servers, list):
-                    inventory["mcp_servers"].extend(
-                        str(s.get("name") or s) for s in servers if s
-                    )
+            if cfg_path.suffix == ".toml":
+                import tomllib
+                payload: Any = tomllib.loads(text)
+            else:
+                payload = json.loads(text)
+            inventory["mcp_servers"].extend(_mcp_server_names(payload, container_key))
         except Exception:
             pass
     # 去重
     inventory["mcp_servers"] = sorted(set(inventory["mcp_servers"]))
-    # Skills: 扫描 .agents/skills 和 skills/
+    # Skills: 扫描 .agents/skills 和 skills/（含 <category>/<name>/SKILL.md 两级布局）
     for skills_dir in (root / ".agents" / "skills", root / "skills"):
         if skills_dir.is_dir():
-            for skill_dir in skills_dir.iterdir():
-                if skill_dir.is_dir() and (skill_dir / "SKILL.md").is_file():
-                    inventory["skills"].append(skill_dir.name)
+            for skill_md in skills_dir.glob("**/SKILL.md"):
+                inventory["skills"].append(skill_md.parent.name)
+    inventory["skills"] = sorted(set(inventory["skills"]))
     return inventory
 
 
@@ -541,14 +554,18 @@ def run_recon_scout(
             for item in raw_hypotheses:
                 if not isinstance(item, dict):
                     continue
-                src = str(item.get("source_file", ""))
-                line = int(item.get("line") or 1)
-                # 滑窗模糊锚定门禁
-                if attack_graph_store.verify_hypothesis_anchor(root, src, line):
-                    valid_ops.append((
-                        attack_graph_store.EVENT_HYPOTHESIS_PROPOSED,
-                        {**item, "round_no": round_no, "status": "proposed", "confirmed_by_ai": True},
-                    ))
+                try:
+                    src = str(item.get("source_file", ""))
+                    line = int(item.get("line") or 1)
+                    # 滑窗模糊锚定门禁
+                    if attack_graph_store.verify_hypothesis_anchor(root, src, line):
+                        valid_ops.append((
+                            attack_graph_store.EVENT_HYPOTHESIS_PROPOSED,
+                            {**item, "round_no": round_no, "status": "proposed", "confirmed_by_ai": True},
+                        ))
+                except (TypeError, ValueError):
+                    # 单条假说的脏 line 不得丢弃整批已通过锚定的假说
+                    continue
             if valid_ops:
                 attack_graph_store.record_events(root, valid_ops)
                 print(f"  [ReconScout] ✓ 成功注水 {len(valid_ops)} 个 AI 确认假说至作战攻击图")

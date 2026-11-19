@@ -7,7 +7,7 @@
 输出同 _zcode_usage：仅进本地运行态（runtime 报告行 + lifecycle state/dsh-usage.json 明细），绝不上云。
 
 宿主插件层只做纯解析与路径推导：解压 `.zstd` 依赖外部进程，由引擎侧注入 `read_lines`
-（宿主模块不得 import subprocess/shutil，见 tests/test_host_plugins.py 的依赖方向门禁）。
+（宿主模块不得 import subprocess/shutil，依赖方向门禁以本注释为契约）。
 """
 
 from __future__ import annotations

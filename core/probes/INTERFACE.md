@@ -42,9 +42,10 @@
 #### `class WebDynamicProbe(BaseProbe)` - Web 专属黑盒动态探针，支持 HTTP 原始发包与 Playwright 无头浏览器探针。
 - **Public Methods**:
   - `browser_slot(cls, timeout: float = 2.0)`
+  - `capture_browser_page(page: Any, url: str, *, browser_version: str, actions: Sequence[dict[str, Any]] | None = None, timeout: float = 10.0, screenshot_path: str | Path | None = None, screenshot_full_page: bool = True, screenshot_masks: Sequence[str] = (), wait_until: str = 'load', after_navigation: Callable[[Any], None] | None = None, inspect_page: Callable[[Any], Mapping[str, Any] | None] | None = None) -> dict[str, Any]`
   - `classify_http_response(cls, response_data: Mapping[str, Any], baseline_data: Mapping[str, Any] | None = None) -> dict[str, Any]`
   - `get_active_instances(cls) -> int`
-  - `headless_browser_action(self, url: str, actions: Sequence[dict[str, Any]] | None = None, timeout: float = 10.0) -> dict[str, Any]`
+  - `headless_browser_action(self, url: str, actions: Sequence[dict[str, Any]] | None = None, timeout: float = 10.0, *, screenshot_path: str | Path | None = None, viewport: Mapping[str, int] | None = None) -> dict[str, Any]`
   - `http_raw_request(self, url: str, method: str = 'GET', headers: Mapping[str, str] | None = None, data: bytes | str | None = None, timeout: float = 10.0) -> dict[str, Any]`
   - `is_available(self) -> bool`
   - `probe_name(self) -> str`
@@ -70,4 +71,13 @@
 <!-- generated:end -->
 
 ## 3. Usage Examples & Defensive Patterns
+The CLI registry exposes `bugx probe ui` through `ui_audit.py:main`. Rules are loaded by
+`ui_contract.py`. `ui_accessibility.py` runs axe-core and keyboard steps,
+`ui_evidence.py` verifies receipts, and `ui_visual_diff.py` compares reference captures.
+`ui_storybook.py` resolves a deployed index and preview, and `ui_tokens.py` loads mapped
+CSS values from project token JSON.
+Browser measurements, model review and token repair remain internal to the CLI
+implementation. Input, receipt and exit contracts are specified in
+`core/report_engine/web-conformance.md`.
+
 Refer to `SPEC.md` for architectural context, event topologies, and failure domain mappings.

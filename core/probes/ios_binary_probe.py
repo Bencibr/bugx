@@ -318,9 +318,103 @@ def check_availability() -> dict:
         "status": "READY" if ready else "DEGRADED",
         "checks": checks,
         "capabilities": ["ios_binary_inspection"] if ready else [],
-        "fallbacks": {},
+        "fallbacks": {} if ready else {
+            "audit": "run_static_degraded（仅 Info.plist 静态审计，二进制层检查不执行）",
+        },
         "warnings": [],
     }
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探测 iOS 二进制审计前置条件（<5ms，零阻塞、零子进程）。
+
+    返回 (available, detail)：codesign 与 otool 均在 PATH 才视为具备完整
+    二进制层审计能力；缺失时 detail 明确列出缺口与降级路径。
+    """
+    missing: list[str] = []
+    found: list[str] = []
+    for name in ("codesign", "otool"):
+        path = shutil.which(name)
+        if path:
+            found.append(f"{name}={path}")
+        else:
+            missing.append(name)
+    if missing:
+        return False, (
+            f"缺少必需工具 {', '.join(missing)}：Mach-O/签名/entitlements 审计不可用，"
+            "降级为 run_static_degraded（仅 Info.plist 静态检查）"
+        )
+    return True, "；".join(found)
+
+
+def run_static_degraded(root: Path | str) -> dict:
+    """降级路径：codesign/otool 缺失时仅做标准库 Info.plist 静态审计。
+
+    降级契约：输出与成功路径（inspect()，status=READY）**可区分**——
+    status="degraded" + degraded=True + degraded_reason + checks_not_run，
+    绝不伪造二进制层结论（PIE/栈保护/cryptid/entitlements 一律标注未执行）。
+    """
+    root = Path(root)
+    report: dict = {
+        "name": "ios_binary",
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": "codesign/otool 不可用：二进制层检查未执行",
+        "target": str(root),
+        "success": False,
+        "findings": [],
+        "facts": {},
+        "notes": [],
+        "checks_not_run": [
+            "codesign-entitlements",
+            "otool-macho-header(PIE)",
+            "nm-undefined-symbols(stack-canary)",
+            "otool-load-commands(cryptid)",
+            "otool-linked-libraries(dylib-hijack)",
+        ],
+    }
+    available, detail = is_available()
+    report["availability"] = {"available": available, "detail": detail}
+    if not root.exists():
+        report["notes"].append("目标路径不存在")
+        report["degraded_reason"] = "target_path_not_found"
+        return report
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    try:
+        target = root
+        if root.is_file() and root.suffix == ".ipa":
+            temp_dir = tempfile.TemporaryDirectory(prefix="bugx-ipa-degraded-")
+            with zipfile.ZipFile(root) as archive:
+                archive.extractall(temp_dir.name)
+            target = Path(temp_dir.name)
+        bundle = _find_app_bundle(target) if target.is_dir() else None
+        if bundle is None:
+            report["notes"].append("未找到 .app 包（需要 .ipa / .app 目录）")
+            report["degraded_reason"] = "app_bundle_not_found"
+            return report
+        info_plist = bundle / "Info.plist"
+        if not info_plist.is_file():
+            report["notes"].append("缺少 Info.plist：降级模式下无任何可执行检查")
+            report["degraded_reason"] = "info_plist_not_found"
+            return report
+        findings, facts = _info_plist_findings(_read_plist(info_plist), str(info_plist))
+        report["findings"].extend(findings)
+        report["facts"].update({k: v for k, v in facts.items() if v is not None})
+        report["facts"]["binary"] = None
+        report["notes"].append(
+            "降级模式：仅完成 Info.plist 静态检查；二进制加固属性全部未检查，"
+            "禁止据此声称已完成 iOS 二进制层审计"
+        )
+        report["success"] = True
+        return report
+    except (OSError, zipfile.BadZipFile, ValueError) as exc:
+        report["notes"].append(f"降级审计执行失败: {exc.__class__.__name__}: {exc}")
+        report["degraded_reason"] = "degraded_execution_failed"
+        report["success"] = False
+        return report
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
 
 def print_report(report: dict, as_json: bool = False) -> None:
@@ -350,13 +444,23 @@ def main(argv: list[str] | None = None) -> int:
         "--check-availability", action="store_true",
         help="只检查宿主分析工具，不读取 --root 下的目标文件",
     )
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（仅 Info.plist 静态审计；输出 status=degraded，"
+             "绝不伪造二进制层结论）",
+    )
     args = parser.parse_args(argv)
     report = (
         check_availability()
         if args.check_availability
+        else run_static_degraded(Path(args.root).expanduser())
+        if args.static_degraded
         else inspect(Path(args.root).expanduser())
     )
     print_report(report, as_json=args.json)
+    if args.static_degraded:
+        # 调用方显式要求降级模式：本身不是失败，输出已带 degraded 标记。
+        return 0
     if report["status"] == "DEGRADED" and not args.allow_fallback:
         return 2
     return 0

@@ -600,6 +600,8 @@ def command_knowledge(args: argparse.Namespace) -> int:
             raise CliError(_i18n_exc("knowledge.export_output_required", "knowledge export 必须提供 --output"))
         values.extend(["--output", str(_rooted(root, args.output)),
                        "--contributor", args.contributor])
+        if getattr(args, "include_source_snippets", False):
+            values.append("--include-source-snippets")
     elif command == "approve":
         if args.bundle is None or args.output is None or not args.reviewer or not args.reason:
             raise CliError(_i18n_exc("knowledge.approve_params_required", "knowledge approve 必须提供 --bundle、--output、--reviewer、--reason"))

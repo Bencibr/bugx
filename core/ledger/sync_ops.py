@@ -497,30 +497,35 @@ def apply_synced_tombstone_tx(
                 "tool experience tombstone record_id 必须是 tool_name/category"
             )
         tool_name, category = record_id.split("/", 1)
+        # F-129: 与 DDL 命名契约绑定，按列名取值，禁止依赖列序位置。
         row = c.execute(
-            "SELECT * FROM tool_experience WHERE tool_name=? AND category=?",
+            "SELECT tool_name,category,experience_level,record_version,use_count,"
+            "hit_count,miss_count,false_positive_count,rejected_count,"
+            "independent_lifecycle_count,first_observed_at,last_observed_at,"
+            "tool_version,device_id,deleted,deleted_at FROM tool_experience "
+            "WHERE tool_name=? AND category=?",
             (tool_name, category),
         ).fetchone()
         if not row:
             return "missing"
-        if bool(row[14]):
+        if bool(row["deleted"]):
             return "duplicate"
         deleted_at = now_iso()
         content = {
-            "tool_name": row[0],
-            "category": row[1],
-            "experience_level": row[2],
-            "record_version": int(row[3]),
-            "use_count": int(row[4]),
-            "hit_count": int(row[5]),
-            "miss_count": int(row[6]),
-            "false_positive_count": int(row[7]),
-            "rejected_count": int(row[8]),
-            "independent_lifecycle_count": int(row[9]),
-            "first_observed_at": row[10],
-            "last_observed_at": row[11],
-            "tool_version": row[12],
-            "device_id": row[13],
+            "tool_name": row["tool_name"],
+            "category": row["category"],
+            "experience_level": row["experience_level"],
+            "record_version": int(row["record_version"]),
+            "use_count": int(row["use_count"]),
+            "hit_count": int(row["hit_count"]),
+            "miss_count": int(row["miss_count"]),
+            "false_positive_count": int(row["false_positive_count"]),
+            "rejected_count": int(row["rejected_count"]),
+            "independent_lifecycle_count": int(row["independent_lifecycle_count"]),
+            "first_observed_at": row["first_observed_at"],
+            "last_observed_at": row["last_observed_at"],
+            "tool_version": row["tool_version"],
+            "device_id": row["device_id"],
             "deleted": True,
             "deleted_at": deleted_at,
         }

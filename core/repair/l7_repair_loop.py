@@ -134,7 +134,7 @@ def build_work_order(payload: dict, *, root: Path,
             "1) `python3 -m core.repair.l7_selfcheck"
             + (" --dynamic" if dynamic else "") + "` 退出码 0；"
             "2) `python3 -m core.runtime.scenario_eval --level L7` 通过；"
-            "3) 不修改 evals/ 下的评测断言与基线。"
+            "3) 不修改 verification/evals/ 下的评测断言与基线。"
             "仅让其中一条变绿不构成修复——L7 的六项检查互相独立，"
             "让目标项变绿而弄红其他项同样算失败。"
         ),
@@ -147,9 +147,6 @@ def build_work_order(payload: dict, *, root: Path,
                 "integrations/",
             ],
             "forbidden": [
-                "evals/golden-findings.json",
-                "evals/cases.json",
-                "evals/scenario-baseline.json",
                 "verification/evals/golden-findings.json",
                 "verification/evals/cases.json",
                 "verification/evals/scenario-baseline.json",

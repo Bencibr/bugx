@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from core.runtime import bugx_logging
+from core.infra.build_info import BASE_VERSION
 import core.bugx_paths as bugx_paths
 from core.mcp_handlers import (
     MAX_MCP_REQUEST_BYTES,
@@ -24,7 +25,7 @@ from core.mcp_handlers import (
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "bugx-supervisor"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = BASE_VERSION
 JSONRPC_VERSION = "2.0"
 HOST_SESSION_HEARTBEAT_INTERVAL_SECONDS = 5.0
 MCP_ROLES = {"host", "worker"}
@@ -122,6 +123,9 @@ def serve(
 
     channel_idle_monitor_func = _get_bms_attr("_channel_idle_monitor_loop", _cl._channel_idle_monitor_loop)
     channel_stop = threading.Event()
+    # 第四批修复（收尾空转治理）：记录启动时的父进程 PID，供孤儿 owner
+    # 快速自释放判定（宿主进程死亡后 controller 不再空转满 idle 超时）。
+    initial_parent_pid = os.getppid()
     channel_monitor = threading.Thread(
         target=channel_idle_monitor_func,
         args=(service, activity, channel_stop),
@@ -129,6 +133,7 @@ def serve(
             "lease": controller_lease,
             "interval": idle_interval,
             "exit_hook": exit_hook,
+            "initial_parent_pid": initial_parent_pid,
         },
         name=f"bugx-{role}-channel-idle-monitor",
         daemon=True,

@@ -141,7 +141,8 @@ def _extract_project_profile_info(dot_bugx: Path, root: Path) -> dict[str, Any]:
         },
         "quality_and_risk": {
             "health_grade": risk.get("health_grade", "B"),
-            "maintainability_index": round(risk.get("maintainability_index", 0.0), 1),
+            # mi=None 表示"未测得"（解析降级），保守显示 0.0（F-RSI-20261115-276）
+            "maintainability_index": round(risk.get("maintainability_index") or 0.0, 1),
             "avg_cyclomatic_complexity": round(risk.get("avg_cyclomatic_complexity", 0.0), 1),
             "avg_cognitive_complexity": round(risk.get("avg_cognitive_complexity", 0.0), 1),
             "duplication_percentage": round(risk.get("duplication_percentage", 0.0), 1),

@@ -122,7 +122,11 @@ def _print_pending(rows: list[dict[str, Any]], root: Path) -> None:
 def _command_list(args: argparse.Namespace, store: Any, root: Path) -> int:
     rows = [_question_summary(record) for record in store.list_records(root)]
     if not getattr(args, "all", False):
-        rows = [row for row in rows if row["answered"] or row["cancelled"]]
+        # 默认列出「尚未消费」的问题：created 无 answer（全新待答）、
+        # answered 有 pending 答案（待宿主回灌）都属于未消费；只有 consumed
+        # （有 answers 且无 pending）才隐藏。原条件 answered or cancelled 恰好
+        # 把全新问题排除、把已消费问题留下，与本命令帮助语义相反。
+        rows = [row for row in rows if not row["consumed"]]
     if getattr(args, "json", False):
         _emit_json({"status": "ok", "root": str(root), "count": len(rows), "questions": rows})
         return 0

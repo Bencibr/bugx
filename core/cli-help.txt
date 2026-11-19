@@ -1,0 +1,66 @@
+usage: bugx [-h] [--version] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+            [--accept-data-sharing] [--privacy {standard,strict}]
+            [--no-backup]
+            {help,completion,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,advisory,report} ...
+
+BugX 统一命令行入口（模块化调度器）。
+
+positional arguments:
+  {help,completion,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,advisory,report}
+    help                显示 BugX 或指定命令的使用说明
+    completion          输出 Bash、Zsh 或 Fish 的 Tab 补全脚本
+    init                把宿主无关的 BugX 核心初始化到项目
+    dsh                 兼容启动器：为首个 Web Session 绑定项目并启动 DeepSeek Harness
+    hosts               只读发现可接入的 AI 宿主
+    install             发现并安装到已安装的 AI Agent
+    reset               归档后重建项目运行态或全局错题集（不删除全局引擎）
+    uninstall           安全卸载 BugX 宿主入口；默认保留报告、证据、配置和错题集
+    doctor              诊断安装与项目状态
+    mcp                 启动本地 MCP Supervisor（不执行 worker 命令）
+    capability          探查项目形态并装配能力：plan（只读）/ install（装齐所需 MCP 运行时）
+    mcp-runtime         lock-hash 专用离线 MCP
+                        runtime：install/verify/start/rollback
+    lesson              管理项目级结构化错题集
+    logic-analysis      校验或绑定意图、逻辑链、Oracle 与证据包
+    probe               运行 core 探针（efficiency/sast/mobile 等），透传其参数
+    knowledge           治理项目候选与用户全局错题集（不自动同步）
+    skill               审计技能包管理、图谱状态查询、契约校验与原子回滚
+    self-audit          对 BugX 本地 CLI/MCP 只读入口做自举动态审计
+    engine              从全局引擎运行生命周期命令（项目不再提供 .bugx/core 入口）
+    cloud               云端错题/经验集同步（显式命令）
+    auth                登录、查看、设置或清除云端登录态
+    telemetry           查看或导出单向飞轮取证数据
+    config              设置本地 BugX 隐私与遥测配置
+    daemon              BugX 自治持续挖掘常驻守护进程管理
+    autonomous          显式启动 Claude Code/Codex/OpenCode/DeepSeek
+                        Harness/Pi/Cline/ZCode 前台无人值守挖掘
+    goal                目标导向无人值守自治挖掘与长程自愈循环
+    supervisor          本地监督 MCP：install / status / rpc；带外动作：reset-budget /
+                        recover / rebind-target / gate / findings
+    plugin              安装、校验或查看私有 BugX 插件（不执行插件）
+    update              检查并安装最新 BugX CLI 版本
+    patch-forge         生成或静态校验补丁包（不执行包内代码、不提交远端）
+    log                 查看诊断日志、错误排查、链路追踪与耗时瀑布图
+    stats               查看全局跨项目时间与 Token 消耗治理看板
+    project             工程代码体量、技术栈画像与规模估模分析
+    view                安全查看源文件切片与视窗（具备越界自愈与沙箱隔离）
+    test-generate       为指定单元自动生成标准化 AAA 测试用例或自包含 PoC
+    test-audit          对测试用例进行四维（准确、完整、有效、全面）量化质量审计
+    mining-audit        对漏洞挖掘方案与用例进行四维（准确、完整、有效、全面）质量量化审计与加固
+    test-verify         基于 AST 语义变异与沙箱隔离动态验证测试用例的抓 Bug 杀伤能力
+    audit               在隔离副本中启动 BugX 图审计或执行一键全息攻防渗透审计
+    interaction         查看/回答 BugX 抛出的结构化交互问题（非交互宿主的答案回灌通道）
+    advisory            GitHub Security Advisory (GHSA) 标准安全公告与 PR 修复草案管理
+    report              双轨制人性化安全审计报告生成器 (formal 商务正式, visual 高颜值交付)
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        诊断日志等级（默认 INFO，可由 BUGX_LOG_LEVEL 覆盖）
+  --accept-data-sharing
+                        明确同意脱敏后的单向攻防数据反哺（CI/headless 默认关闭）
+  --privacy {standard,strict}
+                        strict 仅允许匿名度量出网
+  --no-backup, --skip-backup
+                        跳过执行前自动创建的外部备份归档

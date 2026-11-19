@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.infra.build_info import BASE_VERSION
+
 #: 报告承认的严重度词表（大写）。 Supervisor 侧用小写，这里统一大写呈现。
 _KNOWN_SEVERITIES = frozenset({"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"})
 #: 严重度 → 处置 SLA（小时）。只用于呈现，不参与门禁判定。
@@ -147,8 +149,8 @@ class VulnerabilityFinding:
         cwe_title = ""
         if cwe_id:
             # 懒导入：sast_bridge 反向依赖 models，模块级导入会成环。
-            from .sast_bridge import _CWE_TITLES
-            cwe_title = _CWE_TITLES.get(cwe_id, "")
+            from .sast_bridge import CWE_TITLES
+            cwe_title = CWE_TITLES.get(cwe_id, "")
 
         cvss_score: Optional[float] = None
         raw_cvss = finding.get("cvss")
@@ -318,12 +320,8 @@ class ReportDataBundle:
 
     @classmethod
     def from_eval_dir(cls, eval_dir: Path | str) -> ReportDataBundle:
-        """从 evals/oss 目录中的结构化审计收据中自动聚合生成数据总线。"""
+        """从 verification/evals/oss 目录中的结构化审计收据中聚合数据总线。"""
         eval_path = Path(eval_dir).resolve()
-        if not eval_path.exists() and "/evals/" in str(eval_path):
-            alt = Path(str(eval_path).replace("/evals/", "/verification/evals/"))
-            if alt.exists():
-                eval_path = alt
         if not eval_path.exists():
             raise FileNotFoundError(f"Evaluation directory not found: {eval_path}")
 
@@ -491,7 +489,7 @@ class ReportDataBundle:
             report_id=f"BUGX-AUDIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-001",
             title="BugX 企业级全语种控制流安全审计与攻防渗透综合报告",
             created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-            auditor="BugX Autonomous Security Intelligence & Mutation Engine v0.1.0",
+            auditor=f"BugX Autonomous Security Intelligence & Mutation Engine v{BASE_VERSION}",
             # 范围陈述必须来自收据实况：语言数/靶标数/验证深度，不硬编码
             # "7 大语言 42 类别"之类的宣传文案（实测单语言收据也照抄全文）。
             assessment_scope=(
@@ -633,7 +631,7 @@ class ReportDataBundle:
             ),
             title=f"BugX 源码级安全审计报告 · {project_root.name}",
             created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-            auditor="BugX Autonomous Security Intelligence & Mutation Engine v0.1.0",
+            auditor=f"BugX Autonomous Security Intelligence & Mutation Engine v{BASE_VERSION}",
             assessment_scope=f"{scope}（验证深度：白盒裁判与执行探针，未执行变异突防）",
             metrics=metrics,
             languages=[],

@@ -37,6 +37,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+
+from core.infra.build_info import BASE_VERSION
 from urllib.parse import parse_qs, urlparse
 
 try:
@@ -171,7 +173,7 @@ def _i18n_prompt(key: str, fallback: str, locale: str | None = None, **kwargs: A
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "bugx-supervisor"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = BASE_VERSION
 JSONRPC_VERSION = "2.0"
 # A CLI ``pre`` command is short-lived, while the host MCP stdio process owns
 # the Session afterwards.  Keep the interval well below the time it takes for
@@ -220,8 +222,13 @@ _ControllerLease = _cl._ControllerLease
 _host_session_heartbeat_once = _cl._host_session_heartbeat_once
 _host_session_heartbeat_loop = _cl._host_session_heartbeat_loop
 
+# DEF-2：允许从 McpProtocolError.mcp_error_data 透传到错误回包的结构化字段。
+# 白名单而非全量合并——防止任意异常的可变属性污染 isError 回包的交互门禁字段。
+_MCP_ERROR_DATA_ALLOWED_KEYS = frozenset({"evidence_feedback"})
+
+
 def _error_payload(error: BaseException) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "error_type": type(error).__name__,
         "message": str(error) or type(error).__name__,
         "error_code": "MCP_CALL_FAILED",
@@ -233,6 +240,16 @@ def _error_payload(error: BaseException) -> dict[str, object]:
         ),
         "choices": ["retry", "fallback", "later"],
     }
+    # DEF-2 残余缺口：McpProtocolError 携带的结构化拒绝原因（如逐项
+    # violations + correct_sample + retry_prompt）随回包 data 透传，宿主/
+    # 模型无需从一行纯文本里猜自纠指令。仅白名单已知结构化字段，避免任意
+    # 异常的可变属性污染回包；核心交互字段始终以标准值为准不可覆盖。
+    extra = getattr(error, "mcp_error_data", None)
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            if key in _MCP_ERROR_DATA_ALLOWED_KEYS:
+                payload[key] = value
+    return payload
 
 
 def _call_failure_data(operation: object, error: BaseException) -> dict[str, object]:
@@ -880,6 +897,16 @@ class BugxMcpService:
         if allowed_roles is None:
             raise McpProtocolError(_i18n_exc("mcp.unknown_tool", f"未知工具: {name}", name=name))
         name = resolved_name
+        # F-RSI-20261110-039：worker 通道强制 DOC-241 A5 暴露白名单。
+        # 13 个工具在 _TOOL_ROLES 声明 worker-only（角色所有权）但被
+        # _WORKER_CORE_TOOL_NAMES 从 tools/list 隐藏（暴露契约）——两契约
+        # 缺口造成"隐藏但可调"（红探针实测哨兵执行）。角色所有权管"谁能
+        # 调"，暴露白名单管"worker 该调什么"——分派层以暴露契约收口。
+        if self.role == "worker" and name not in _WORKER_CORE_TOOL_NAMES:
+            raise McpProtocolError(
+                f"{name} 不在 Worker 通道工具白名单内"
+                "（DOC-241 A5：Worker 仅暴露 10 个核心原子工具）"
+            )
         call_arguments = dict(arguments)
         if self.role not in allowed_roles:
             declared_role = call_arguments.get("caller_role") or self.role

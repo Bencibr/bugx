@@ -35,7 +35,10 @@
      调用方把该基线保存到 agent 会话之外（如手动记录，或 export 环境变量）。
   2. bugx 运行结束后：`bugx engine --root . post` —— 优先用
      `BH_PRE_BASELINE` 环境变量（调用方传入的外部基线）做 diff；
-     若未设置则回退读仓库内 snapshot。外部基线是权威，agent 无法篡改。
+     若未设置则回退读仓库内 snapshot。外部基线由 pre 阶段签发
+    `baseline_hash` + `baseline_source`，post 先校验来源与完整性再采信；
+    agent 篡改基线内容或注入无签名基线将被 fail-closed 拒绝，
+    不再依赖「agent 无法篡改 env」的进程边界假设。
   3. diff 异常 → restore 回滚到基线，并复核 agent 报告是否真实。
 
 不变量（新机制：轮费改在结算时支付，life 只由结算写入）：
@@ -68,6 +71,7 @@ for _p in _Path(__file__).resolve().parents:
 del _p
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -138,14 +142,14 @@ LIFE_FILE, SNAPSHOT_FILE, AUDIT_LOG, LIFE_LOCK_FILE = _default_life_paths()
 # 自校验：脚本被 bash/sed/cp 篡改后，所有命令拒绝执行。
 # 维护方法：改完本脚本后运行 `python3 verify_life.py selfhash`，
 # 把输出粘贴到下面 SELF_HASH = "..." 即可（哈希会随每次编辑变化）。
-SELF_HASH = "56f26ad4a62294f914e98fe771a0cae231fd5790a5b36da7ece4968e3171690d"
+SELF_HASH = "1d29d8cf0342e4ee0f371da3528fd26f29524d0436714e7a86d9163abccbd3f4"
 
 # 单轮每项真实发现的加分上限（与 bugx.md「单轮加分上限」一致）。
 # 防「凑数无限续命」：每轮 life 净增上限 = -1(轮费) + MAX_PER_ROUND。
 MAX_PER_ROUND = 5
-# 本脚本被设计成**可独立复制执行**（tests/ledger/test_verify_life.py 会把它单独
+# 本脚本被设计成**可独立复制执行**（独立平铺副本场景；行为契约以本注释与
 # 拷进临时目录跑，那里没有 core 包），因此不能 import canonical 常量。字面量必须在
-# 此维护，并由 tests/launch/test_orchestrator_controls.py 断言与
+# 上游 docstring 共同维护；与
 # core.launch_phases.common.FIX_MODES 完全相等——单一事实源靠契约测试守，不靠 import。
 VALID_MODES = {"auto", "log-only"}
 SETTLEMENT_WAL_SCHEMA = 1
@@ -478,29 +482,87 @@ def evidence_bad_lines(findings: list[str]) -> list[str]:
     return bad
 
 
-def external_baseline() -> dict | None:
-    """读取调用方传入的外部基线（修复漏洞 2 的关键）。
+# ---- 外部基线完整性锚（F-184）----
+# 旧实现只做 json.loads/路径读取，docstring 的「agent 无法篡改」是进程边界
+# 假设而非代码校验；具备 env 控制权的进程可注入被篡改基线掩盖历史篡改。
+# 现在由可信宿主在 pre 阶段（snapshot）对基线载荷签发 baseline_hash，
+# post 读取时强制校验来源标识 + 完整性，失败即 fail-closed 拒绝。
+BASELINE_HASH_FIELD = "baseline_hash"
+BASELINE_SOURCE_FIELD = "baseline_source"
+HOST_SIGNED_SOURCE = "host-signed-pre"
+REPO_SNAPSHOT_SOURCE = "repo-snapshot"
 
-    优先级：环境变量 BH_PRE_BASELINE（调用方 pre 时输出、post 时传回，支持 JSON 字符串或文件路径）
-    > 仓库内 snapshot 文件。外部基线在 agent 会话之外，agent 无法篡改。
+
+def baseline_integrity_hash(payload: dict) -> str:
+    """基线载荷的确定性 SHA256——排除锚字段本身，避免自引用死循环。"""
+    body = {
+        key: value for key, value in payload.items()
+        if key not in (BASELINE_HASH_FIELD, BASELINE_SOURCE_FIELD)
+    }
+    blob = json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def sign_baseline(payload: dict) -> dict:
+    """由可信宿主在 pre 阶段调用，为基线载荷签发来源标识与完整性锚。"""
+    signed = dict(payload)
+    signed[BASELINE_SOURCE_FIELD] = HOST_SIGNED_SOURCE
+    signed[BASELINE_HASH_FIELD] = baseline_integrity_hash(signed)
+    return signed
+
+
+def external_baseline() -> dict | None:
+    """读取外部基线（pre 签发、post 校验）。
+
+    优先级：环境变量 BH_PRE_BASELINE（pre 签发、post 传回，JSON 字符串或
+    文件路径）> 仓库内 snapshot 文件。env 基线必须携带合法来源标识与
+    baseline_hash，且哈希与载荷逐字节一致，否则 fail-closed 拒绝；
+    快照回退显式标记 baseline_source，不再以进程边界假设代替校验。
     """
     import os
 
     raw = os.environ.get("BH_PRE_BASELINE", "").strip()
     if raw:
+        payload: dict | None = None
         try:
             p = Path(raw)
             if p.is_file():
-                return _load_json(p, "外部基线文件")
+                payload = _load_json(p, "外部基线文件")
         except (OSError, ValueError):
             pass
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
-            print(f"[verify_life] BH_PRE_BASELINE 无法解析: {e}")
+        if payload is None:
+            try:
+                parsed = json.loads(raw)
+                payload = parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError as e:
+                print(f"[verify_life] BH_PRE_BASELINE 无法解析: {e}")
+                return None
+        if not isinstance(payload, dict):
+            print("[verify_life] 外部基线必须是 JSON 对象，拒绝。")
             return None
+        source = payload.get(BASELINE_SOURCE_FIELD)
+        if source != HOST_SIGNED_SOURCE:
+            print(f"[verify_life] 外部基线来源标识缺失或不合法"
+                  f"（要求 {HOST_SIGNED_SOURCE!r}，实际 {source!r}），拒绝。")
+            return None
+        expected = payload.get(BASELINE_HASH_FIELD)
+        if not isinstance(expected, str) or not expected:
+            print("[verify_life] 外部基线缺 baseline_hash（新格式强制校验），拒绝。")
+            return None
+        actual = baseline_integrity_hash(payload)
+        if not hmac.compare_digest(actual, expected):
+            print(f"[verify_life] 外部基线完整性校验失败"
+                  f"（签发 {expected}，实算 {actual}），拒绝。")
+            return None
+        return payload
     if SNAPSHOT_FILE.is_file():
-        return _load_json(SNAPSHOT_FILE, "快照基线")
+        snap = _load_json(SNAPSHOT_FILE, "快照基线")
+        if isinstance(snap, dict):
+            snap = dict(snap)
+            snap[BASELINE_SOURCE_FIELD] = REPO_SNAPSHOT_SOURCE
+        return snap
     return None
 
 
@@ -802,11 +864,20 @@ def _cmd_snapshot_unlocked() -> int:
         print(f"[verify_life] 拒绝写入符号链接快照路径: {SNAPSHOT_FILE}")
         return 1
     try:
+        # F-184：pre 的可信宿主在此签发外部基线锚。baseline_json() 读的就是
+        # LIFE_FILE，因此把锚写回寿命文件后，pre 导出的 BH_PRE_BASELINE 天然
+        # 携带来源标识与 hash；post 的 external_baseline() 据此强制校验。
+        current = load()
+        if not isinstance(current, dict):
+            print("[verify_life] 寿命状态根节点必须是 JSON 对象，拒绝快照。")
+            return 1
+        signed = sign_baseline(current)
+        _write_json_durable(LIFE_FILE, signed, prefix=".life-")
         _copy_atomic(LIFE_FILE, SNAPSHOT_FILE)
     except OSError as e:
         print(f"[verify_life] 快照建立失败: {e}")
         return 1
-    print(f"[verify_life] 已备份当前状态到 {SNAPSHOT_FILE.name}")
+    print(f"[verify_life] 已备份当前状态到 {SNAPSHOT_FILE.name}（已签发基线完整性锚）")
     return 0
 
 
@@ -819,8 +890,8 @@ def _cmd_diff_unlocked() -> int:
     检出「自洽撒谎」/超范围涨命/历史篡改。修复漏洞 2。"""
     snap = external_baseline()
     if snap is None:
-        print("[verify_life] 无可用基线——外部基线未设置且无快照文件，"
-              "先运行 snapshot 再跑 diff")
+        print("[verify_life] 无可用基线——外部基线校验失败/未设置且无快照文件，"
+              "先修复基线来源或运行 snapshot 再跑 diff")
         return 2
     baseline_errors = check_errors(snap)
     if baseline_errors:
@@ -828,7 +899,7 @@ def _cmd_diff_unlocked() -> int:
         for error in baseline_errors:
             print(f"  ✗ {error}")
         return 2
-    src = "外部基线(BH_PRE_BASELINE)" if os.environ.get("BH_PRE_BASELINE") else "快照文件"
+    src = snap.get(BASELINE_SOURCE_FIELD, "未知来源")
     cur = load()
     current_errors = check_errors(cur)
     if current_errors:

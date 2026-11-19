@@ -1,4 +1,4 @@
-# BugX 运行时契约（0.1.0）
+# BugX 运行时契约（${BUGX_VERSION}）
 
 这是部署到用户级全局引擎 `~/.bugx/core/` 的最小运行时契约。项目不再保存
 `.bugx/core` 可执行入口；需要定位本文件时使用 `bugx engine path --name bugx-runtime-contract.md`。

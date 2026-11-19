@@ -125,7 +125,7 @@ def _discover_candidate_workspaces(self) -> list[Path]:
     except Exception:
         is_temp_fn = lambda p: False
 
-    # 1. Sibling directories under the same workspace container
+    # 1. Sibling directories under the same workspace container (e.g. ~/workspace/*)
     try:
         ws_parent = self.workspace.parent.resolve()
         if ws_parent not in (home, root) and ws_parent.is_dir() and not is_temp_fn(ws_parent):

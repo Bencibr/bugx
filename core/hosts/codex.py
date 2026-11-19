@@ -21,7 +21,8 @@
               **整层跳过**。启动期自愈为 ``trust_level = "trusted"``；用户显式写
               ``untrusted`` 时 fail-closed，绝不按死配置继续跑。
 * acp       ← **无 ACP 入口**：``codex-cli 0.163.0`` 的 ``--help`` 没有 ``acp``
-              子命令、也没有 ``--acp`` flag（以当前宿主帮助输出为准）。
+              子命令、也没有 ``--acp`` flag（2026-10-22 真机审计，见
+              ``docs/08_internal/11_research/HOST_LAUNCH_CONTRACT_AUDIT_2026-10-22.md``）。
               该事实由 ``core/host_acp/codex.py`` 以 ``status = "unavailable"``
               **机读声明**，探针如实报 ``BLOCKED(adapter_status=unavailable)``——
               它不是「未迁移」，而是宿主产品本身没有该协议面；把它写进 TODO 会让
@@ -61,6 +62,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 import tomllib
 from pathlib import Path
@@ -944,4 +946,61 @@ PLUGIN = HostPlugin(
         notes="Read-only local thread index and identity-filtered JSONL usage; unknown values remain null.",
     ),
 )
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活 Codex CLI 是否安装（零子进程 ``shutil.which``）。
+
+    宿主探活语义：CLI 缺失时无头 ``codex exec``、自治通道与宿主原生
+    ``collaboration.spawn_agent`` 派发全部不可用，调用方必须走
+    ``run_static_degraded`` 输出静态事实声明，禁止伪装宿主可用。
+    """
+    path = shutil.which("codex")
+    if path is None:
+        return False, "codex 可执行文件未安装；headless（codex exec）与宿主原生 Agent 派发不可用"
+    return True, path
+
+
+def run_static_degraded(root: Path | None = None) -> dict:
+    """Codex CLI 缺失时的静态降级输出：只声明插件事实，绝不伪装宿主健康。
+
+    输出与宿主真实可用状态字段级可区分：``status="degraded"`` + ``degraded=True``
+    + ``degraded_reason``，且 ``headless_available`` / ``native_task_available``
+    跟随真实探活结果；MCP 健康检查在 CLI 缺失时显式声明 ``unknown``。
+    """
+    available, availability_detail = is_available()
+    return {
+        "plugin": _NAME,
+        "schema_version": 1,
+        "success": available,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_facts_only" if available else "codex_cli_not_installed"
+        ),
+        "probe_mode": "static_degraded",
+        "headless_available": available,
+        "native_task_available": bool(available and PLUGIN.engine_run.native_task),
+        "mcp_health": "unknown" if not available else "not_probed",
+        "identity": {
+            "executable": PLUGIN.identity.executable,
+            "aliases": list(PLUGIN.identity.aliases),
+            "markers": list(PLUGIN.identity.markers),
+        },
+        "agent_entry": PLUGIN.install.path,
+        "mcp_project_relpath": PLUGIN.mcp_write.project_relpath,
+        "mcp_global_scope": PLUGIN.mcp_write.global_scope,
+        "mcp_config_format": getattr(PLUGIN.mcp_write, "config_format", "json"),
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "codex_home": str(_codex_home()),
+            "project_root": str(root) if root else None,
+        },
+        "metadata": {
+            "degraded_mode": "static_plugin_facts_only",
+            "acp": "unavailable（机读声明，见 core/host_acp/codex.py）",
+            "fallback": "宿主 CLI 缺失时由外层宿主/用户决策接管；BugX 不代装宿主 CLI",
+        },
+    }
 

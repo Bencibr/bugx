@@ -59,7 +59,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCENARIOS_ROOT = (REPO_ROOT / "verification" / "evals" / "scenarios") if (REPO_ROOT / "verification" / "evals").is_dir() else (REPO_ROOT / "evals" / "scenarios")
+SCENARIOS_ROOT = REPO_ROOT / "verification" / "evals" / "scenarios"
 RECEIPT_SCHEMA = 1
 
 #: 级别定义。``runner`` 说明该级由谁执行：本模块或外部组件。
@@ -131,7 +131,17 @@ def _run(argv: list[str], *, cwd: Path, timeout: float = 120.0,
     merged = {**os.environ, **(env or {})}
     # 仓库直跑 CLI：子进程 cwd 是场景工作区，须显式指回仓库根；
     # HOME 隔离：评测的全局引擎读写落在一次性沙箱，不碰真实 ~/.bugx/。
-    merged["PYTHONPATH"] = str(_repo_root())
+    repo_root = _repo_root()
+    # 与仓库 wrapper（interfaces/bin/bugx.js）保持同一包入口，避免
+    # ``interfaces.cli.bugx_cli`` 的相对包名与内部绝对导入 ``bugx_cli``
+    # 分裂，误加载 site-packages 中的旧快照。
+    merged["PYTHONPATH"] = os.pathsep.join(
+        (str(repo_root / "interfaces" / "cli"), str(repo_root)),
+    )
+    # L3 等场景验证当前 checkout；不让已安装的旧引擎成为量具。
+    merged["BUGX_DEV_MODE"] = "1"
+    # 源码树里的版本声明是构建模板；开发态启动门禁需要同一解析值。
+    merged["BUGX_VERSION"] = os.environ.get("BUGX_VERSION", "0.1.1")
     merged["HOME"] = str(_sandbox_home())
     try:
         proc = subprocess.run(
@@ -155,6 +165,26 @@ def _materialize(level_dir: Path, dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copytree(level_dir, dest, dirs_exist_ok=True)
     return dest
+
+
+def _init_git_baseline(work: Path) -> tuple[int, str]:
+    """为需要真实项目基线的场景创建一次性 Git 仓库。"""
+    commands = (
+        ["git", "init", "-q", "."],
+        ["git", "config", "user.name", "BugX Scenario"],
+        ["git", "config", "user.email", "bugx-scenario@invalid"],
+        ["git", "add", "-A"],
+        [
+            "git", "-c", "user.name=BugX Scenario",
+            "-c", "user.email=bugx-scenario@invalid",
+            "commit", "-qm", "scenario fixture",
+        ],
+    )
+    for argv in commands:
+        rc, out, err = _run(argv, cwd=work, timeout=60.0)
+        if rc != 0:
+            return rc, (err or out)[-300:]
+    return 0, ""
 
 
 def _repo_root() -> Path:
@@ -183,7 +213,7 @@ def _bugx_argv() -> list[str]:
     快照 CLI 落后仓库多个 build，用它评测仓库修复等于拿旧量具测新代码
     （实测：快照 430 对仓库 434 的 init 在三个级别全部「拒绝降级」）。
     """
-    return [sys.executable, "-m", "interfaces.cli.bugx_cli.cli"]
+    return [sys.executable, "-m", "bugx_cli.cli"]
 
 
 #: 覆盖清单的两种真实形态。写成两种不是「兼容性懒惰」——实测 2026-11-03：
@@ -301,8 +331,14 @@ def run_l3_multilang(root: Path, work: Path) -> LevelResult:
     """
     result = LevelResult(level="L3", name="多语言", ok=True)
     started = time.monotonic()
-    rc, out, err = _run([*_bugx_argv(), "init", "--root", ".", "--cloud-sync", "local"],
-                        cwd=work, timeout=180.0)
+    git_rc, git_detail = _init_git_baseline(work)
+    if git_rc != 0:
+        rc, out, err = git_rc, "", f"Git 基线初始化失败：{git_detail}"
+    else:
+        rc, out, err = _run(
+            [*_bugx_argv(), "init", "--root", ".", "--cloud-sync", "local"],
+            cwd=work, timeout=180.0,
+        )
     result.add("init 成功", rc == 0, (err or out)[-300:] if rc != 0 else "")
     expected = {".py": "python", ".js": "javascript", ".go": "go"}
     present = {ext: kind for ext, kind in expected.items()
@@ -502,6 +538,10 @@ def run_l4_known_vulns(root: Path, work: Path) -> LevelResult:
             ("发现率:", "recall"), ("精确率:", "precision"),
             ("证据有效率:", "evidence_validity"), ("可复现率:", "reproducibility"),
             ("综合质量分:", "quality"),
+            # F-022 管线接线：评测集内嵌 feature baseline 时 completeness
+            # 维度随 agent_eval 输出流转（无 baseline 时这些行不存在，跳过）
+            ("完备性召回:", "completeness_recall"),
+            ("完备性精确:", "completeness_precision"),
         ):
             if line.startswith(label):
                 value = line[len(label):].strip()
@@ -510,9 +550,11 @@ def run_l4_known_vulns(root: Path, work: Path) -> LevelResult:
             parts = line[len("耗时/Token:"):].strip().split("/")
             metrics["duration"] = parts[0].strip()
             metrics["tokens"] = parts[-1].strip() if len(parts) > 1 else None
+    recall = metrics.get("recall")
     result.add(
-        "关键指标可解析", bool(metrics.get("recall")),
-        f"未能从输出解析发现率：{combined[-200:]}",
+        "关键指标可解析", bool(recall),
+        (f"发现率：{recall}" if recall
+         else f"未能从输出解析发现率：{combined[-200:]}"),
     )
     result.duration_seconds = time.monotonic() - started
     result.metrics = metrics
@@ -641,7 +683,7 @@ BUILTIN_RUNNERS = {
 
 
 #: 在**仓库根**执行、不需要临时工作区的级别。L4/L6 评的是仓库自带的评测集与
-#: 故障矩阵，物化到临时目录反而会让它们找不到 ``evals/`` 和 ``scripts/``。
+#: 故障矩阵，物化到临时目录反而会让它们找不到 ``verification/evals/`` 和 ``scripts/``。
 REPO_LEVELS = frozenset({"L4", "L6", "L7"})
 
 

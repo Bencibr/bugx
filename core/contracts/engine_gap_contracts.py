@@ -382,9 +382,92 @@ def oracle_suggest(root: Path, query: str, *, limit: int = MAX_ORACLE_RESULTS) -
     return result
 
 
+def is_available(root: Path | None = None) -> tuple[bool, str]:
+    """降级契约：机械探活契约状态前提（项目根存在且可写，零子进程）。
+
+    本模块只用标准库、不执行命令；唯一的落盘前提是项目根存在且可写，
+    使 ``.bugx/state`` 下的 harness/oracle 契约工件可创建。前提不满足时
+    调用方必须走 ``run_static_degraded``，禁止伪装契约工件已持久化。
+    """
+    base = (Path(root) if root is not None else Path.cwd()).resolve()
+    if not base.is_dir():
+        return False, f"项目根不存在: {base}"
+    if not os.access(base, os.W_OK):
+        return False, f"项目根不可写，契约状态（{_state_root(base)}）无法落盘"
+    return True, f"契约状态根可用: {_state_root(base)}"
+
+
+def run_static_degraded(
+    bundle: Mapping[str, object] | None = None,
+    *,
+    root: Path | None = None,
+) -> dict[str, object]:
+    """降级契约：bundle 缺失或校验失败时返回结构化降级裁决，不抛 ContractError。
+
+    输出与成功路径（``validate_evidence_bundle`` 的校验通过产物）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason``；调用方
+    拿到机器可读的裁决而非异常，且任何失败原因都显式落字段，绝不静默吞错。
+    """
+    available, availability_detail = is_available(root)
+    if bundle is None:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "evidence_bundle_missing",
+            "probe_mode": "static_degraded",
+            "findings": [],
+            "evidence": {"availability_detail": availability_detail},
+            "metadata": {
+                "degraded_mode": "contract_metadata_only",
+                "validator": "validate_evidence_bundle",
+            },
+        }
+    try:
+        verdict = validate_evidence_bundle(bundle, root=root)
+    except (ContractError, TypeError, ValueError) as exc:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "contract_validation_failed",
+            "probe_mode": "static_degraded",
+            "findings": [],
+            "evidence": {
+                "availability_detail": availability_detail,
+                "error": str(exc),
+                "error_type": exc.__class__.__name__,
+            },
+            "metadata": {
+                "degraded_mode": "contract_metadata_only",
+                "validator": "validate_evidence_bundle",
+            },
+        }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "success": True,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if available else "state_root_unwritable"
+        ),
+        "probe_mode": "static_degraded",
+        "validated": True,
+        "verdict": verdict,
+        "findings": [],
+        "evidence": {"availability_detail": availability_detail},
+        "metadata": {
+            "degraded_mode": "static_validation_only",
+            "state_persisted": bool(available),
+        },
+    }
+
+
 __all__ = [
     "ContractError", "discover_test_assets", "ensure_harness_registry",
-    "extract_oracle_candidates", "harness_snapshot", "mark_semantic_duplicates",
-    "oracle_suggest", "record_oracle",
-    "static_hit_contract", "validate_evidence_bundle",
+    "extract_oracle_candidates", "harness_snapshot", "is_available",
+    "mark_semantic_duplicates", "oracle_suggest", "record_oracle",
+    "run_static_degraded", "static_hit_contract", "validate_evidence_bundle",
 ]

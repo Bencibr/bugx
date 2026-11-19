@@ -5,7 +5,7 @@
 ``supervisor.lease_manager`` 此前互为依赖——``lease_manager`` 在
 ``mark_claim_expired`` 里 `from supervisor import budget_governor`，而
 ``budget_governor`` 顶层从 ``lease_manager`` 导入 ``append_event`` 等原语。
-双向依赖让模块方向无法静态判定（`tests/test_import_graph_acyclic.py` 禁止）。
+双向依赖会让模块方向无法静态判定（导入图无环约束，人工核查为准）。
 
 ``append_event`` 只依赖 ``supervisor_models``（事件序列 / hash-chain / 裁剪归档），
 与租约、预算语义无关，因此下沉到本模块：

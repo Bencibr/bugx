@@ -24,6 +24,17 @@ UUID_RE = re.compile(
 )
 SHA_RE = re.compile(r"(?i)^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 ROUTE_TEMPLATE_RE = re.compile(r"(?:/:[A-Za-z_][\w-]*|/\{[A-Za-z_][\w-]*\})")
+# 占位符标记语法（F-RSI-20261115-209）：只有被显式括号/标记包裹的值才可能是
+# 模板占位符。这是 header 白名单的唯一作用对象——真实 header 值位置上出现的
+# 裸词（如 ``Bearer token``）不是占位符，必须脱敏。
+PLACEHOLDER_MARKER_PATTERN = (
+    r"\{\{[^{}\r\n]*\}\}"      # {{REDACTED_TOKEN_A}} / {{ token }}
+    r"|\$\{[^{}\r\n]*\}"       # ${TOKEN}
+    r"|<[^<>\r\n]*>"           # <token> / <YOUR_TOKEN_HERE>
+    r"|\[[^\[\]\r\n]*\]"       # [REDACTED]
+    r"|__[A-Za-z0-9_]+__"      # __TOKEN__
+)
+PLACEHOLDER_MARKER_RE = re.compile(rf"(?i)^(?:{PLACEHOLDER_MARKER_PATTERN})$")
 
 API_KEY_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:"
@@ -69,21 +80,15 @@ ASSIGNMENT_BARE_RE = re.compile(
 AUTH_HEADER_RE = re.compile(
     r"(?P<prefix>\b(?:authorization|proxy-authorization)\s*:\s*"
     r"(?:bearer|basic)\s+)"
-    r"(?P<value>\{\{REDACTED_[A-Z0-9_]+\}\}|[^\r\n,\}\]\"']+)",
+    r"(?P<value>" + PLACEHOLDER_MARKER_PATTERN + r"|[^\r\n,\}\]\"']+)",
     re.IGNORECASE,
 )
 AUTH_VALUE_HEADER_RE = re.compile(
     r"(?P<prefix>\b(?:x-api-key|x-auth-token|x-access-token|cookie|"
     r"set-cookie)\s*:\s*)"
-    r"(?P<value>\{\{REDACTED_[A-Z0-9_]+\}\}|[^\r\n,\}\]\"']+)",
+    r"(?P<value>" + PLACEHOLDER_MARKER_PATTERN + r"|[^\r\n,\}\]\"']+)",
     re.IGNORECASE,
 )
-BEARER_IGNORE_WORDS = frozenset({
-    "token", "tokens", "auth", "authentication", "credential", "credentials",
-    "scheme", "format", "header", "headers", "type", "mode", "of", "the",
-    "a", "an", "to", "for", "in", "is", "was", "and", "or",
-    "adm", "admin", "adm9", "user", "guest", "test", "bearer",
-})
 BEARER_RE = re.compile(
     r"(?P<prefix>\bBearer\s+)"
     r"(?P<value>\{\{REDACTED_[A-Z0-9_]+\}\}|[A-Za-z0-9_.\-~+/=:]+)",
@@ -195,6 +200,11 @@ class SecretRedactionError(ValueError):
 
 def is_placeholder(value: str) -> bool:
     return bool(PLACEHOLDER_RE.fullmatch(value.strip()))
+
+
+def _is_placeholder_marker(value: str) -> bool:
+    """True only for explicitly bracketed template markers, never for bare words."""
+    return bool(PLACEHOLDER_MARKER_RE.fullmatch(value.strip()))
 
 
 def _is_hash_or_uuid(value: str) -> bool:
@@ -555,7 +565,9 @@ class SecretRedactor:
 
         def replace_header(match: re.Match[str]) -> str:
             value = match.group("value").strip()
-            if value.lower() in BEARER_IGNORE_WORDS:
+            # 白名单只抑制显式占位标记；值位置上出现的裸词是真实 header 值，
+            # 一律脱敏（F-RSI-20261115-209：`Bearer token` 曾是放行形态）。
+            if _is_placeholder_marker(value):
                 return match.group(0)
             header = match.group("prefix").lower()
             fallback = "TOKEN" if ("bearer" in header or "auth-token" in header) else "HTTP_AUTH"
@@ -688,7 +700,7 @@ class SecretRedactor:
         for pattern in (AUTH_HEADER_RE, AUTH_VALUE_HEADER_RE, BEARER_RE):
             for match in pattern.finditer(text):
                 val = match.group("value").strip()
-                if pattern is BEARER_RE and val.lower() in BEARER_IGNORE_WORDS:
+                if _is_placeholder_marker(val):
                     continue
                 collect(val)
         for pattern in (ASSIGNMENT_QUOTED_RE, ASSIGNMENT_BARE_RE):

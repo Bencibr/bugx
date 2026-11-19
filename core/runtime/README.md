@@ -1,7 +1,8 @@
 # BugX Core Runtime Subsystem (核心运行时、环境与基础设施)
 
-> **版本契约**: `0.1.0` | **所属分层**: `Layer 0: 基础设施与操作系统抽象`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **所属分层**: `Layer 0: 基础设施与操作系统抽象`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
 `core/runtime/` 汇聚了 BugX 核心微内核的运行时环境配置、会话画像与恢复、模型执行适配、全链路日志遥测、进程同步存储及安全评测挖掘基础设施。
 

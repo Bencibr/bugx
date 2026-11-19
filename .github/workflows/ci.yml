@@ -1,0 +1,258 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: src
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile Python sources
+        run: python -m compileall -q core src/bugx_cli tests
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Check patch formatting
+        run: git diff --check
+
+  agent-eval:
+    name: Evaluator contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Validate evaluation protocol
+        run: python core/agent/agent_eval.py validate
+      - name: Validate golden scorer baseline
+        run: >-
+          python core/agent/agent_eval.py score --strict --json
+          --baseline-metrics evals/baseline-metrics.json
+      - name: Exercise external runner protocol only
+        run: >-
+          python core/agent/agent_eval.py run --protocol-only --json
+          --runner python --runner-arg evals/example_runner.py
+      - name: Require every golden candidate to reach a valid terminal state
+        run: >-
+          python core/finding_confirmation.py gate
+          --input evals/golden-findings.json --json
+      - name: Validate structured lesson ledger and retrieval
+        run: |
+          python core/lesson_ledger.py validate --json
+          python core/lesson_ledger.py retrieve \
+            --query "并发 状态" --limit 8 --json
+          python -m unittest tests.ledger.test_lesson_ledger -v
+      - name: Validate and export SARIF contract
+        run: |
+          python core/finding_report.py validate \
+            --input evals/golden-findings.json --root .
+          python core/finding_report.py export \
+            --input evals/golden-findings.json --root . \
+            --format sarif --output "$RUNNER_TEMP/bugx.sarif"
+          python -c 'import json,sys; assert json.load(open(sys.argv[1]))["version"] == "2.1.0"' \
+            "$RUNNER_TEMP/bugx.sarif"
+      - name: Exercise Coverage v2 protocol
+        run: |
+          python core/coverage_intelligence.py --help >/dev/null
+          python -m unittest tests.coverage.test_coverage_intelligence -v
+      - name: Build behavior graph and risk-priority full-coverage plan
+        run: |
+          python core/behavior_graph.py scan --root . --json \
+            > "$RUNNER_TEMP/behavior-graph.json"
+          python core/test_strategy.py plan --root . --json \
+            > "$RUNNER_TEMP/test-strategy.json"
+          python -c 'import json,sys; p=json.load(open(sys.argv[1])); assert p["full_coverage_required"]' \
+            "$RUNNER_TEMP/test-strategy.json"
+
+  graph-extra:
+    name: Tree-sitter graph backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install graph extra
+        run: python -m pip install '.[graph]'
+      - name: Exercise Tree-sitter backend
+        run: python -m unittest tests.test_tree_sitter_index -v
+
+  package:
+    name: Installable CLI package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --disable-pip-version-check 'build==1.3.0'
+          python -m build --sdist --wheel --outdir "$RUNNER_TEMP/dist"
+      - name: Verify package metadata and resources
+        run: |
+          python - "$RUNNER_TEMP"/dist/*.whl "$RUNNER_TEMP"/dist/*.tar.gz <<'PY'
+          import sys
+          import tarfile
+          import zipfile
+          from pathlib import Path
+          import tomllib
+
+          root = Path.cwd()
+          expected_version = tomllib.loads((root / "pyproject.toml").read_text())[
+              "project"
+          ]["version"]
+          artifacts = [Path(value) for value in sys.argv[1:]]
+          assert len(artifacts) == 2, artifacts
+          for artifact in artifacts:
+              assert f"-{expected_version}" in artifact.name, artifact
+          wheel = next(value for value in artifacts if value.suffix == ".whl")
+          sdist = next(value for value in artifacts if value.name.endswith(".tar.gz"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+              assert any(name.endswith("share/bugx-agent/opencode.json") for name in names)
+              assert any(name.endswith("share/bugx-agent/core/bugx.md") for name in names)
+          with tarfile.open(sdist) as archive:
+              names = archive.getnames()
+              assert any(name.endswith("/pyproject.toml") for name in names)
+              assert any(name.endswith("/core/bugx.md") for name in names)
+          PY
+      - name: Install and smoke test CLI
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-deps "$RUNNER_TEMP"/dist/*.whl
+          "$RUNNER_TEMP/venv/bin/bugx" --version
+          mkdir "$RUNNER_TEMP/project"
+          "$RUNNER_TEMP/venv/bin/bugx" init --root "$RUNNER_TEMP/project"
+          "$RUNNER_TEMP/venv/bin/bugx" doctor --root "$RUNNER_TEMP/project" --installation-only --json
+
+  quality:
+    name: Lint and dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install pinned quality tools
+        run: |
+          python -m pip install --disable-pip-version-check \
+            'ruff==0.12.10' 'bandit==1.8.6' 'pip-audit==2.9.0'
+      - name: Run Python lint gate
+        run: >-
+          ruff check core src/bugx_cli tests
+          --select E9,F63,F7,F82
+      - name: Run Python security static analysis
+        run: bandit -r core src/bugx_cli -ll -iii
+      - name: Audit Python dependencies
+        run: pip-audit --strict --progress-spinner off
+
+  coverage:
+    name: Branch coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - name: Install pinned coverage tool
+        run: python -m pip install --disable-pip-version-check 'coverage==7.15.3'
+      - name: Run tests with branch coverage
+        run: |
+          python -m coverage run --branch -m unittest discover -s tests -p 'test_*.py'
+          python -m coverage report --include='core/*.py,src/bugx_cli/*.py' \
+            --omit='tests/*' --fail-under=60
+      - name: Export structured coverage gaps for risk planning
+        run: |
+          python -m coverage json -o "$RUNNER_TEMP/coverage.json"
+          python core/coverage_intelligence.py import \
+            --input "$RUNNER_TEMP/coverage.json" --format coveragepy \
+            --root . --output "$RUNNER_TEMP/coverage-normalized.json"
+          python core/coverage_intelligence.py gaps \
+            --root . --report "$RUNNER_TEMP/coverage-normalized.json" \
+            --output "$RUNNER_TEMP/coverage-gaps.json"
+          python core/test_strategy.py plan --root . \
+            --coverage "$RUNNER_TEMP/coverage-gaps.json" --json \
+            > "$RUNNER_TEMP/test-strategy-with-coverage.json"
+          python - <<PY
+          import json
+          from pathlib import Path
+          gaps = json.loads(Path("$RUNNER_TEMP/coverage-gaps.json").read_text())
+          plan = json.loads(Path("$RUNNER_TEMP/test-strategy-with-coverage.json").read_text())
+          assert gaps["total"] > 0, gaps
+          assert plan["summary"]["total"] > 0, plan
+          print({"coverage_units": gaps["total"], "covered": gaps["covered"],
+                 "planned_units": plan["summary"]["total"]})
+          PY
+
+  node-lock:
+    name: Node runtime and lockfile gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: .opencode/package-lock.json
+      - name: Verify Node engine constraint
+        run: |
+          python - <<'PY'
+          import re
+          import subprocess
+          import tomllib
+
+          constraint = tomllib.load(open("pyproject.toml", "rb"))["tool"]["bugx"]["node"]
+          match = re.fullmatch(r">=(\d+),<(\d+)", constraint)
+          assert match, constraint
+          major = int(subprocess.check_output(["node", "-p", "process.versions.node"], text=True).split(".", 1)[0])
+          assert int(match.group(1)) <= major < int(match.group(2)), (major, constraint)
+          PY
+      - name: Install exactly from npm lockfile
+        working-directory: .opencode
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Ensure npm install did not rewrite the lockfile
+        run: git diff --exit-code -- .opencode/package.json .opencode/package-lock.json

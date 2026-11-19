@@ -278,6 +278,19 @@ class CloudClient:
         key = self.cred.api_key or self.cred.token
         return f"Bearer {key}" if key else None
 
+    @staticmethod
+    def _unauthenticated(method: str, path: str) -> ReportResult:
+        """Fail closed before egress when no account credential exists."""
+        message = (
+            f"unauthenticated: {method} {path} 必须携带账号 Bearer token；"
+            "project_key 只是幂等标识，不是鉴权凭据"
+        )
+        return ReportResult(
+            ok=False, status=401,
+            data={"code": "SYNC_UNAUTHENTICATED", "message": message},
+            error=message,
+        )
+
     def _mark_auth_expired(self) -> None:
         """Keep a server-confirmed 401 visible to the next CLI process."""
         self.cred.auth_state_override = "expired"
@@ -323,8 +336,12 @@ class CloudClient:
                 if expires_in is not None and expires_in <= 2 * 86400:
                     self._refresh()
             header = self._auth_header()
-            if header:
-                headers["Authorization"] = header
+            if header is None:
+                # F-RSI-20261115-145：账号 Bearer token 是云端操作唯一的鉴权凭据，
+                # project_key 只是同账号内的幂等标识。缺失账号凭据时不得发出任何
+                # 请求（此前会静默省略 Authorization，仅凭 body 里的 project_key 出网）。
+                return self._unauthenticated(method, path)
+            headers["Authorization"] = header
         body = None
         if payload is not None:
             # V2-only：pull 一律 query 参数（DOC-008 §5.2），GET 禁止携带 body。
@@ -445,8 +462,10 @@ class CloudClient:
         headers = {"Accept": "application/json", **client_headers(),
                    "Content-Type": content_type, "Content-Length": str(len(body))}
         auth = self._auth_header()
-        if auth:
-            headers["Authorization"] = auth
+        if auth is None:
+            # 同 _request：补丁包上传同样必须带账号凭据，缺失即零 egress 拒绝。
+            return self._unauthenticated(method, path)
+        headers["Authorization"] = auth
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             resp = self._open_request(req)
@@ -757,7 +776,7 @@ class CloudClient:
                        operation_id: str | None = None,
                        base_version: int | None = None,
                        device_id: str | None = None,
-                       sensitive_policy: str = "allow") -> ReportResult:
+                       sensitive_policy: str = "redact") -> ReportResult:
         """V2 push：完整 envelope（records 四数组恒在，无 legacy 顶层字段）。
 
         DOC-211：sensitive_policy=allow 跳过出网敏感扫描（策略应用已在构建侧
@@ -818,7 +837,7 @@ class CloudClient:
         return self._request("POST", self.scope_path(scope, project_id), container)
 
     def import_knowledge_bundle(self, bundle: dict[str, Any], *, mode: str = "merge",
-                                sensitive_policy: str = "allow") -> ReportResult:
+                                sensitive_policy: str = "redact") -> ReportResult:
         """Import one validated V2 JSON bundle through the explicit import API.
 
         DOC-211：upload 与 sync 同吃一档策略——block 补凭据形状扫描（堵旧

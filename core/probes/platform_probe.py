@@ -256,6 +256,77 @@ def reports_for(target: str, root: Path | None = None,
     return [desktop_report(platform), android_report(root), ios_report(platform)]
 
 
+def is_available(target: str = "all") -> tuple[bool, str]:
+    """降级契约：机械探测平台测试环境前置条件（<5ms，零阻塞、零子进程）。
+
+    只做 PATH 工具存在性与主机平台判定，不查询设备（设备查询属 check/status
+    慢路径）。返回 (available, detail)：任一所选目标的必需通道工具在场即 True。
+    """
+    host = host_name()
+    missing: list[str] = []
+    present: list[str] = []
+    targets = ("desktop", "android", "ios") if target == "all" else (target,)
+    wanted: set[str] = set()
+    if host == "unsupported":
+        return False, f"不支持的主机平台: {sys.platform}；无任何平台测试通道"
+    if "desktop" in targets:
+        capture_by_host = {
+            "macos": ("screencapture", "appium"),
+            "windows": ("powershell", "WinAppDriver", "appium"),
+            "linux": ("gnome-screenshot", "scrot", "import", "appium"),
+        }
+        wanted.update(capture_by_host[host])
+    if "android" in targets:
+        wanted.add("adb")
+    if "ios" in targets:
+        wanted.update(("xcrun", "xcodebuild"))
+    for name in sorted(wanted):
+        (present if _which(name) else missing).append(name)
+    if present:
+        detail = f"主机 {host}；通道工具在场: {', '.join(present)}"
+    else:
+        detail = f"主机 {host}；所需通道工具全部缺失: {', '.join(sorted(wanted))}"
+    if missing:
+        detail += f"；缺失: {', '.join(missing)}"
+    return bool(present), detail
+
+
+def run_static_degraded(
+    target: str = "all", root: Path | str | None = None,
+) -> dict:
+    """降级路径：仅做 PATH 工具存在性静态检测，不查询设备/模拟器。
+
+    降级契约：输出与成功路径（check/status，status=READY）**可区分**——
+    status="degraded" + degraded=True + degraded_reason + checks_not_run；
+    设备可用性一律标注未验证，禁止把"工具在场"写成"目标可运行"。
+    """
+    root_path = Path(root) if root is not None else None
+    available, availability_detail = is_available(target)
+    warnings = [
+        "降级模式：仅完成 PATH 工具存在性静态检测；设备/模拟器可用性未验证，"
+        "禁止把工具在场当成可运行目标"
+    ]
+    payload: dict[str, Any] = {
+        "probe": "platform",
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "device_query_skipped" if available else "channel_tools_missing"
+        ),
+        "success": True,
+        "target": target,
+        "root": str(root_path) if root_path is not None else None,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "host": host_name(),
+        },
+        "warnings": warnings,
+        "checks_not_run": ["adb-devices", "simctl-booted", "xctrace-devices"],
+    }
+    return payload
+
+
 def summary_dict(reports: list[Report], *, root: Path | None = None) -> dict[str, Any]:
     """构建单根标准环境探测报告字典。"""
     eval_reports = reports
@@ -321,7 +392,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--envelope", action="store_true", default=True)
     parser.add_argument("--no-envelope", dest="envelope", action="store_false")
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（仅 PATH 工具存在性检测；输出 status=degraded，"
+             "不查询设备/模拟器）",
+    )
     args = parser.parse_args(argv)
+    if args.static_degraded:
+        print(json.dumps(
+            run_static_degraded(args.target, args.root), ensure_ascii=False, indent=2,
+        ))
+        return 0
     reports = reports_for(args.target, args.root)
     print_reports(reports, as_json=args.json, envelope=args.envelope, root=args.root)
     if all(report.ready for report in reports):

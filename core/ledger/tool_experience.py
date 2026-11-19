@@ -626,7 +626,8 @@ def activate_tool_experience(
             raise LessonLedgerError("待激活的工具经验不存在")
         if row[2] != "candidate":
             raise LessonLedgerError("只有 candidate 工具经验可以激活")
-        if bool(row[14]):
+        # F-129: 按列名取值，禁止依赖列序位置（row_factory=sqlite3.Row）。
+        if bool(row["deleted"]):
             raise LessonLedgerError("已删除的工具经验不能激活")
         if int(row[9] or 0) < 2 or int(row[5] or 0) < 2:
             raise LessonLedgerError("工具经验至少需要两个独立 lifecycle hit")

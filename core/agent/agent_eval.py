@@ -25,7 +25,6 @@ import hashlib
 import json
 import os
 import shutil
-import signal
 import statistics
 import subprocess
 import sys
@@ -52,7 +51,8 @@ for _p in (str(_CORE_DIR), str(REPO_ROOT)):
         sys.path.insert(0, _p)
 
 from core.retrieval import symbol_index
-_EVALS_DIR = (REPO_ROOT / "verification" / "evals") if (REPO_ROOT / "verification" / "evals").is_dir() else (REPO_ROOT / "evals")
+from core.runtime.platform_adapter import terminate_process_tree as _terminate_runner
+_EVALS_DIR = REPO_ROOT / "verification" / "evals"
 DEFAULT_CASES = _EVALS_DIR / "cases.json"
 DEFAULT_FINDINGS = _EVALS_DIR / "golden-findings.json"
 SEVERITY_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -84,12 +84,6 @@ class EvalError(ValueError):
 
 
 def load_json(path: Path) -> dict:
-    if not path.exists():
-        p_str = str(path)
-        if "/evals/" in p_str:
-            alt = Path(p_str.replace("/evals/", "/verification/evals/"))
-            if alt.exists():
-                path = alt
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -108,8 +102,6 @@ def _resolve_in_root(raw: str, root: Path) -> Path | None:
     try:
         resolved_root = root.resolve(strict=True)
         candidate = root / path
-        if not candidate.exists() and raw.startswith("evals/") and (root / "verification" / path).exists():
-            candidate = root / "verification" / path
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(resolved_root)
     except (OSError, ValueError):
@@ -278,6 +270,78 @@ def invalid_evidence_ids(findings: list[dict], root: Path = REPO_ROOT) -> list[s
     ]
 
 
+# DEF-2：证据契约的正确格式样例（单一真源，拒绝回注与探针共用；只描述契约，
+# 不放宽契约——path 仍必须是 workspace 内真实文件的相对路径）。
+CORRECT_EVIDENCE_SAMPLE = '[{"path": "core/foo.py", "line": 42}]'
+
+
+def evidence_item_valid(item: object, root: Path) -> bool:
+    """公开别名：与 ``_evidence_item_valid`` 同一实现（防漂移单一真源）。"""
+    return _evidence_item_valid(item, root)
+
+
+def evidence_item_violation(item: object, root: Path) -> str | None:
+    """单条 evidence 证据项的结构化违规原因（``None`` = 通过契约校验）。
+
+    DEF-2：checkpoint 摄入侧拒绝时只给一行「缺真实 workspace evidence」，
+    模型/宿主不知道缺什么字段、哪个 path 不存在，同因重试烧尽 attempt 预算。
+    本函数把 ``_evidence_item_valid`` 的同一套判定谓词展开为可回注重试提示词
+    的具体原因；接受条件与 ``_evidence_item_valid`` 逐字同源，绝不放宽
+    真实文件/行号契约。
+    """
+    if not isinstance(item, dict):
+        return (
+            f"evidence 项必须是对象（收到 {type(item).__name__}），"
+            f"正确格式 {CORRECT_EVIDENCE_SAMPLE}"
+        )
+    path = item.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return "evidence 缺 path（必须是非空字符串的 workspace 相对路径）"
+    raw = path.strip()
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return f"evidence path 是绝对路径（必须用相对 workspace 根的路径）: {raw[:200]}"
+    try:
+        resolved_root = root.resolve(strict=True)
+    except OSError:
+        return f"workspace 根不可解析，无法校验 evidence path: {raw[:200]}"
+    resolved = (root / raw).resolve(strict=False)
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError:
+        return f"evidence path 越出 workspace 边界: {raw[:200]}"
+    if not resolved.exists():
+        return f"evidence path 在 workspace 内不存在（必须是真实文件）: {raw[:200]}"
+    if not resolved.is_file():
+        return f"evidence path 不是普通文件: {raw[:200]}"
+    line = item.get("line")
+    if line is None:
+        return None
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+        return f"evidence line 必须是正整数（收到 {line!r}）"
+    try:
+        with resolved.open("r", encoding="utf-8", errors="replace") as handle:
+            total = sum(1 for _ in handle)
+    except OSError:
+        return f"evidence path 文件不可读: {raw[:200]}"
+    if line > total:
+        return f"evidence line 超出文件行数（文件共 {total} 行，收到 {line}）"
+    return None
+
+
+def finding_evidence_violations(finding: dict, root: Path) -> list[str]:
+    """逐条列出 finding 全部 evidence 项的结构化违规（空列表 = 证据有效）。"""
+    evidence = finding.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return ["evidence 必须是非空数组"]
+    issues: list[str] = []
+    for index, item in enumerate(evidence, 1):
+        violation = evidence_item_violation(item, root)
+        if violation:
+            issues.append(f"evidence[{index}] {violation}")
+    return issues
+
+
 def _hard_confirmed(finding: dict) -> bool:
     """Count only findings that pass the shared confirmation gate."""
     try:
@@ -292,9 +356,18 @@ def _hard_confirmed(finding: dict) -> bool:
 
 
 def score(cases_payload: dict, findings_payload: dict,
-          root: Path = REPO_ROOT) -> dict:
+          root: Path = REPO_ROOT,
+          feature_baseline_payload: dict | None = None) -> dict:
     cases = validate_cases(cases_payload, root)
     findings = validate_findings(findings_payload)
+    # F-022：feature baseline 可选。提供时计算 completeness 维度并重分配
+    # quality_score 权重（六维度①功能完备性为差异化核心）；缺省时行为不变。
+    baseline_features = None
+    if feature_baseline_payload is not None:
+        from core.agent.feature_baseline import (
+            completeness_metrics, validate_feature_baseline, COMPLETENESS_WEIGHTED,
+        )
+        baseline_features = validate_feature_baseline(feature_baseline_payload)
     case_by_id = {case["id"]: case for case in cases}
     matched: dict[str, list[dict]] = {}
     for finding in findings:
@@ -381,7 +454,7 @@ def score(cases_payload: dict, findings_payload: dict,
         recall * 0.40 + precision * 0.25
         + evidence_validity * 0.20 + reproducibility * 0.15
     )
-    return {
+    metrics = {
         "cases_total": total_cases,
         "cases_found": found,
         "findings_total": total_findings,
@@ -408,6 +481,17 @@ def score(cases_payload: dict, findings_payload: dict,
             [float(item["confidence"]) for item in findings]
         ), 4) if findings else 0.0,
     }
+    if baseline_features is not None:
+        completeness = completeness_metrics(baseline_features, findings)
+        metrics.update(completeness)
+        metrics["quality_score"] = round((
+            recall * COMPLETENESS_WEIGHTED["recall"]
+            + precision * COMPLETENESS_WEIGHTED["precision"]
+            + evidence_validity * COMPLETENESS_WEIGHTED["evidence_validity"]
+            + reproducibility * COMPLETENESS_WEIGHTED["reproducibility"]
+            + completeness["completeness_recall"] * COMPLETENESS_WEIGHTED["completeness_recall"]
+        ) * 100, 2)
+    return metrics
 
 
 def threshold_failures(metrics: dict, thresholds: dict) -> list[str]:
@@ -416,9 +500,14 @@ def threshold_failures(metrics: dict, thresholds: dict) -> list[str]:
         "min_precision": "precision",
         "min_evidence_validity": "evidence_validity",
         "min_reproducibility": "reproducibility",
+        # F-022：completeness 阈值仅在提供 feature baseline（metrics 含键）时检查，
+        # 无 baseline 的存量评测集不受影响。
+        "min_completeness_recall": "completeness_recall",
     }
     failures = []
     for threshold_name, metric_name in mapping.items():
+        if threshold_name not in thresholds or metric_name not in metrics:
+            continue
         expected = float(thresholds[threshold_name])
         actual = float(metrics[metric_name])
         if actual < expected:
@@ -471,7 +560,8 @@ def _fixture_sha256(path: Path | None) -> str:
 
 
 def metrics_record(metrics: dict, cases_payload: dict,
-                   findings_payload: dict, root: Path = REPO_ROOT) -> dict:
+                   findings_payload: dict, root: Path = REPO_ROOT,
+                   feature_baseline_payload: dict | None = None) -> dict:
     """生成可持久化、可比较且不包含评测答案的基线记录。"""
     cases = validate_cases(cases_payload, root)
     cases_fingerprint = {
@@ -486,13 +576,17 @@ def metrics_record(metrics: dict, cases_payload: dict,
             for case in cases
         ],
     }
-    return {
+    record = {
         "schema_version": 1,
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "cases_digest": canonical_digest(cases_fingerprint),
         "findings_digest": canonical_digest(findings_payload),
         "metrics": dict(metrics),
     }
+    if feature_baseline_payload is not None:
+        # baseline 对比必须绑定同一份功能基准（不同基准的 completeness 不可比）
+        record["feature_baseline_digest"] = canonical_digest(feature_baseline_payload)
+    return record
 
 
 def baseline_failures(metrics: dict, baseline_payload: dict,
@@ -503,7 +597,12 @@ def baseline_failures(metrics: dict, baseline_payload: dict,
     if baseline_payload.get("schema_version") != 1 or not isinstance(baseline, dict):
         raise EvalError("baseline metrics 协议无效")
     failures: list[str] = []
-    for name in QUALITY_METRICS:
+    # F-022：completeness_recall 数据驱动纳入回归对比——基线记录里带了它
+    # （生成时提供了 feature baseline）才要求当前运行也有。
+    watched = list(QUALITY_METRICS)
+    if "completeness_recall" in baseline:
+        watched.append("completeness_recall")
+    for name in watched:
         expected = baseline.get(name)
         actual = metrics.get(name)
         if not isinstance(expected, (int, float)) or isinstance(expected, bool):
@@ -686,43 +785,6 @@ class _RunnerOutput:
 
     def value(self) -> bytes:
         return bytes(self.prefix)
-
-
-def _terminate_runner(process: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
-        try:
-            process.send_signal(getattr(subprocess, "CTRL_BREAK_EVENT", 1))
-        except (OSError, ValueError):
-            pass
-        try:
-            process.terminate()
-        except OSError:
-            pass
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            try:
-                process.kill()
-            except OSError:
-                pass
-        return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except (OSError, ProcessLookupError):
-        try:
-            process.terminate()
-        except OSError:
-            pass
-    try:
-        process.wait(timeout=1)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            try:
-                process.kill()
-            except OSError:
-                pass
 
 
 def _run_runner_process(command: list[str], input_text: str, cwd: Path,
@@ -951,9 +1013,17 @@ def _print_score(metrics: dict, failures: list[str]) -> None:
     print(f"  重复率: {metrics['duplicate_rate'] * 100:.1f}%")
     print(f"  确认率: {metrics['confirmation_rate'] * 100:.1f}%")
     print(f"  综合质量分: {metrics['quality_score']:.2f}/100")
+    if "completeness_recall" in metrics:
+        # F-022：feature baseline 提供时输出 completeness 维度（管线解析依赖
+        # 这些行前缀，勿改措辞）
+        print(f"  完备性召回: {metrics['completeness_recall'] * 100:.1f}%")
+        print(f"  完备性精确: {metrics['completeness_precision'] * 100:.1f}%")
+        print(f"  植入缺失检出: {metrics['planted_gaps_found']}/{metrics['planted_gaps_total']}")
     print(f"  耗时/Token: {metrics['duration_seconds']:.3f}s / {metrics['token_count']}")
     if metrics["missed_case_ids"]:
         print("  漏检: " + ", ".join(metrics["missed_case_ids"]))
+    if metrics.get("missed_gap_ids"):
+        print("  漏检缺失: " + ", ".join(metrics["missed_gap_ids"]))
     if failures:
         print("[agent_eval] FAIL:")
         for failure in failures:
@@ -994,6 +1064,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--save-metrics", type=Path)
     parser.add_argument("--baseline-metrics", type=Path)
     parser.add_argument("--regression-tolerance", type=float, default=0.0)
+    parser.add_argument("--feature-baseline", type=Path,
+                        help="功能完备性基准 JSON（F-022）：提供时计算 completeness 维度并计入 quality_score")
     args = parser.parse_args(argv)
     try:
         if args.protocol_only and args.command != "run":
@@ -1044,7 +1116,16 @@ def main(argv: list[str] | None = None) -> int:
                 raise EvalError("finding 缺真实证据: " + ", ".join(invalid_evidence))
             print("[agent_eval] OK: cases/findings 协议与证据路径有效")
             return 0
-        metrics = score(cases_payload, findings_payload, args.root)
+        feature_baseline_payload = None
+        if args.feature_baseline:
+            feature_baseline_payload = load_json(args.feature_baseline)
+        elif isinstance(cases_payload.get("feature_baseline"), dict):
+            # F-022 管线接线：feature baseline 可随评测集内嵌（与 cases 同
+            # 版本化），scenario_eval/fixture 场景无需独立 flag 即可启用
+            # completeness 维度。显式 --feature-baseline 优先。
+            feature_baseline_payload = cases_payload["feature_baseline"]
+        metrics = score(cases_payload, findings_payload, args.root,
+                        feature_baseline_payload=feature_baseline_payload)
         failures = threshold_failures(metrics, cases_payload["thresholds"])
         if args.baseline_metrics:
             failures.extend(baseline_failures(
@@ -1053,7 +1134,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.save_metrics:
             _save_json_atomic(
                 args.save_metrics,
-                metrics_record(metrics, cases_payload, findings_payload, args.root),
+                metrics_record(metrics, cases_payload, findings_payload, args.root,
+                               feature_baseline_payload=feature_baseline_payload),
             )
     except EvalError as exc:
         if args.json:

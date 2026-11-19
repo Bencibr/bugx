@@ -64,7 +64,7 @@ BugX 不把仓库中的 `.env` 文件作为统一配置契约。不要把 token�
 | `BUGX_GLOBAL_ENGINE_ROOT` / `BUGX_GLOBAL_KNOWLEDGE_ROOT` | `~/.bugx/core` / `~/.bugx/knowledge` | 用户全局范围；影响所有项目，不应指向被测项目或提交到仓库。显式 `BUGX_GLOBAL_ENGINE_ROOT` 优先于 `BUGX_DEV_MODE`。 |
 | `BUGX_CLOUD_CONFIG` / `BUGX_CLOUD_CREDENTIALS` / `BUGX_CLOUD_DEVICE_ID` | `~/.bugx/` 下的受控文件 | 用户级云状态、凭据文件和设备身份文件的路径覆盖；`BUGX_CLOUD_CREDENTIALS` 是**文件路径**，不是 token 值。它们不是项目 scope。 |
 | `BUGX_CLOUD_API_BASE` | 经授权的 HTTPS URL | 远端范围；改变网络目的地，可能影响 auth、sync、upload 和 report。它不是 project scope，设置后必须核对授权和 TLS。 |
-| `BUGX_ACCEPT_DATA_SHARING=1` | 未设置 | 同意入口；实现可能把同意写入用户级云配置。没有用户明确授权时不要设置；它不替代 `--cloud-sync` 或 `cloud sync --scope`。 |
+| `BUGX_ACCEPT_DATA_SHARING=1` | 未设置 | 预同意入口，仅对「未表态」（配置无 `telemetry.data_sharing`）生效；用户显式撤销（`false`）时无论是否设置该变量，遥测 egress 一律拒绝。没有用户明确授权时不要设置；它不替代 `--cloud-sync` 或 `cloud sync --scope`。 |
 | `BUGX_REPORT_REDACTION=standard` | 源码默认 `off` | 远程报告分享的脱敏模式；`standard` 仍不是上传授权，也不能保证业务内容全部可公开。 |
 | `BUGX_CA_BUNDLE` / `BUGX_ENV` | CA 文件 / `prod`、`dev`、`local`、`test` | 网络 TLS 范围；优先使用 `BUGX_CA_BUNDLE` 保留证书校验。未知 `BUGX_ENV` 按严格模式处理；不要用 `BUGX_DEV_TLS_NO_VERIFY=1` 修复生产证书问题。 |
 | `BUGX_PYTHON` / `BUGX_NODE_BIN` / `BUGX_NPM_BIN` | 受支持的可执行文件路径 | 运行时或 MCP runtime 工具选择；不改变项目/云端 scope。 |
@@ -298,7 +298,7 @@ Dev 诊断的停止条件：engine path 不是当前 checkout、出现未知来�
 
 | 变量 | 值格式 | 设置后的影响 | 默认值 | 主消费点 |
 |---|---|---|---|---|
-| `BUGX_ACCEPT_DATA_SHARING` | 1/true | 预同意数据共享（等价 init --accept-data-sharing） | `无默认(None/空)` | `core/cloud_sync/flywheel_client.py (+1 处)` |
+| `BUGX_ACCEPT_DATA_SHARING` | 1/true | 预同意数据共享（等价 init --accept-data-sharing）；仅在用户「未表态」时生效，显式撤销（false）下被遥测硬闸门拒绝（F-024） | `无默认(None/空)` | `core/cloud_sync/flywheel_client.py (+1 处)` |
 | `BUGX_AIR_GAP` | 1 | 气隙模式：禁用所有外部网络访问 | `无默认(None/空)` | `core/launch_phases/common.py (+1 处)` |
 | `BUGX_CLOUD_API` | URL | 云端 API 地址覆盖（自建/代理部署） | `"https://bugx.dev"` | `core/skills/skill_pack.py` |
 | `BUGX_CLOUD_API_BASE` | URL | 云端 API 基址覆盖 | `""` | `core/cloud_sync/endpoint_router.py (+3 处)` |

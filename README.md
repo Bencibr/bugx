@@ -1,152 +1,228 @@
----
-audience: 开发者、安全工程师与 AI 编程宿主
-status: DOCUMENTATION_UNVERIFIED
-version: 0.1.0
-last-verified: 2026-11-10
-website: https://bugx.dev
-description: "BugX 是面向开发者和 AI 编程宿主的本地优先、证据驱动 AI 代码审计与漏洞挖掘 CLI，支持 MCP/ACP 宿主集成、缺陷复现、发现验证和安全报告。"
-keywords: "AI 代码审计, 应用安全, 代码安全审查, 漏洞挖掘, 漏洞检测, 缺陷复现, MCP, ACP, Claude Code, OpenAI Codex, OpenCode, Cline, ZCode, Python CLI, Node.js CLI, npm, PyPI"
----
-
 <p align="center">
-  <a href="https://bugx.dev">
-    <img src="core/assets/bugx-hero-cn.png" alt="BugX — 代码审计智能体、全流程真实证据闭环、杜绝海量扫描误报" width="1200">
-  </a>
+  <img src="core/assets/bugx-hero-zh.svg" alt="BugX — 让你轻松审计 AI 写的代码" width="800">
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> · <a href="README.en.md">English</a> · <a href="https://bugx.dev">项目官网</a>
-</p>
-
-<p align="center">
-  <a href="https://bugx.dev"><img alt="BugX 项目官网" src="https://img.shields.io/badge/Website-bugx.dev-38bdf8?style=for-the-badge"></a>
-  <a href="docs/01_guides/01_USER_GUIDE.md"><img alt="宿主适配器" src="https://img.shields.io/badge/Host%20adapters-12%20integrations-0f172a?style=for-the-badge"></a>
-  <a href="docs/01_guides/01_USER_GUIDE.md"><img alt="ACP 就绪宿主" src="https://img.shields.io/badge/ACP%20ready-Cline%20%7C%20OpenCode-06b6d4?style=for-the-badge"></a>
-  <a href="docs/01_guides/01_USER_GUIDE.md"><img alt="自治 CLI 宿主" src="https://img.shields.io/badge/Autonomous%20CLI-Claude%20%7C%20Codex%20%7C%20OpenCode%20%7C%20DSH%20%7C%20Cline%20%7C%20ZCode-2563eb?style=for-the-badge"></a>
+  中文 · <a href="README_EN.md">English</a>
 </p>
 
 # BugX
 
-> **搜索摘要** —— BugX 是面向开发者和 AI 编程宿主的本地优先、证据驱动 AI 代码审计与漏洞挖掘 CLI。它可连接 Claude Code、OpenAI Codex、OpenCode、Cline、ZCode 等 MCP/ACP 宿主，检查真实源代码、复现缺陷、验证发现，并生成有证据支撑的安全报告。
+BugX 是一款装在 AI 编程助手里的代码审计 Agent。**写完功能或提 PR 时让它跑一遍，它会自动完成审计，然后告诉你：查了哪些地方、哪些还没查、哪有漏洞——每个漏洞都附一条你能亲手复现的命令。** 目前已适配宿主：Claude Code、Codex、Cline、OpenCode、ZCode；其余宿主持续适配中。
 
-> **项目官网：** [bugx.dev](https://bugx.dev)
+<p align="center">
+  <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
+  <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/npm/v/bugx-cli.svg?style=flat&color=0284c7&label=npm" alt="npm"></a>
+  <img src="https://img.shields.io/badge/python-%E2%89%A53.11-334155.svg?style=flat" alt="Python">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-334155.svg?style=flat" alt="Platform">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-334155.svg?style=flat" alt="License"></a>
+</p>
 
-BugX 是一个面向真实软件项目的、源码可见且证据驱动的安全工具。它把 AI 辅助代码审查、应用安全测试、漏洞挖掘和已验证缺陷复现放进同一套本地优先工作流。
+## 目录
 
-BugX 不会把模型回答、`ready` 状态或零退出码当作审计完成的证明。它把项目状态保存到私有的 `.bugx/` 目录，通过本地 Supervisor 协调受支持的 AI 宿主与 Worker，并记录覆盖率、生命周期 receipt、Finding 决策、执行工件和恢复状态。
+- [它解决什么问题？](#它解决什么问题？)
+- [快速开始](#快速开始)
+- [一次完整审计长什么样](#一次完整审计长什么样)
+- [支持的 AI 编程宿主](#支持的-ai-编程宿主)
+- [数据与安全边界](#数据与安全边界)
+- [文档](#文档)
+- [开发与贡献](#开发与贡献)
+- [许可](#许可)
 
-简单说：BugX 帮助开发者发现深层 Bug 和安全缺陷，复现问题，并把真实验证证据与模型文本区分开。
+## 它解决什么问题？
 
-## 为什么使用 BugX？
+AI 写代码的速度，早就超过人眼审代码的速度。更麻烦的是，模型还藏着一个问题：爱偷懒。这不是它坏，是训练方式决定的，三条机制叠在一起：
 
-- **证据优先的审计：** 跟踪覆盖率、执行 receipt、Finding 决策、工件哈希和完成门禁状态。
-- **AI 宿主集成：** 把支持 MCP/ACP 的编程宿主接入结构化审计生命周期。
-- **可复现结果：** 将项目状态、报告、缺陷复现工件和恢复信息统一保存。
-- **本地优先控制：** 云端上传、诊断、反馈和同步都必须显式执行。
+1. **打分偏好：** 模型训练的最后一步，是让人类评分员给回答打分。一个版本说"我仔细查过了，没发现问题"，另一个说"这个文件我还没看完"——评分员多半给前者高分，因为听着踏实、有用。模型由此学会：报喜不报忧才拿分。
+2. **成本不对等：** 检查代码是体力活，几百个文件得一个个读；回一句"没发现问题"只要几个字。两条路摆在那，省事的那条永远更划算。
+3. **不知道"没查完"：** 模型既不知道哪块没查，也没被教过怎么说。所以它给不出"部分完成"，只会给你"完成"。
 
-本仓库当前语义版本为 `0.1.0`。文档与当前源码树保持同步，但真实宿主 ACP、自治端到端运行、远端云同步和跨平台安装仍需要在对应环境中单独验证。
+Bugx的审计能依靠账本和四条规矩实现：
 
-## Host Banner 与能力矩阵
+1. **代码覆盖清单** 项目拆成一个个审计单元，每个都有明确状态：查完了、卡住了、还没查。达到全面覆盖。
+2. **漏洞问题复现** 同一段攻击输入跑两次，两次都能真的把漏洞触发出来；换成正常输入再跑一次，什么也触发不出。这三份记录都留在案，漏洞才算数。
+3. **排查可以续杯** 退出AI工具后再次打开可以接着干之前的活儿。
+4. **记录全部可查** 谁、什么时候、凭什么下的结论，一笔一笔记进账本，每页盖骑缝章（哈希链），谁也改不了，逐条可查。
 
-BugX 可以集成多个 AI 编程宿主，但宿主能力是分开计算的。“可安装/可检测”不等于已经有 ready engine plugin，也不等于支持 ACP 或自治审计。
+## 快速开始
 
-| 能力 | 当前宿主 |
-| --- | --- |
-| 安装与检测适配器 | ChatGPT、Claude Code、Cline、OpenAI Codex、DSH、FunIDE、OpenCode、Pi、Qoder、Trea、WorkBuddy、ZCode |
-| Ready engine plugin | OpenCode、OpenAI Codex、Cline、DSH、Claude Code、Pi、ZCode |
-| ACP 已就绪 | Cline、OpenCode |
-| 自治 CLI 选项 | Claude Code、OpenAI Codex、OpenCode、DSH、Cline、ZCode |
-
-请以当前机器检测结果为准：
-
-`bugx hosts --root . --json`
-
-完整说明见：[Host、MCP 和 ACP 能力矩阵](docs/01_guides/01_USER_GUIDE.md#5-hostmcp-和-acp-能力矩阵)。
-
-## 环境要求与安装
-
-- Python `>=3.11`：Python 包和 CLI 需要。
-- Node.js `>=18`：使用 npm wrapper 时需要。
-
-从 npm 或 PyPI 安装：
-
+Python `>=3.11`；用 npm 封装时需要 Node.js `>=18`。
+Pip安装
 ```bash
+# 任选其一
 python -m pip install bugx-cli
-# 或
+```
+NMP安装
+```bash
 npm install -g bugx-cli
 ```
 
-部分能力提供可选 Python extras：`tui`、`graph` 和 `crypto`。基础包不会隐式安装这些可选依赖。
-
-## 安全的首次运行
-
-在目标项目根目录先初始化本地状态，再只安装你打算使用的宿主：
+装好后，任意目录跑一次：
 
 ```bash
-bugx init --root . --cloud-sync local
-bugx install --root . --agent opencode
-bugx doctor --root . --strict
-bugx engine --root . status
+bugx install
 ```
 
-`--agent` 必须使用当前安装/检测适配器中的名称。使用 `bugx hosts` 查看本机宿主矩阵。在非交互 shell 中，`bugx init` 需要明确指定 `--cloud-sync local|sync`，除非 preset 已经提供选择。
+它会列出本机检测到的 AI 宿主，按提示选择即可；想跳过选择一次全装，用 `bugx install --agent all`。
 
-宿主能力按集成类别区分；请以上方矩阵和本机的 `bugx hosts` 输出为准，不要从“可安装”推断 ACP 或自治能力。
+### 方式一：在 AI 编程助手里用（推荐）
 
-## 执行审计
+装完之后不用进终端、不用记命令。在任意项目里打开你的 AI 助手（Claude Code、Codex、Cline、OpenCode、ZCode），直接告诉它要查什么：
 
-公开 engine 入口位于 `engine` 命名空间下：
+**ZCode**
+![ZCode 中启动 BugX 审计](core/assets/zcode.png)
+
+**Codex**
+![Codex 中启动 BugX 审计](core/assets/codex.png)
+
+**DSH**
+![DSH 中启动 BugX 审计](core/assets/dsh.png)
+
+> "审计一下这个项目"
+> "查一下登录模块有没有漏洞"
+> "把这次的改动审一遍，看看有没有安全问题"
+
+宿主里的 AI 会自动调用 BugX：建覆盖清单、派发并发 Worker、跑探针、验证漏洞、出报告。审计过程想实时看，终端跑一句 `bugx report serve`，浏览器打开 **http://127.0.0.1:8080** 就是完整的 Web 报告界面。
+
+### 方式二：在命令行里直接跑
+
+命令行方式的 AI 同样来自你已装好的宿主——模型和凭据用宿主里自己配好的，BugX 直接复用，不接管你的 Key（`--model` / `--provider` 缺省自动读取宿主配置）。
+
+首次进入项目，登录云端、初始化并自检：
 
 ```bash
-bugx engine --root . pre
-bugx engine --root . status --json
-bugx engine --root . post
+bugx auth login                # 登录云端账号（云端错题/经验同步用）
+bugx init --cloud-sync sync    # 开启云端同步，跨设备可用
+bugx doctor --strict
 ```
 
-按目标执行：
+跑一次完整审计：
 
 ```bash
-bugx autonomous --root . --host opencode
-bugx goal --root . --host opencode "audit the project"
+bugx engine pre        # 建立覆盖清单与审计计划
+bugx engine status     # 看进度
+bugx engine post       # 结账：核对覆盖、证据与裁决是否自洽
 ```
 
-退出码或模型响应本身不代表审计完成。只有当生命周期、覆盖率、证据 receipt、Finding 决策和完成门禁一致时，才能交付审计结果。`bugx audit` 可能只启动一个等待原生 Agent 的图流程；`ready` 不等于 `complete`。
+也可以让 BugX 自己跑完全程，不用守在终端：
 
-## BugX 会记录什么？
+```bash
+bugx autonomous --host opencode    # 模型/凭据自动复用 OpenCode 里已配好的
+# 或带目标：
+bugx goal --host opencode "审计这个项目的登录与支付链路"
+```
 
-每次审计都会保留理解过程和复现结果所需的证据：
+修复与产出也在命令行完成：
 
-- 项目范围与覆盖率；
-- 生命周期、Worker 和 Host receipt；
-- 命令、退出码、工件路径与 SHA-256 哈希；
-- Finding 候选、独立验证以及确认/拒绝决策；
-- 报告、checkpoint 与可恢复状态。
+```bash
+bugx test-generate ...     # 为指定单元生成 AAA 测试或自包含 PoC
+bugx test-verify ...       # 变异验证测试用例的抓 Bug 能力
+bugx patch-forge --from-issue <id> --diff fix.diff --repro repro.md --test test_ok.py --dry-run
+```
 
-这套证据模型让安全审查结果更容易检查、复现和交接。
+`patch-forge` 生成补丁包并静态校验，默认只出包不提交；审过没问题再去掉 `--dry-run`。
+
+打开 Web UI 看报告（审计中、审计后都能看）：
+
+```bash
+bugx report serve     # 浏览器打开 http://127.0.0.1:8080，实时看覆盖、证据与漏洞
+```
+
+需要离线归档时导出静态报告：
+
+```bash
+bugx report both --format html --out report.html
+```
+
+`--agent` 的取值见下方宿主表；`bugx hosts` 会列出本机检测到的所有环境和各自能力。
+
+## 一次完整审计长什么样
+
+1. **pre（含作战方案）**：枚举源码与配置资产，生成最小审计单元清单（内部单元 + 跨模块业务链路）。开跑前先给你一份作战方案，五个选择一次定：**云同步**（sync 跨设备可用 / local 纯本地）、**审查方式**、**轮询策略**、**修复方式**、**提交方式**——都给出默认值，也可以跳过让默认值生效。
+2. **派发 Worker**：宿主把审计单元派给并发 Worker；每个 Worker 领租约、发心跳、跑探针、提交 checkpoint。
+3. **证据落盘**：Worker 的每条结论都带命令、退出码、artifact 哈希；覆盖状态只能是 `covered / blocked`，没有"大概查了"。
+4. **Finding 裁决**：候选漏洞先由引擎验证通道实跑双正例 + 负对照，再进入确认/驳回；驳回需要理由。
+5. **post**：核对 coverage 与 findings 是否自洽，结账。审计完成与否以状态机终态为准——模型的一句"完成了"不算数。
+6. **出报告**：`bugx report both --format html --out report.html` 生成正式 + 可视化报告；`bugx report serve` 起本地实时预览。
+
+## 看一眼界面
+
+BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器打开 http://127.0.0.1:8080：
+
+<p align="center">
+  <img src="core/assets/webui-studio.jpg" alt="BugX Studio 工作台" width="860">
+</p>
+
+工作区覆盖所有已接入的宿主，每个工作区独立记录自己的审计会话（截图左侧可见 ChatGPT、ZCode、Claude、Codex、DSH、OpenCode、Pi 等）：
+
+<p align="center">
+  <img src="core/assets/webui-chatgpt.jpg" alt="ChatGPT 工作区" width="420">
+  <img src="core/assets/webui-zcode.jpg" alt="ZCode 工作区" width="420">
+</p>
+
+技能市场内置 `/audit`（一键全息攻防审计与双轨报告）、`/review`（分支改动结构化 Findings）、`/mining`（攻击面勘测与加固）、`/fix`（防御性补丁 + 沙箱回归）、`/test`（AAA 测试与变异杀伤力审计）：
+
+<p align="center">
+  <img src="core/assets/webui-skills.jpg" alt="技能市场" width="860">
+</p>
+
+## 它能干什么
+
+**审计**
+- **代码审查**：漏洞与缺陷，按逻辑 / 状态 / 边界 / 异常 / 并发 / 性能 / 资源分类。
+- **功能审查**：业务链路审计 + 行为差分——同一批输入分别喂给你的实现和参考实现，比出行为差异。
+- **性能与内存**：性能/资源类缺陷，外加 native / Python / JVM / Electron / Android / Apple 六类目标的内存专项检查。
+- **UI 审计**：对运行中的网页做布局、对比度、键盘路径与设计 Token 检查（`bugx probe ui`）。
+
+**复现与验证**
+- 每个漏洞都给一条你能亲手复现的命令或输入：同一段坏数据跑两次都出事，再换正常数据跑一次没事，三份记录留案。
+- 测试用例的战斗力也能验：`bugx test-verify` 用代码变异检验测试真的抓得住 Bug。
+
+**修复与产出**
+- 自动生成 AAA 测试用例或自包含 PoC（`bugx test-generate`）。
+- 生成补丁包并做静态校验，交给你审，不替你提交（`bugx patch-forge`）。
+- 输出报告（`bugx report`）。
+
+**长期使用**
+- **错题集**：项目级与全局经验积累（`bugx lesson` / `bugx knowledge`），需要时可显式同步云端（`bugx cloud`）。
+- **无人值守**：跟着宿主跑（`bugx autonomous`）、带目标长跑（`bugx goal`）、常驻守护（`bugx daemon`）。
+- **诊断**：`bugx doctor` / `bugx log` / `bugx stats` 查安装、日志与消耗。
+
+## 支持的 AI 编程宿主
+
+| AI 编程助手 | 接入方式 | 安装命令 |
+| :--- | :--- | :--- |
+| **Claude Code** | 原生 MCP / 自治生命周期 | `bugx install --agent claude` |
+| **OpenAI Codex** | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
+| **OpenCode** | Headless ACP / 原生 MCP | `bugx install --agent opencode` |
+| **Cline / Roo Code** | MCP 交互会话（单 Claim 串行）/ CLI 多进程池并发 | `bugx install --agent cline` |
+| **ZCode** | 原生 MCP / 用户级 MCP 注册 | `bugx install --agent zcode` |
+
+其余宿主（DeepSeek Harness、WorkBuddy、Cursor / Windsurf 等）持续适配中。
+
+运行 `bugx hosts` 查看本机可检测的宿主。
+
+
+## 数据与安全边界
+
+- 项目状态存放在项目内的 `.bugx/` 目录；全局引擎、凭据、知识库、缓存使用用户级 BugX 目录。
+- 凭据按需写入受控沙箱（默认仅当前用户可读）；`bugx auth status` 只报告凭据是否存在，不输出内容。模型名不等于凭据。
+- 云端上传、反馈、诊断日志上报和同步都是显式操作：执行前会明确 `--scope`、敏感数据策略与详细模式。
+- `reset / uninstall / purge / --no-backup` 会删除数据，请留意各自的 dry-run 与备份行为。
 
 ## 文档
 
 - [用户指南](docs/01_guides/01_USER_GUIDE.md)：安装、配置、宿主能力、生命周期、MCP/ACP、云端范围、结果与恢复。
-- [命令参考](docs/01_guides/02_COMMANDS.md)：命令、选项、默认值、作用域、副作用和退出行为。
-- [故障排查](docs/01_guides/03_TROUBLESHOOTING.md)：按症状诊断、证据收集和可恢复的下一步。
-- [AI 参考](docs/03_ai/01_AI_REFERENCE.md)：面向机器的 MCP、生命周期、状态、证据与失败契约。
+- [命令参考](docs/01_guides/02_COMMANDS.md)：全部命令、参数、默认值、作用域、副作用与退出行为。
+- [故障排查](docs/01_guides/03_TROUBLESHOOTING.md)：按症状定位问题与可恢复的下一步。
+- [UI 审计（probe ui）](docs/01_guides/02_COMMANDS.md#63-probe)：对运行中的 Web UI 做响应式布局、对比度、键盘路径与设计 Token 审计。
+- [AI 参考](docs/03_ai/01_AI_REFERENCE.md)：面向宿主/Agent 的 MCP、生命周期、状态、证据与失败契约。
 - [文档索引](docs/README.md)：架构与文档导航。
-- [项目官网](https://bugx.dev)：产品介绍与公开入口。
 
-## 数据与安全边界
+## 开发与贡献
 
-项目状态保存在 `.bugx/` 下；全局引擎、凭据、知识库、缓存、遥测和云配置使用 BugX 用户级目录，除非文档化环境变量覆盖。`auth status` 只报告凭据是否存在及其状态，不输出秘密内容。模型名称不是凭据。
+仓库开发规范（文档同步、版本契约、验证门禁）见 [AGENTS.md](AGENTS.md)；架构与内部设计见 [docs/02_architecture/](docs/02_architecture/)。提交前请跑 `python3 scripts/bump_version.py --check`。
 
-云端上传、反馈、诊断日志上报和同步都是显式操作。执行前请检查 `--scope`、授权、敏感数据策略和 detail mode。`reset`、`uninstall`、`purge` 与 `--no-backup` 可能删除数据；请谨慎使用 dry-run 和备份选项。
+## 许可
 
-## 搜索关键词
-
-AI 代码审计、应用安全、代码安全审查、漏洞挖掘、漏洞检测、缺陷复现、AI 安全测试、MCP、ACP、Claude Code、OpenAI Codex、OpenCode、Cline、ZCode、Python CLI、Node.js CLI、npm、PyPI。
-
-## 开发策略
-
-每次代码提交都必须同步更新受影响的文档。版本跃迁必须由人工显式确认，并传入 `--confirm-version-transition`。
-
-## 许可证
-
-许可证条款见 [LICENSE](LICENSE)。
+[Business Source License 1.1](LICENSE)。

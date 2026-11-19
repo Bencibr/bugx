@@ -343,12 +343,25 @@ def execute_worker(
             f"{failure}: 未检测到任何可用的 Cline Provider 配置或凭据 "
             "(缺少 providers.json 且未设置凭据环境变量)"
         )
+    # 宿主 profile 预算基数（``worker_timeout_seconds``，导入期 validate_plugin 已
+    # 强阻断非正数）：声明了该字段的宿主以它作为 resolve_worker_timeout 的
+    # ``base_override``（保留重试退避与 1800s 钳制）；未声明时为 None，与既有
+    # tier 阶梯行为逐字节一致（其他宿主零变化）。
+    profile_budget = getattr(_PLUGIN.worker_runtime, "worker_timeout_seconds", None)
+    base_override = (
+        float(profile_budget)
+        if isinstance(profile_budget, (int, float))
+        and not isinstance(profile_budget, bool)
+        and profile_budget > 0
+        else None
+    )
     timeout_seconds = resolve_worker_timeout(
         model_tier={
             "exploit": "tier_2_exploit",
             "verify": "tier_3_verify",
         }.get(str(stage_name).split("-")[-1], "tier_1_recon"),
         attempt=int(getattr(claim, "attempt", 1) or 1),
+        base_override=base_override,
     )
     host_executable = _PLUGIN.identity.executable
     executable = executable or shutil.which(host_executable) or host_executable

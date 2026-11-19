@@ -110,6 +110,45 @@ def classify_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
     return res
 
 
+_SEMANTIC_REVIEW_REL = Path(".bugx") / "state" / "l1-semantic-review.json"
+
+
+def _load_semantic_review(profile: Mapping[str, Any]) -> tuple[Any, str]:
+    """读取 L1 语义评审文件，并显式报告「为何使用/未使用」。
+
+    返回 ``(review, parse_status)``，``parse_status`` 取值：
+
+    * ``ok``      —— 文件存在且解析为评审对象；
+    * ``failed``  —— 文件存在但 JSON 解码失败，或内容不是评审对象；
+    * ``absent``  —— 根本没有评审文件（合法态）。
+
+    F-RSI-20261115-292：解析失败绝不能被悄悄折叠成 ``absent``，否则下游
+    无法区分「有文件但坏了」与「无评审」。profile 内嵌的 ``semantic_review``
+    仅作为内容回退源，不会抹掉磁盘文件已记录的 ``failed`` 状态。
+    """
+    review: Any = None
+    parse_status = "absent"
+    root_candidate = profile.get("root") or profile.get("project_root")
+    if root_candidate:
+        rev_path = Path(root_candidate) / _SEMANTIC_REVIEW_REL
+        if rev_path.is_file():
+            try:
+                loaded = json.loads(rev_path.read_text(encoding="utf-8"))
+            except Exception:
+                loaded = None
+                parse_status = "failed"
+            if parse_status != "failed":
+                if isinstance(loaded, Mapping):
+                    review = loaded
+                    parse_status = "ok"
+                else:
+                    # 文件存在但内容不是评审对象（null / 列表 / 标量等）
+                    parse_status = "failed"
+    if review is None and isinstance(profile.get("semantic_review"), Mapping):
+        review = profile["semantic_review"]
+    return review, parse_status
+
+
 def compile_audit_strategy(profile: Mapping[str, Any]) -> dict[str, Any]:
     """Compile classification facts into the small plan consumed by workers."""
     classification = profile.get("classification")
@@ -171,20 +210,13 @@ def compile_audit_strategy(profile: Mapping[str, Any]) -> dict[str, Any]:
             recommend("supply-chain", f"{signal.get('id')} 命中 {signal.get('package')} 版本候选", signal.get("evidence_refs") or [])
             break
 
-    review = None
-    root_candidate = profile.get("root") or profile.get("project_root")
-    if root_candidate:
-        try:
-            rev_path = Path(root_candidate) / ".bugx" / "state" / "l1-semantic-review.json"
-            if rev_path.is_file():
-                review = json.loads(rev_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    if not review and isinstance(profile.get("semantic_review"), Mapping):
-        review = profile.get("semantic_review")
+    review, review_parse_status = _load_semantic_review(profile)
+    verdict = review.get("audit_strategy_verdict") if isinstance(review, Mapping) else None
+    if not isinstance(verdict, Mapping):
+        verdict = {}
 
-    if review and isinstance(review, Mapping):
-        strat_verdict = review.get("audit_strategy_verdict") or {}
+    if review is not None:
+        strat_verdict = verdict
         missing_profiles = strat_verdict.get("missing_check_profiles") or []
         for p in missing_profiles:
             p_str = str(p)
@@ -239,8 +271,12 @@ def compile_audit_strategy(profile: Mapping[str, Any]) -> dict[str, Any]:
         "unknowns": list(profile.get("unknowns") or [])[:MAX_FACTS],
         "conflicts": list(profile.get("conflicts") or [])[:MAX_FACTS],
         "version_lines": sorted(set(version_lines))[:24],
-        "ai_review_status": (review.get("audit_strategy_verdict") or {}).get("status", "none") if review else "none",
-        "ai_priority_focus": (review.get("audit_strategy_verdict") or {}).get("priority_focus", []) if review else [],
+        "ai_review_status": (
+            verdict.get("status", "none") if review is not None
+            else ("parse_failed" if review_parse_status == "failed" else "none")
+        ),
+        "ai_priority_focus": verdict.get("priority_focus", []) if review is not None else [],
+        "review_parse_status": review_parse_status,
     }
     if profile.get("scale_estimation"):
         payload["scale_estimation"] = dict(profile["scale_estimation"])

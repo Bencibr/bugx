@@ -26,6 +26,9 @@
               **0 处** 命中项目级 ``.dsh/mcp.json`` —— 那个文件是**死配置**（与 codex
               的 ``.codex/config.json`` 同类陷阱），故 ``mcp_config_paths`` 只声明
               ``.dsh/patch.yml``，写入走 ``bootstrap`` 自定义实现。
+              用户级 patch 是 YAML（``config_format="yaml_patch"``）：探针/诊断按
+              该声明分派 ``yaml.safe_load``，不再把 YAML 当 JSON 解析失败后误判
+              「未配置」。
 * worker    ← dsh 有**完整原生 subagent**（不是「只能串行」）：standard preset 的
               ``tool-subagent``/``tool-subagent-fork``/``tool-subagent-control`` 等
               5 条 delegation 工具（``backgroundMode: continuable``），故 ``native_task=True``、
@@ -35,7 +38,7 @@
               痕迹（真机 grep）。该事实由 ``core/host_acp/dsh.py`` 以
               ``status="unavailable"`` 机读声明。
 
-仍然在插件外的 dsh 事实（``tests/test_host_plugins.py`` 逐文件核对）：
+仍然在插件外的 dsh 事实（逐文件核对，以本注释为准）：
 
 * ``src/bugx_cli/commands/agent.command_dsh``：``bugx dsh`` 兼容启动器设置
   ``DSH_CWD`` 后 ``exec dsh --profile <p>`` —— 那是**用户交互壳**，不是宿主接线；
@@ -500,6 +503,11 @@ PLUGIN = HostPlugin(
         global_scope="user-profile",
         mirror_relpaths=(),
         requires_absolutize=False,
+        # 用户级 cordis.patch.yml 是 YAML patch：顶层是 ``- insert:`` 列表，无
+        # JSON「名字→条目」映射形态。声明 ``config_format="yaml_patch"`` 后，
+        # ACP 探针/D4 判定与装配门按本声明分派 ``yaml.safe_load``（此前 YAML 被
+        # 当 JSON 解析失败，``mcp_configured`` 结构性恒 False 的假阴性即源于此）。
+        config_format="yaml_patch",
         # cordis patch 的 insert 段由本插件 bootstrap 负责；通用 JSON 骨架
         # 会把 YAML 当 JSON 解析并静默跳过。
         custom_writer=True,

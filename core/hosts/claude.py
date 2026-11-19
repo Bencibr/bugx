@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from .base import (
@@ -155,3 +156,57 @@ PLUGIN = HostPlugin(
     ),
     acp=AcpFacet(plugin=_NAME),
 )
+
+
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活 Claude Code CLI 是否安装（零子进程 ``shutil.which``）。
+
+    宿主探活语义：CLI 缺失时 headless（``claude -p``）、自治通道与宿主原生
+    Task 派发全部不可用，调用方必须走 ``run_static_degraded`` 输出静态事实
+    声明，禁止伪装宿主可用。
+    """
+    path = shutil.which("claude")
+    if path is None:
+        return False, "claude 可执行文件未安装；headless（claude -p）与宿主原生 Task 派发不可用"
+    return True, path
+
+
+def run_static_degraded(root: Path | None = None) -> dict:
+    """Claude Code CLI 缺失时的静态降级输出：只声明插件事实，绝不伪装宿主健康。
+
+    输出与宿主真实可用状态字段级可区分：``status="degraded"`` + ``degraded=True``
+    + ``degraded_reason``，且 ``headless_available`` / ``native_task_available``
+    跟随真实探活结果，绝不给出虚假的「宿主就绪」结论。
+    """
+    available, availability_detail = is_available()
+    return {
+        "plugin": _NAME,
+        "schema_version": 1,
+        "success": available,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_facts_only" if available else "claude_cli_not_installed"
+        ),
+        "probe_mode": "static_degraded",
+        "headless_available": available,
+        "native_task_available": bool(available and PLUGIN.engine_run.native_task),
+        "identity": {
+            "executable": PLUGIN.identity.executable,
+            "aliases": list(PLUGIN.identity.aliases),
+            "markers": list(PLUGIN.identity.markers),
+        },
+        "agent_entry": PLUGIN.install.path,
+        "mcp_project_relpath": PLUGIN.mcp_write.project_relpath,
+        "mcp_global_scope": PLUGIN.mcp_write.global_scope,
+        "findings": [],
+        "evidence": {
+            "availability_detail": availability_detail,
+            "project_root": str(root) if root else None,
+        },
+        "metadata": {
+            "degraded_mode": "static_plugin_facts_only",
+            "acp": "unavailable（上游无 ACP 子命令/flag，见 core/host_acp/claude.py）",
+            "fallback": "宿主 CLI 缺失时由外层宿主/用户决策接管；BugX 不代装宿主 CLI",
+        },
+    }

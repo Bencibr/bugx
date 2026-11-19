@@ -729,3 +729,51 @@ class SCAScanner:
         except Exception:
             pass
         return deps
+
+
+def is_available(scanner: "SCAScanner | None" = None) -> tuple[bool, str]:
+    """降级契约：机械探活离线漏洞通告库是否非空（纯内存检查，零 I/O）。
+
+    通告库为空时依赖清单解析（``collect_dependencies``）仍然可用，但无法
+    给出任何漏洞裁决；调用方必须走 ``run_static_degraded`` 显式声明
+    ``vulnerabilities_scanned=False``，禁止把纯依赖枚举伪装成 SCA 扫描。
+    """
+    instance = scanner if scanner is not None else SCAScanner()
+    if not instance.advisories:
+        return False, "离线漏洞通告库为空；依赖清单解析可用但漏洞裁决不可用"
+    return True, f"{len(instance.advisories)} 条离线通告就绪"
+
+
+def run_static_degraded(root: Path, *, scanner: "SCAScanner | None" = None) -> dict:
+    """降级契约：只输出依赖清单静态事实，不做漏洞裁决，绝不伪装扫描完成。
+
+    输出与成功路径（``scan_project`` 返回的漏洞 findings 列表）字段级可区分：
+    本契约返回结构化 dict，``status="degraded"`` + ``degraded=True`` +
+    ``degraded_reason``，并显式声明 ``vulnerabilities_scanned=False``。
+    """
+    instance = scanner if scanner is not None else SCAScanner()
+    db_ok = bool(instance.advisories)
+    dependencies = instance.collect_dependencies(root)
+    return {
+        "schema_version": 1,
+        "success": bool(dependencies) or db_ok,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": (
+            "static_mode_forced" if db_ok else "advisory_db_empty_no_verdicts"
+        ),
+        "probe_mode": "static_degraded",
+        "root": str(root),
+        "vulnerabilities_scanned": False,
+        "total_dependencies": len(dependencies),
+        "dependencies": dependencies,
+        "findings": [],
+        "evidence": {
+            "advisory_count": len(instance.advisories),
+            "availability_detail": "advisory_db_ready" if db_ok else "advisory_db_empty",
+        },
+        "metadata": {
+            "degraded_mode": "dependency_manifest_facts_only",
+            "fallback": "补齐漏洞通告库或接入外部 SCA 工具后才能给出漏洞裁决；禁止凭依赖枚举虚报风险",
+        },
+    }

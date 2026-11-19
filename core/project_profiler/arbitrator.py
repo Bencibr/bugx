@@ -258,7 +258,12 @@ class LLMProfileArbitrator:
                     tmp_prompt.write_text(content, encoding="utf-8")
                     cmd = host_registry.build_recon_scout_command(active_host, self.root, tmp_prompt)
                     if not cmd:
-                        return None
+                        # 宿主声称支持侦察却给不出可执行命令，按「无 LLM 环境」
+                        # 降级返回二元组。本函数其余所有分支（engine_dir /
+                        # offline / cache / 异常）都返回二元组，调用方 detector.py
+                        # 直接 `x, y = arbitrate(...)`；返回 None 会让整个
+                        # detect_project_profile 抛 TypeError 崩溃。
+                        return candidate_fixtures, heuristic_forms
 
                     child_env = os.environ.copy()
                     child_env["BUGX_RECON_SCOUT_ACTIVE"] = "1"

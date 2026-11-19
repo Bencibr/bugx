@@ -35,7 +35,7 @@ _SEVERITY_MAP: Dict[str, str] = {
 }
 
 #: 常见 CWE 的标题。缺失时保留空标题，渲染层输出「未映射 CWE」而不是编号占位。
-_CWE_TITLES: Dict[str, str] = {
+CWE_TITLES: Dict[str, str] = {
     "CWE-22": "Improper Limitation of a Pathname to a Restricted Directory",
     "CWE-78": "Improper Neutralization of Special Elements used in an OS Command",
     "CWE-79": "Improper Neutralization of Input During Web Page Generation",
@@ -102,7 +102,7 @@ def finding_from_sast(
         category=str(item.get("category") or rule_id),
         severity=severity,
         cwe_id=cwe_id,
-        cwe_title=_CWE_TITLES.get(cwe_id, ""),
+        cwe_title=CWE_TITLES.get(cwe_id, ""),
         surface_id=f"{rel_path}:{line_no}" if rel_path else rule_id,
         target_path=rel_path,
         description=message,

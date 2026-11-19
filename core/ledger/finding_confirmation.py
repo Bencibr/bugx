@@ -673,19 +673,25 @@ def confirmation_issues(finding: dict) -> list[str]:
 
 
 def _evidence_paths(finding: dict) -> set[str]:
-    """收集 finding 指向的源码路径（file/path/artifact_path/evidence[].path）。"""
+    """收集 finding 指向的源码路径（file/path/artifact_path/evidence[].path）。
+
+    F-RSI-20261110-028：逐条 ``os.path.normpath`` 归一——oracle 侧 reference
+    经 ``resolve()`` 已是规范路径，证据侧此前只 ``lstrip("./")``，
+    ``sub/../x.py`` 型别名会绕过 oracle 独立性重合检查（同一文件既当判据
+    又当证据）。与 F-019 路径别名漏并向同根因：路径比较前必须归一。
+    """
     paths: set[str] = set()
     for key in ("file", "path", "artifact_path"):
         value = finding.get(key)
         if _nonempty(value):
-            paths.add(str(value).strip().lstrip("./"))
+            paths.add(os.path.normpath(str(value).strip().lstrip("./")))
     evidence = finding.get("evidence")
     if isinstance(evidence, list):
         for item in evidence:
             if isinstance(item, dict) and _nonempty(item.get("path")):
-                paths.add(str(item["path"]).strip().lstrip("./"))
+                paths.add(os.path.normpath(str(item["path"]).strip().lstrip("./")))
             elif isinstance(item, str) and item.strip():
-                paths.add(item.strip().lstrip("./"))
+                paths.add(os.path.normpath(item.strip().lstrip("./")))
     return paths
 
 
@@ -909,9 +915,16 @@ def apply_decision(
     receipt: object = None, oracle: object = None, root_cause_verified: object = None,
     remediation: object = None, target_platform: object = None,
     rejection_class: object = None, root=None,
+    severity: object = None,
 ) -> dict:
-    """唯一的 Finding 裁决写入口：合并证据 → 门禁自检 → 通过才返回新块。
+    """``severity``：确认方对 confirmed 报告的定级补录（F-RSI-20261118-009）。
 
+    triage 档 worker 的候选可能不携带 severity（初筛不定级是合法形态），
+    而 confirmed 门禁要求有效 severity——评级责任随确认动作落到确认方。
+    仅在 ``decision == "confirmed"`` 且确认方显式提供合法值（SEVERITY_ORDER
+    值域）时补写；finding 已有有效 severity 时不覆盖（worker 定级优先）。
+
+    唯一的 Finding 裁决写入口：合并证据 → 门禁自检 → 通过才返回新块。
     失败一律抛 :class:`ConfirmationError`，调用方不得落盘——半成品 confirmed
     正是 L1-ADV-D1 的成因（写入侧不校验读取侧门禁）。
     """
@@ -957,13 +970,42 @@ def apply_decision(
     confirmation["decided_by"] = "confirm_finding"
     work["confirmation"] = confirmation
     if decision == "confirmed":
+        # F-RSI-20261118-009：确认方定级补录——仅补缺失/无效的 severity，
+        # 已有有效值（worker 定级）不覆盖；非法值 fail-closed 抛错。
+        if severity is not None:
+            normalized = str(severity).strip().lower()
+            from core.agent import agent_eval
+            if normalized not in agent_eval.SEVERITY_ORDER:
+                raise ConfirmationError(
+                    f"severity 无效: {severity!r}（允许 {sorted(agent_eval.SEVERITY_ORDER)}）"
+                )
+            current = str(work.get("severity") or "").strip().lower()
+            if current not in agent_eval.SEVERITY_ORDER:
+                work["severity"] = normalized
         issues = confirmation_issues(work)
         if issues:
             raise ConfirmationError(
                 "确认门禁失败，拒绝写入不可收敛的 confirmed：" + "；".join(issues)
             )
+        if issues:
+            raise ConfirmationError(
+                "确认门禁失败，拒绝写入不可收敛的 confirmed：" + "；".join(issues)
+            )
     validate_confirmation(work)
-    result: dict = {"confirmation": confirmation, "remediation": None}
+    severity_applied: str | None = None
+    if decision == "confirmed" and severity is not None:
+        normalized_sev = str(severity).strip().lower()
+        if normalized_sev in agent_eval.SEVERITY_ORDER:
+            current = str(work.get("severity") or "").strip().lower()
+            if current not in agent_eval.SEVERITY_ORDER:
+                work["severity"] = normalized_sev
+                severity_applied = normalized_sev
+    result: dict = {
+        "confirmation": dict(confirmation),
+        "remediation": None,
+        "severity_applied": severity_applied,
+        "severity_final": str(work.get("severity") or "") or None,
+    }
     if remediation is not None:
         if not isinstance(remediation, Mapping):
             # 只说「必须是对象」是不可自愈的：worker 交了合理的人类可读建议

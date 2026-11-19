@@ -34,12 +34,14 @@ _TOOL_COUNT_CLAMP = 10 ** 6
 
 
 def _tool_experience_level_for(lifecycles: int) -> str:
-    """独立 lifecycle 数 → 经验等级，与 ledger._tool_experience_level 同口径。"""
-    if lifecycles >= 2:
-        return "active"
-    if lifecycles == 1:
-        return "candidate"
-    return "unproven"
+    """独立 lifecycle 数 → 经验等级（单源委托）。
+
+    F-RSI-20261115-194 二次修正：F-138 修正时误判「ledger 无同名阈值函数」
+    ——实际 core.ledger.tool_experience.tool_experience_level(hit_lifecycles)
+    真实存在且阈值一致（≥2 active / 1 candidate / else unproven）。此处直接
+    委托单源实现，消除双源漂移风险。"""
+    from core.ledger.tool_experience import tool_experience_level
+    return tool_experience_level(lifecycles)
 
 
 def _tool_state_version(sync_states: Mapping[tuple[str, str], Mapping[str, Any]],
@@ -135,7 +137,7 @@ def _merge_tool_experience(tools: list[dict[str, Any]],
 def _private_v2_records(ns, ledger: Path, *, detail_mode: str,
                         sync_states: dict[tuple[str, str], dict[str, Any]] | None = None,
                         layer: str | None = None,
-                        policy: str = "allow") -> dict[str, Any]:
+                        policy: str = "redact") -> dict[str, Any]:
     """Apply private-sync policy, then fill the strict V2 wire fields.
 
     DOC-211：policy 三档（block/redact/allow）。redact 的 span 脱敏必须在
@@ -304,7 +306,7 @@ def replay_local_pending_outbox(root: Path, client: Any, ns, account_id: str) ->
             result = push_layer(
                 client, ns, root, layer, proj_id, account_id,
                 detail_mode=sync_cfg.get("sync_detail_mode"),
-                sensitive_policy=sync_cfg.get("sensitive_policy") or "allow",
+                sensitive_policy=sync_cfg.get("sensitive_policy") or "redact",
                 _conflict_retried=False, _allow_rebase=False,
             )
             if result.get("ok"):
@@ -392,7 +394,7 @@ def _chunk_records(records: Mapping[str, list]) -> list[dict[str, list]]:
 
 def push_layer(client, ns, root: Path, layer: str, project_id: str,
                  account_id: str, *, detail_mode: str,
-                 sensitive_policy: str = "allow",
+                 sensitive_policy: str = "redact",
                  _conflict_retried: bool = False,
                  _allow_rebase: bool = True) -> dict[str, Any]:
     # F1 通用硬闸门：任何入口（sync_layers / onboarding outbox 重放 / 未来新增调用）

@@ -3,23 +3,28 @@
   "packages": {
     "npm:@mobilenext/mobile-mcp": {
       "ecosystem": "npm",
-      "version": "1.0.12",
-      "integrity": "sha512-79qtdDwMGntstUSzw2TnS8z6XVbuOBLPxe6vhVwtenYjlJoC81x6JdBZK5MqD0XDI8MuG8u3PZxkMSeR4WN/2Q=="
+      "version": "1.0.18",
+      "integrity": "sha512-lRlvx1mSluFbLKBasnuO8r/Nyny+jeiZTmTBH91mHjpSu6XpkjJWL5xIJpW9eqTRXlmLOp/cuPunMPdMzaagaw=="
     },
     "npm:@playwright/mcp": {
       "ecosystem": "npm",
-      "version": "0.0.79",
-      "integrity": "sha512-VpqD4a3vFyGQMY9sh3UJiO6wjcurggkljKfAyCHL0QWGY5m6Ehr3MNsAAHPDHO//n13g0PCjpHatAOiulrqdZQ=="
+      "version": "0.0.86",
+      "integrity": "sha512-4SL9OSINmik3+EObCYJIxH8BkhcqqGU6CM8XIgztW015iBVR9WR6Q0xF180Ery+xuEVyyK5r6nC2bOg3zjgCoA=="
     },
     "npm:@bencibro/postmcp": {
       "ecosystem": "npm",
       "version": "1.0.4",
       "integrity": "sha512-TYmblHXlKy5BdafzZel0by6YY0EcxgxPoT4Vn2YHQIAXy/1Qgw+VQ2yxiE0x6gyYfVgG+njbCoDLAzOfPLKf4w=="
     },
+    "npm:codindex": {
+      "ecosystem": "npm",
+      "version": "0.1.2",
+      "integrity": "sha512-thCHS6taH2t8yutBKOvIxQQwUQ342jav2imozldN7EuxLTAsTMbENixcjKi3ZADSJ4GybDqeTkx1LNuavGDhtg=="
+    },
     "npm:@bytebase/dbhub": {
       "ecosystem": "npm",
-      "version": "1.5.0",
-      "integrity": "sha512-oKBOf7LHb7X/jgCBCQscKAz8xHHIKI2XqNhcazGcsvO0QinHFFbqw+Zahgm1FBJoCBJk+Wn3hij7I0lsrtZmkg=="
+      "version": "2.0.0",
+      "integrity": "sha512-/rBxU6EbKbwTY3TOfM1L4VX2Fhc/8/rBT1DOBx7ecWNQ0qYf3ck1xSYFITBZ4zt1fBlzJU8t7VeMf6e9rON52Q=="
     }
   },
   "servers": {
@@ -31,6 +36,9 @@
     },
     "postmcp": {
       "package": "npm:@bencibro/postmcp"
+    },
+    "codindex": {
+      "package": "npm:codindex"
     },
     "dbhub": {
       "package": "npm:@bytebase/dbhub"

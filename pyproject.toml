@@ -4,24 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bugx-cli"
-version = "0.1.0"
-description = "Evidence-driven AI code auditing, application security review, vulnerability hunting, and verified bug reproduction CLI for MCP/ACP coding agents"
-keywords = [
-  "AI code auditing",
-  "application security",
-  "security code review",
-  "vulnerability hunting",
-  "bug finding",
-  "verified bug reproduction",
-  "MCP",
-  "ACP",
-  "Python CLI",
-  "Node.js CLI",
-  "Claude Code",
-  "OpenAI Codex",
-  "OpenCode",
-  "Cline",
-]
+dynamic = ["version"]
+description = "Host-neutral adversarial white-box and black-box auditing agent"
 readme = "docs/07_distribution/02_README_PYPI.md"
 requires-python = ">=3.11"
 license = "BUSL-1.1"
@@ -29,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 tui = ["pexpect==4.9.0"]
+ui = ["playwright>=1.51,<2", "Pillow>=12.3"]
 graph = ["tree-sitter-language-pack==1.14.3"]
 # 加密遥测包（flywheel 的 AES-GCM 往返）与 skill_pack 的 Ed25519 验签。
 # 两者都是可选能力：缺失时降级/明确报错，不影响核心审计流程。
@@ -39,6 +24,9 @@ bugx = "bugx_cli.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "interfaces/cli"}
+
+[tool.setuptools.dynamic]
+version = {attr = "bugx_cli.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["interfaces/cli"]
@@ -82,6 +70,10 @@ include = ["bugx_cli*"]
   "core/README.md",
   "core/CATALOG.json",
   "core/bugx.md",
+  # argparse 帮助快照（interfaces/bin/bugx.js 的 Node 快路径资产）。漏装会让
+  # 装出来的引擎比 core/engine-integrity.json 少一个文件：清单声明 671，实际
+  # 只有 670，Node help 快路径静默退化到 Python 真源。
+  "core/cli-help.txt",
   "core/engine-integrity.json",
   "core/lesson-ledger.json",
   "core/metadata.txt",
@@ -92,6 +84,12 @@ include = ["bugx_cli*"]
   "core/contracts/*.py",
 ]
 "share/bugx-agent/core/assets" = ["core/assets/*.png", "core/assets/*.svg", "core/assets/*.md"]
+"share/bugx-agent/core/assets/axe-core" = [
+  "core/assets/axe-core/axe.min.js",
+  "core/assets/axe-core/LICENSE.txt",
+  "core/assets/axe-core/LICENSE-3RD-PARTY.txt",
+  "core/assets/axe-core/UPSTREAM.md",
+]
 "share/bugx-agent/core/coverage" = ["core/coverage/*.py", "core/coverage/*.md"]
 "share/bugx-agent/core/repair" = ["core/repair/*.py", "core/repair/*.md"]
 "share/bugx-agent/core/planning" = ["core/planning/*.py", "core/planning/*.md"]
@@ -239,17 +237,11 @@ actionlint = "1.7.12"
 target-version = "py311"
 line-length = 100
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-norecursedirs = [".git", "scripts", "core", ".bugx", "worktrees", "ecosystem", "build", "dist"]
-pythonpath = [".", "core", "interfaces/cli", "tests"]
-
 [tool.coverage.run]
 parallel = true
 source = ["core", "interfaces/cli/bugx_cli"]
 branch = true
 omit = [
-    "tests/*",
     ".bugx/*",
     "scripts/*",
 ]

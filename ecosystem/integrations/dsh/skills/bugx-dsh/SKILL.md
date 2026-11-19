@@ -17,10 +17,10 @@ description: BugX 漏洞挖掘引擎在 DeepSeek Harness (DSH) 宿主下的专�
 # 1. 确认 Python 与 Node 环境（Python >= 3.11，推荐 3.14；Node >= 20）
 python3 --version && node --version
 
-# 2. 从源码构建安装最新 bugx-cli（避免 wheel 滞后）
-cd <BUGX_SOURCE_ROOT> \
+# 2. 从源码构建安装最新 bugx-agent（避免 wheel 滞后）
+cd <repo-root> \
   && python3 -m build --wheel \
-  && python3 -m pip install dist/bugx_cli-*.whl --force-reinstall --no-deps
+  && python3 -m pip install dist/bugx_agent-*.whl --force-reinstall --no-deps
 
 # 3. 为 DSH 安装专属 Agent 与 MCP 插件双通道
 bugx install --root <项目根路径> --agent dsh --non-interactive --force

@@ -1,12 +1,12 @@
 ---
 name: bugx-claude
-description: BugX 漏洞挖掘引擎在 Claude Code 宿主下的专属使用手册——开工前必读协议清单、宿主能力映射（AskUserQuestion/Task/MCP）、finding confirmation 与 reproduction 契约、常见坑位与对策（证据通道、claim 粒度、指纹漂移自锁、大响应体、worker MCP 断线回退）。当用户要在 Claude Code 里启动/排障/收尾 BugX 审计、解释 BugX 门禁报错、或问「为什么审计跑了这么久」时使用本 skill。
+description: BugX 漏洞挖掘引擎在 Claude Code 宿主下的专属使用手册——开工前必读协议清单、宿主能力映射（AskUserQuestion/Task/MCP）、finding confirmation 与 reproduction 契约、本机实证过的坑位与对策（证据通道、claim 粒度、指纹漂移自锁、大响应体、worker MCP 断线回退）。当用户要在 Claude Code 里启动/排障/收尾 BugX 审计、解释 BugX 门禁报错、或问「为什么审计跑了这么久」时使用本 skill。
 ---
 
 # BugX × Claude Code 使用手册（实证复盘版）
 
-本手册按当前 BugX CLI、生命周期协议和 Claude Code 宿主适配器整理。
-标注【源码已修】的条目表示当前引擎已有对应防护。
+本手册由 2026-11-09 在 `bugx-audit-claude` 靶场的整轮审计复盘提炼。
+所有坑位都在本机实证过；标注【源码已修】的条目已在引擎侧修复。
 
 与通用 `bugx` skill 的关系：通用版承载生命周期协议；本手册是 Claude Code 宿主增补，
 **不替代门禁交互纪律**。两者冲突时以通用协议为准。
@@ -23,7 +23,7 @@ bugx engine path --name bugx.md          # 1299 行，读「工作流程」第 5
 bugx engine path --name contracts/bugx-runtime-contract.md   # 342 行，claim/rebind 状态机
 ```
 
-**只读后两份也没关系，但必须读。** 历史审计中，这些坑在文档里全都写着，
+**只读后两份也没关系，但必须读。** 2026-11-09 那次审计里，这些坑在文档里全都写着，
 却因为「靶场答案已知、看起来简单」而跳过了，结果多花 45 分钟。
 
 读不下 1299 行就只读这三段：

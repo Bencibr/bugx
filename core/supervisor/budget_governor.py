@@ -2,6 +2,34 @@
 """core/supervisor/budget_governor.py - Supervisor 预算管控与并发协调服务 (DOC-070)。
 
 负责轮次截止期、软硬预算监控、并发状态对齐、僵尸检测及预算耗尽状态转换。
+
+恢复会话结算语义（2026-11-17 用户裁决，三维度）：
+
+* 维度 1【继承豁免】：expired claim 的单元若已 100% 沿链继承覆盖（清单行带
+  ``inherited_from`` 备注且 ``coverage_discovery.resolve_inherited_evidence``
+  溯源可达祖先 passed 证据），该 claim 标记 ``superseded_by_inheritance``
+  并从并行门的 expired 重试债集合移除，不再重派；未覆盖单元才进入重派路径。
+  标记以 hash-chain 事件 ``expired_claim_superseded_by_inheritance`` 落账
+  （不改动 WorkerClaim 持久化 schema）；豁免按当前清单状态**确定性重算**，
+  清单继承引用被内容失效撤回时重试债如实回归。
+* 维度 2【恢复场景豁免】：并行门（require_parallel 的并发证明债）对恢复
+  会话豁免，三条件缺一不可（fail-closed）：① owner_cancelled 死亡证明在
+  Supervisor 权威链（operation=lifecycle, gate=owner_cancelled）；② 本 Life
+  covered 100% 来自继承+历史证据（判定口径：本 round 零新增证据记录，含
+  failed/error——OQ-2 加强，不只 passed）；③ 本会话无新增 findings（owner
+  死亡锚点之后 findings 增量为 0）。豁免动作落专项留痕事件
+  ``parallel_gate_inherited_closeout``（含三条件逐项快照）；非 ``--final``
+  收口场景由 post 侧拒绝消费该豁免（D5）。
+* 维度 3【合账语义（2026-11-17 用户裁决"新证据为准 + chain 保留"）】：单元
+  证据分三层——L1 本轮重派本地记录 / L2 本 Life 历史本地记录 / L3 沿链继承
+  （清单行 ``inherited_from`` 备注 + ``resolve_inherited_evidence`` 溯源）。
+  判定读取优先级 L1/L2 本地最新 > L3 沿链（R-1，实现在
+  ``coverage_discovery.inherited_unit_coverage_verdicts`` /
+  ``recovery_closeout_coverage_census``）：本函数消费 verdict 的 ``backing``
+  归属字段（supersede 快照可区分凭继承/凭本地证据豁免），维度 1 决策逻辑
+  不变——字面只有沿链继承豁免（OQ-1 有意的 fail-closed 浪费）；清单行遗留
+  备注永不改写（R-3 chain 保留），本地新证据推翻继承时 divergence 随 census
+  快照显性化（R-5）。
 """
 
 from __future__ import annotations
@@ -58,11 +86,61 @@ from core.supervisor.lease_manager import (
 )
 
 
+# ---------------------------------------------------------------------------
+# 第四批缺陷修复（假并发门禁）：并发证据只认**真实 worker**。
+#
+# 实证（2026-11-16 zcode 会话 supervisor.json）：judge 判读取证电池的记账式
+# claim（provider=judge-collect/judge-flow，core/launch_phases/judge_phase.py）
+# process_pid=None、tokens_consumed=0、心跳零推进、同波 execution_finished_at
+# 逐秒相同——它们是引擎判读取证的记账，不是 LLM worker；但重叠执行窗口曾被
+# 并行门禁当作真实并发证据（parallel_history max_active=6/overlap 787s）。
+#
+# 真实性判据（三选二，与 provider 解耦——记账方未来换名也不失效）：
+#   1. process_pid 非空（真实进程被启动）；
+#   2. tokens_consumed > 0（LLM 用量被实测）；
+#   3. 心跳推进：last_heartbeat_at 晚于 execution_started_at
+#      （记账 claim 的 last_heartbeat_at 在 start_worker 时一次性写入，
+#      与 started_at 同值，永不推进——实测字段特征）。
+# ---------------------------------------------------------------------------
+WORKER_AUTHENTICITY_MIN_SIGNALS = 2
+
+
+def worker_authenticity_signals(claim: WorkerClaim) -> int:
+    """统计单条 claim 的真实 worker 证据数（0..3）。"""
+    signals = 0
+    if getattr(claim, "process_pid", None) is not None:
+        signals += 1
+    try:
+        if int(getattr(claim, "tokens_consumed", 0) or 0) > 0:
+            signals += 1
+    except (TypeError, ValueError):
+        pass
+    heartbeat_at = getattr(claim, "last_heartbeat_at", None)
+    started_at = getattr(claim, "execution_started_at", None)
+    if heartbeat_at is not None and (
+        started_at is None or float(heartbeat_at) > float(started_at)
+    ):
+        signals += 1
+    return signals
+
+
+def is_authentic_worker_claim(claim: WorkerClaim) -> bool:
+    """三选二：满足至少两项真实证据才算 LLM worker 的执行证据。"""
+    return worker_authenticity_signals(claim) >= WORKER_AUTHENTICITY_MIN_SIGNALS
+
+
 def reconcile_parallel(state: RunState, now: float) -> None:
-    """从持久化执行窗口重建本轮真实重叠，跨进程 resume 也不丢失。"""
+    """从持久化执行窗口重建本轮真实重叠，跨进程 resume 也不丢失。
+
+    只有真实 worker（:func:`is_authentic_worker_claim`）的执行窗口才构成
+    并发证据；judge 记账式 claim 不再能把 ``round_max_active_workers`` /
+    ``round_overlap_seconds`` 抬到假达标。
+    """
     intervals: list[tuple[float, float]] = []
     for claim in state.claims.values():
         if claim.round_no != state.round_no or claim.execution_started_at is None:
+            continue
+        if not is_authentic_worker_claim(claim):
             continue
         start = float(claim.execution_started_at)
         if claim.execution_state == "running":
@@ -89,6 +167,7 @@ def reconcile_parallel(state: RunState, now: float) -> None:
     active_count = 0
     peak = sum(
         claim.active and claim.execution_state == "running"
+        and is_authentic_worker_claim(claim)
         for claim in state.claims.values()
         if claim.round_no == state.round_no
     )
@@ -103,6 +182,7 @@ def reconcile_parallel(state: RunState, now: float) -> None:
     state.round_overlap_seconds = round(overlap, 6)
     current_running = sum(
         claim.active and claim.execution_state == "running"
+        and is_authentic_worker_claim(claim)
         and claim.round_no == state.round_no
         for claim in state.claims.values()
     )
@@ -264,6 +344,319 @@ def parallel_required(state: RunState) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# 恢复会话结算语义（2026-11-17 用户裁决，三维度；语义总纲见模块 docstring）。
+#
+# 门禁侧只做两件事：维度 1 把「单元已 100% 沿链继承覆盖」的 expired 重试债
+# 标记 superseded_by_inheritance 并移出 expired 集合（不重派）；维度 2 在
+# 三条件全真时豁免 require_parallel 的并发证明债并落
+# ``parallel_gate_inherited_closeout`` 留痕。fail-closed 红线：
+#   * 豁免三条件缺一即拒绝；
+#   * 伪造继承覆盖（清单行无 inherited_from 备注 / 沿链溯源失败）不得触发豁免；
+#   * 探针/清单/证据任何基础设施故障 → 一律维持原门禁（legacy 行为），
+#     只在快照里留诊断字段，绝不借故障放宽。
+#
+# 定位注记：``parallel_gate_result`` 是无 root 的纯函数，而 manifest/证据文件
+# 与 supervisor.json 同目录（life state 目录）。Supervisor 每次查询/变更都会
+# 先经 :func:`refresh`（携带 workspace_root），这里用**有界**的 run_id→root
+# 提示表把 root 带给门禁（进程内、键为 run_id、容量 32 FIFO 覆盖）。定位
+# 失败/布局不符 → 返回 None → 门禁维持 legacy 行为，绝不猜测路径。
+# ---------------------------------------------------------------------------
+_GATE_WORKSPACE_ROOT_HINTS: dict[str, str] = {}
+_GATE_WORKSPACE_ROOT_HINTS_MAX = 32
+
+#: 项目布局 run_id 形态（``lifecycle-<polling_id>-<lifecycle_id>``）。
+_LIFECYCLE_RUN_ID_RE = re.compile(r"^lifecycle-(polling-\d+)-(lifecycle-\d+)$")
+
+#: 维度 2 豁免只针对 require_parallel 的并发证明债；串行合法性、active
+#: worker、expired 重试债（维度 1 管辖）不在豁免范围。
+_RECOVERY_PARALLEL_PROOF_REASONS = frozenset({
+    "parallel_peak_below_two",
+    "parallel_overlap_missing",
+    "parallel_workers_missing_checkpoint",
+    "bookkeeping_only_no_real_parallel",
+})
+
+_EXPIRE_SUPERSEDE_EVENT = "expired_claim_superseded_by_inheritance"
+_CLOSEOUT_EXEMPT_EVENT = "parallel_gate_inherited_closeout"
+
+
+def _remember_gate_workspace_root(run_id: str, workspace_root: object) -> None:
+    """记录 run_id → workspace_root 提示（有界 FIFO；仅供门禁定位 life 目录）。"""
+    if not run_id or workspace_root is None:
+        return
+    try:
+        resolved = str(Path(workspace_root).resolve())
+    except (OSError, ValueError, RuntimeError):
+        return
+    _GATE_WORKSPACE_ROOT_HINTS.pop(str(run_id), None)
+    _GATE_WORKSPACE_ROOT_HINTS[str(run_id)] = resolved
+    while len(_GATE_WORKSPACE_ROOT_HINTS) > _GATE_WORKSPACE_ROOT_HINTS_MAX:
+        oldest = next(iter(_GATE_WORKSPACE_ROOT_HINTS))
+        _GATE_WORKSPACE_ROOT_HINTS.pop(oldest, None)
+
+
+def _recovery_closeout_probe(state: RunState) -> dict[str, str] | None:
+    """从 run_id + workspace_root 提示定位 life state 目录；失败返回 None。
+
+    只做路径解析与存在性检查（廉价 stat），不做任何清单解析——解析由
+    coverage_discovery 的只读 helper 在确有 expired 债/并行要求时才执行。
+    """
+    run_id = str(getattr(state, "run_id", "") or "")
+    match = _LIFECYCLE_RUN_ID_RE.match(run_id)
+    if match is None:
+        return None
+    root = _GATE_WORKSPACE_ROOT_HINTS.get(run_id)
+    if not root:
+        return None
+    try:
+        import core.bugx_paths as bugx_paths
+
+        state_dir = (
+            bugx_paths.bugx_root(Path(root)) / "pollings"
+            / match.group(1) / "lifecycles" / match.group(2) / "state"
+        )
+    except Exception:  # noqa: BLE001 - 定位失败一律维持 legacy 门禁行为
+        return None
+    if not state_dir.is_dir():
+        return None
+    return {
+        "project_root": root,
+        "polling_id": match.group(1),
+        "lifecycle_id": match.group(2),
+        "manifest_path": str(state_dir / "module-coverage.md"),
+        "evidence_path": str(state_dir / "coverage-evidence.json"),
+    }
+
+
+def _owner_cancelled_chain_proof(state: RunState) -> tuple[bool, dict[str, object]]:
+    """条件①：Supervisor 权威链在场 owner_cancelled 死亡证明（post 同口径）。
+
+    与 ``post_phase._supervisor_owner_cancelled_proof`` 第 3 步同源：
+    ``operation=lifecycle`` / ``gate=owner_cancelled`` 的 lifecycle_blocked
+    事件。链身份绑定（lifecycle/run/session 代际）由 post 的接手门独立
+    fail-closed 把关，这里只认本 run 自己链上的死亡证明。
+    """
+    last: dict[str, object] | None = None
+    for event in getattr(state, "history", []) or []:
+        if not isinstance(event, Mapping):
+            continue
+        if (
+            event.get("type") in {"lifecycle_blocked", "lifecycle_blocked_throttled"}
+            and event.get("operation") == "lifecycle"
+            and event.get("gate") == "owner_cancelled"
+        ):
+            seq = event.get("seq")
+            order = seq if isinstance(seq, int) and not isinstance(seq, bool) else 0
+            last_seq = (
+                last.get("seq") if isinstance(last, dict) else None
+            )
+            last_order = (
+                last_seq if isinstance(last_seq, int) and not isinstance(last_seq, bool) else -1
+            )
+            if order >= last_order:
+                last = event
+    if last is None:
+        return False, {
+            "present": False,
+            "reason": "no owner_cancelled death proof in supervisor chain",
+        }
+    return True, {
+        "present": True,
+        "last_seq": last.get("seq"),
+        "last_at": last.get("at"),
+        "event_type": last.get("type"),
+    }
+
+
+def _findings_increment_since(
+    state: RunState, anchor_at: float | None,
+) -> tuple[bool, dict[str, object]]:
+    """条件③：owner 死亡锚点之后无新增 findings（found_total 增量为 0）。
+
+    会话归属口径：owner_cancelled 证明事件之后落账的 finding 只能来自
+    接手会话的新增挖掘（死亡进程不可能再产 finding），因此以「最后一条
+    owner_cancelled 的 at」为会话分界锚点。fail-closed：finding 无
+    ``origin_receipt.sealed_at``（无法证明早于死亡）视为不可归属，同样
+    使条件③不成立——豁免宁可不做，不放行任何可能的新增挖掘。
+    """
+    findings = getattr(state, "findings", []) or []
+    new_since_anchor = 0
+    unattributable = 0
+    new_worker_ids: set[str] = set()
+    if anchor_at is None:
+        return False, {
+            "anchor_at": None,
+            "total_findings": len(findings),
+            "new_since_anchor": 0,
+            "unattributable": len(findings),
+            "new_worker_ids": [],
+            "reason": "no owner_cancelled anchor (condition 1 failed)",
+        }
+    for item in findings:
+        receipt = item.get("origin_receipt") if isinstance(item, Mapping) else None
+        sealed_at = (
+            receipt.get("sealed_at") if isinstance(receipt, Mapping) else None
+        )
+        if isinstance(sealed_at, bool) or not isinstance(sealed_at, (int, float)):
+            unattributable += 1
+            continue
+        if float(sealed_at) > float(anchor_at):
+            new_since_anchor += 1
+            worker_id = receipt.get("worker_id") if isinstance(receipt, Mapping) else None
+            if worker_id:
+                new_worker_ids.add(str(worker_id))
+    return (
+        new_since_anchor == 0 and unattributable == 0,
+        {
+            "anchor_at": float(anchor_at),
+            "total_findings": len(findings),
+            "new_since_anchor": new_since_anchor,
+            "unattributable": unattributable,
+            "new_worker_ids": sorted(new_worker_ids),
+        },
+    )
+
+
+def _has_gate_event(state: RunState, event_type: str, worker_id: str | None = None) -> bool:
+    """幂等守卫：同类留痕事件在本 round 已在场则不重复落账。
+
+    history 有界裁剪可能移除旧事件，重放只产生语义相同的重复留痕，不影响
+    豁免/标记结论（结论按清单状态确定性重算，不依赖事件在场）。
+    """
+    for event in getattr(state, "history", []) or []:
+        if not isinstance(event, Mapping) or event.get("type") != event_type:
+            continue
+        if event.get("round_no") != state.round_no:
+            continue
+        if worker_id is not None and event.get("worker_id") != worker_id:
+            continue
+        return True
+    return False
+
+
+def _supersede_expired_claims_by_inheritance(
+    state: RunState,
+    expired_claims: list[WorkerClaim],
+    probe: dict[str, str],
+    now: float,
+) -> tuple[list[WorkerClaim], dict[str, object]]:
+    """维度 1：单元已 100% 沿链继承覆盖的 expired claim 移出重试债。
+
+    判定粒度是 claim（重派以 claim 任务包为单位）：claim 的**全部**单元都
+    沿链继承覆盖才标记 superseded_by_inheritance；任一单元未覆盖/伪造/
+    溯源失败 → 整包保留在 expired 集合（进入重派路径）。标记 = hash-chain
+    事件（幂等守卫：同 round 同 worker 不重复落账）。
+
+    合账语义（R-1/R-6）：verdict 由 coverage_discovery 按「本地最新记录 >
+    沿链继承」优先级解析并携带 ``backing`` 归属（local_round/local_historical/
+    local_overturns/inherited/unbacked）；本函数决策逻辑不变——只有
+    ``backing == "inherited"``（沿链继承）触发豁免，本地证据覆盖不触发
+    （OQ-1 字面 fail-closed）；``backing``/``local_record`` 随 verdict 自然
+    进入 supersede 事件快照（F-4：快照更富，schema 不变）。
+    """
+    scopes: list[str] = []
+    for claim in expired_claims:
+        for unit in claim.unit_ids:
+            scope = _UNIT_PREFIX_RE.sub("", str(unit)).strip()
+            if scope:
+                scopes.append(scope)
+    try:
+        from core.coverage.coverage_discovery import inherited_unit_coverage_verdicts
+
+        verdicts = inherited_unit_coverage_verdicts(
+            Path(probe["project_root"]), Path(probe["manifest_path"]), scopes,
+            evidence_path=Path(probe["evidence_path"]),
+            round_started_epoch=float(
+                getattr(state, "round_started_at", 0.0) or 0.0
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - 探针故障 fail-closed：维持原债
+        return expired_claims, {
+            "available": False,
+            "reason": f"inheritance verdict unavailable: {type(exc).__name__}: {exc}"[:200],
+        }
+    kept: list[WorkerClaim] = []
+    superseded: dict[str, dict[str, object]] = {}
+    for claim in expired_claims:
+        unit_verdicts: list[dict[str, object]] = []
+        fully_inherited = bool(claim.unit_ids)
+        for unit in claim.unit_ids:
+            scope = _UNIT_PREFIX_RE.sub("", str(unit)).strip()
+            verdict = verdicts.get(scope) if scope else None
+            if verdict is None:
+                verdict = {
+                    "inherited": False, "covered": False, "backing": "unbacked",
+                    "reference": None, "chain": "",
+                    "reason": f"unit scope 不可解析或不在请求集: {scope or unit}",
+                }
+            unit_verdicts.append({"unit": str(unit), **verdict})
+            if not verdict.get("inherited"):
+                fully_inherited = False
+        if fully_inherited:
+            superseded[claim.worker_id] = {
+                "worker_id": claim.worker_id,
+                "unit_ids": list(claim.unit_ids),
+                "attempt": claim.attempt,
+                "lease_id": claim.lease_id,
+                "verdicts": unit_verdicts,
+            }
+        else:
+            kept.append(claim)
+    for worker_id, snapshot in superseded.items():
+        if not _has_gate_event(state, _EXPIRE_SUPERSEDE_EVENT, worker_id):
+            append_event(
+                state, _EXPIRE_SUPERSEDE_EVENT, now,
+                round_no=state.round_no,
+                **snapshot,
+            )
+    return kept, {"available": True, "claims": superseded}
+
+
+def _recovery_closeout_exemption(
+    state: RunState, now: float, probe: dict[str, str],
+) -> dict[str, object]:
+    """维度 2 三条件判定（fail-closed，逐条件快照供留痕事件与门禁快照）。"""
+    cancelled, cancelled_snapshot = _owner_cancelled_chain_proof(state)
+    anchor = (
+        cancelled_snapshot.get("last_at") if cancelled else None
+    )
+    anchor_at = anchor if isinstance(anchor, (int, float)) and not isinstance(anchor, bool) else None
+    findings_ok, findings_snapshot = _findings_increment_since(state, anchor_at)
+    try:
+        from core.coverage.coverage_discovery import recovery_closeout_coverage_census
+
+        census = recovery_closeout_coverage_census(
+            Path(probe["project_root"]),
+            Path(probe["manifest_path"]),
+            Path(probe["evidence_path"]),
+            float(getattr(state, "round_started_at", 0.0) or 0.0),
+        )
+    except Exception as exc:  # noqa: BLE001 - 基础设施故障 fail-closed
+        census = {
+            "available": False,
+            "covered_all_inherited_or_historical": False,
+            "no_new_evidence_records_this_round": False,
+            "reason": f"{type(exc).__name__}: {exc}"[:200],
+        }
+    # 条件②为 OQ-2 加强口径：本轮零新增证据记录（含 failed/error）。
+    # 纯 failed 的重派轮不再误获豁免——任何新证据都证明存在真实挖掘/重派。
+    census_ok = bool(
+        census.get("covered_all_inherited_or_historical")
+        and census.get("no_new_evidence_records_this_round")
+    )
+    eligible = bool(cancelled and census_ok and findings_ok)
+    return {
+        "eligible": eligible,
+        "checked_at": now,
+        "conditions": {
+            "owner_cancelled_proof": cancelled_snapshot,
+            "coverage_census": census,
+            "findings_increment": findings_snapshot,
+        },
+    }
+
+
 def parallel_gate_result(
     state: RunState,
     *,
@@ -293,10 +686,33 @@ def parallel_gate_result(
             ) > (previous.attempt, previous.claimed_at):
                 latest_by_unit[unit_id] = claim
 
-    expired = sorted({
-        claim.worker_id for claim in latest_by_unit.values()
-        if claim.state == "expired"
-    })
+    # 恢复结算维度 1（继承豁免）：在把 expired 报成重试债之前，先检查每个
+    # expired claim 的单元是否已 100% 沿链继承覆盖（manifest 行带
+    # inherited_from 备注 + 溯源可达 passed）。全继承的 claim 标记
+    # superseded_by_inheritance（hash-chain 留痕）并移出 expired 集合，不再
+    # 重派；任一单元未覆盖/伪造/溯源失败 → 整包保留（进入重派路径）。
+    # 探针不可用（非项目布局 run_id / root 提示缺失）→ 维持 legacy 行为。
+    expired_by_worker: dict[str, WorkerClaim] = {}
+    for claim in latest_by_unit.values():
+        if claim.state == "expired":
+            expired_by_worker.setdefault(claim.worker_id, claim)
+    closeout_probe = _recovery_closeout_probe(state)
+    closeout_event_now = float(now) if now is not None else float(time.time())
+    superseded_block: dict[str, object] = {"available": False}
+    if closeout_probe is not None and expired_by_worker:
+        kept_claims, superseded_block = _supersede_expired_claims_by_inheritance(
+            state, list(expired_by_worker.values()), closeout_probe, closeout_event_now,
+        )
+        expired_by_worker = {claim.worker_id: claim for claim in kept_claims}
+    expired = sorted(expired_by_worker)
+    superseded_workers = sorted(
+        claim.get("worker_id")
+        for claim in (
+            superseded_block.get("claims", {}).values()
+            if isinstance(superseded_block.get("claims"), dict) else []
+        )
+        if isinstance(claim, Mapping) and claim.get("worker_id")
+    )
     active = sorted(state.active_claims)
     running = sorted(
         claim.worker_id for claim in state.claims.values()
@@ -311,23 +727,34 @@ def parallel_gate_result(
     # Do not trust the mutable summary counters alone.  A real parallel proof
     # needs two distinct workers that both completed a non-empty checkpoint,
     # plus overlapping persisted execution windows.
+    # 第四批修复（假并发门禁）：执行窗口与 checkpoint 进度只统计真实 worker
+    # （is_authentic_worker_claim 三选二）。judge 记账式 claim 的重叠窗口
+    # 单独留档——若"仅记账 claim 达标"必须如实 FAIL 并注明，绝不放行。
     intervals: list[tuple[float, float]] = []
+    bookkeeping_intervals: list[tuple[float, float]] = []
+    bookkeeping_workers: set[str] = set()
     observed_peak = sum(
         1
         for claim in state.claims.values()
         if claim.round_no == state.round_no
         and claim.active
         and claim.execution_state == "running"
+        and is_authentic_worker_claim(claim)
     )
     progress_workers: list[str] = []
     for claim in state.claims.values():
         if claim.round_no != state.round_no or claim.execution_started_at is None:
             continue
+        authentic = is_authentic_worker_claim(claim)
         if claim.state == "submitted" and claim.submitted_at is not None:
             end = claim.execution_finished_at or claim.submitted_at
             if end > claim.execution_started_at:
-                intervals.append((claim.execution_started_at, end))
-            if claim.last_checkpoint_digest:
+                (intervals if authentic else bookkeeping_intervals).append(
+                    (claim.execution_started_at, end)
+                )
+                if not authentic:
+                    bookkeeping_workers.add(claim.worker_id)
+            if claim.last_checkpoint_digest and authentic:
                 progress_workers.append(claim.worker_id)
         elif claim.active and claim.execution_state == "running":
             # A lease expiry is a promise about the future, not evidence that
@@ -340,9 +767,17 @@ def parallel_gate_result(
                 else (claim.last_heartbeat_at or claim.execution_started_at)
             )
             if end > claim.execution_started_at:
-                intervals.append((claim.execution_started_at, end))
+                (intervals if authentic else bookkeeping_intervals).append(
+                    (claim.execution_started_at, end)
+                )
+                if not authentic:
+                    bookkeeping_workers.add(claim.worker_id)
         elif claim.execution_finished_at is not None:
-            intervals.append((claim.execution_started_at, claim.execution_finished_at))
+            (intervals if authentic else bookkeeping_intervals).append(
+                (claim.execution_started_at, claim.execution_finished_at)
+            )
+            if not authentic:
+                bookkeeping_workers.add(claim.worker_id)
     observed_overlap = 0.0
     points: dict[float, int] = {}
     for start, end in intervals:
@@ -358,6 +793,18 @@ def parallel_gate_result(
         if index + 1 < len(ordered_points) and current >= 2:
             observed_overlap += ordered_points[index + 1] - point
     progress_workers = sorted(set(progress_workers))
+    # 记账式 claim 的假并发峰值（仅用于如实标注 FAIL，不构成证据）。
+    bookkeeping_peak = 0
+    bk_points: dict[float, int] = {}
+    for start, end in bookkeeping_intervals:
+        if end <= start:
+            continue
+        bk_points[start] = bk_points.get(start, 0) + 1
+        bk_points[end] = bk_points.get(end, 0) - 1
+    bk_current = 0
+    for point in sorted(bk_points):
+        bk_current += bk_points[point]
+        bookkeeping_peak = max(bookkeeping_peak, bk_current)
     required = parallel_required(state)
     reasons: list[str] = []
     if (
@@ -375,6 +822,38 @@ def parallel_gate_result(
         reasons.append("parallel_overlap_missing")
     if required and observed_peak >= 2 and len(progress_workers) < 2:
         reasons.append("parallel_workers_missing_checkpoint")
+    if required and observed_peak < 2 and bookkeeping_peak >= 2:
+        # 第四批修复（假并发门禁）：被真实性过滤后不足阈值，但记账式 claim
+        # 的重叠窗口本可"达标"——如实 FAIL 并注明仅记账 claim、无真实并发，
+        # 禁止假并发借记账窗口通过门禁（fail-closed 诚实化）。
+        reasons.append("bookkeeping_only_no_real_parallel")
+    # 恢复结算维度 2（恢复场景豁免）：三条件全真（owner_cancelled 死亡证明
+    # 在权威链 + 本 Life covered 100% 继承/历史证据且本 round 零新增证据
+    # 记录（含 failed/error，OQ-2）+ owner 死亡锚点后零新增 findings）时，
+    # 豁免 require_parallel 的
+    # 并发证明债并落 ``parallel_gate_inherited_closeout`` 留痕（含三条件
+    # 逐项快照）。fail-closed：任一条件不成立/探针不可用 → 并行证明债原样
+    # 保留。串行合法性、active worker、expired 重试债（维度 1 管辖）不在
+    # 豁免范围；非 --final 收口由 post 侧拒绝消费该豁免（D5）。
+    closeout_exemption: dict[str, object] | None = None
+    if required and closeout_probe is not None:
+        closeout_exemption = _recovery_closeout_exemption(
+            state, closeout_event_now, closeout_probe,
+        )
+        suppressed = (
+            [r for r in reasons if r in _RECOVERY_PARALLEL_PROOF_REASONS]
+            if closeout_exemption.get("eligible") else []
+        )
+        closeout_exemption["suppressed_reasons"] = suppressed
+        if suppressed:
+            reasons = [r for r in reasons if r not in _RECOVERY_PARALLEL_PROOF_REASONS]
+            if not _has_gate_event(state, _CLOSEOUT_EXEMPT_EVENT):
+                append_event(
+                    state, _CLOSEOUT_EXEMPT_EVENT, closeout_event_now,
+                    round_no=state.round_no,
+                    conditions=closeout_exemption.get("conditions"),
+                    suppressed_reasons=list(suppressed),
+                )
     return {
         "round": state.round_no,
         "required": required,
@@ -386,8 +865,16 @@ def parallel_gate_result(
         "submitted_workers": submitted,
         "progress_workers": progress_workers,
         "expired_workers": sorted(expired),
+        # 恢复结算语义：维度 1 superseded 标记与维度 2 豁免快照（消费方：
+        # post 的 D5 守卫与结算留痕；无恢复语义时恒为 []/None）。
+        "expired_workers_superseded_by_inheritance": superseded_workers,
+        "recovery_closeout_exemption": closeout_exemption,
         "serial_reason": state.budget.serial_reason,
         "reasons": reasons,
+        # 第四批修复：并发证据的真实性口径留档（取证与回归用）。
+        "bookkeeping_claims_filtered": len(bookkeeping_workers),
+        "bookkeeping_workers": sorted(bookkeeping_workers),
+        "bookkeeping_only_peak": bookkeeping_peak,
     }
 
 
@@ -590,6 +1077,13 @@ def refresh(
     workspace_root: Path | None = None,
     now_mono: float | None = None,
 ) -> None:
+    # 恢复结算门禁的 root 提示（有界 FIFO，见 _GATE_WORKSPACE_ROOT_HINTS）：
+    # parallel_gate_result 是无 root 纯函数，Supervisor 每次查询/变更都先经
+    # 本函数（携带 workspace_root），在这里登记 run_id → root，门禁即可定位
+    # life state 目录（manifest/证据文件与 supervisor.json 同目录）。
+    _remember_gate_workspace_root(
+        str(getattr(state, "run_id", "") or ""), workspace_root,
+    )
     if now_mono is None:
         now_mono = time.monotonic()
     # D3：一次 refresh 内所有墙钟写入（事件时间戳、租约展示期、预算锚）

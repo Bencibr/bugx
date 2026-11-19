@@ -1,0 +1,383 @@
+/* ==========================================================================
+   Project Profile & Positioning Tab Modern Redesign (Apple HIG / Linear Spec)
+   ========================================================================== */
+
+.bx-prof-card {
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--sp-8);
+  background: var(--bx-card-bg);
+  border: 1px solid var(--bx-card-border);
+  box-shadow: var(--bx-card-shadow);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bx-prof-card:hover {
+  border-color: rgba(0, 113, 227, 0.2);
+}
+
+.bx-prof-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-7) var(--sp-9);
+  border-bottom: 1px solid var(--bx-border-subtle);
+  background: var(--bx-header-bg);
+}
+
+.bx-prof-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.bx-prof-icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bx-prof-icon-wrap.primary {
+  background: rgba(0, 113, 227, 0.1);
+  color: var(--bx-apple-blue-deep);
+  border: 1px solid rgba(0, 113, 227, 0.2);
+}
+
+.bx-prof-icon-wrap.accent {
+  background: rgba(52, 199, 89, 0.1);
+  color: #34c759;
+  border: 1px solid rgba(52, 199, 89, 0.2);
+}
+
+.bx-prof-icon-wrap.emerald {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--bx-success-ink);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.bx-prof-icon-wrap.rose {
+  background: rgba(244, 63, 94, 0.1);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+.bx-prof-icon-wrap.amber {
+  background: rgba(255, 149, 0, 0.1);
+  color: #ff9500;
+  border: 1px solid rgba(255, 149, 0, 0.2);
+}
+
+.bx-prof-title-text {
+  font-size: var(--fs-emphasis);
+  font-weight: 600;
+  color: var(--bx-text-main);
+  line-height: 1.25;
+}
+
+.bx-prof-title-sub {
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+  margin-top: 1px;
+  font-weight: 400;
+}
+
+/* Stat Grid & Cards */
+.bx-prof-stat-grid {
+  display: grid;
+  gap: var(--sp-6);
+}
+
+.bx-prof-stat-card {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6) var(--sp-7);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.bx-prof-stat-card:hover {
+  border-color: rgba(0, 113, 227, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.bx-prof-stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+
+.bx-prof-stat-label {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  color: var(--bx-text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bx-prof-stat-value {
+  font-size: var(--fs-display-lg);
+  font-weight: 700;
+  line-height: 1.2;
+  font-family: var(--app-monospace-font-family);
+  letter-spacing: -0.02em;
+}
+
+.bx-prof-stat-sub {
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+  margin-top: var(--sp-2);
+}
+
+/* Section Box & Subheads */
+.bx-prof-section-box {
+  background: rgba(0, 0, 0, 0.015);
+  border: 1px solid var(--bx-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-7);
+}
+
+.bx-prof-subhead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--bx-text-main);
+  margin-bottom: var(--sp-4);
+}
+
+.bx-prof-subhead-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bx-prof-tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+/* Badges & Pills */
+.bx-prof-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label-sm);
+  font-weight: 500;
+  font-family: var(--app-monospace-font-family);
+  transition: all 0.15s ease;
+}
+
+.bx-prof-pill.tag-forms {
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--bx-apple-blue-deep);
+  border: 1px solid rgba(0, 113, 227, 0.2);
+}
+
+.bx-prof-pill.tag-surface {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--bx-success-ink);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+.bx-prof-pill.tag-neutral {
+  background: var(--bx-black-04);
+  color: var(--bx-text-muted);
+  border: 1px solid var(--bx-black-08);
+}
+
+.bx-prof-pill.tag-lang {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  color: var(--bx-text-main);
+}
+
+.bx-lang-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.bx-prof-lang-pct {
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+  margin-left: var(--sp-1);
+}
+
+/* Language Stacked Progress Bar */
+.bx-prof-lang-bar {
+  height: 8px;
+  width: 100%;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  display: flex;
+  background: var(--bx-black-06);
+  margin: var(--sp-4) 0 var(--sp-5) 0;
+}
+
+.bx-prof-lang-bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Threat Indicators Banner */
+.bx-prof-threat-banner {
+  margin-top: var(--sp-2);
+}
+
+.bx-prof-threat-item {
+  background: var(--bx-mini-card-bg);
+  border: 1px solid var(--bx-mini-card-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4) var(--sp-6);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+}
+
+.bx-prof-threat-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bx-prof-threat-icon.danger {
+  background: rgba(255, 59, 48, 0.1);
+  color: var(--bx-danger-ink);
+  border: 1px solid rgba(255, 59, 48, 0.2);
+}
+
+.bx-prof-threat-icon.warning {
+  background: rgba(255, 149, 0, 0.1);
+  color: #ff9500;
+  border: 1px solid rgba(255, 149, 0, 0.2);
+}
+
+.bx-prof-threat-label {
+  font-size: var(--fs-caption);
+  color: var(--bx-text-muted);
+}
+
+.bx-prof-threat-val {
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+}
+
+.bx-prof-threat-val.danger strong {
+  color: var(--bx-danger-ink);
+}
+
+.bx-prof-threat-val.warning strong {
+  color: #ff9500;
+}
+
+/* Hotspots Table */
+.bx-prof-table {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--bx-border-subtle);
+}
+
+.bx-prof-table thead th {
+  background: var(--bx-table-header-bg);
+  padding: var(--sp-4) var(--sp-6);
+  font-size: var(--fs-label-sm);
+  font-weight: 600;
+  color: var(--bx-text-muted);
+}
+
+.bx-prof-table tbody td {
+  padding: var(--sp-5) var(--sp-6);
+  vertical-align: middle;
+}
+
+/* Dark Mode Adjustments */
+html.dark .bx-prof-card,
+body.dark .bx-prof-card {
+  background: #1c1c1e;
+  border-color: var(--bx-glass-08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+html.dark .bx-prof-card-title,
+body.dark .bx-prof-card-title {
+  background: #252528;
+  border-bottom-color: var(--bx-glass-06);
+}
+
+html.dark .bx-prof-stat-card,
+body.dark .bx-prof-stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--bx-glass-06);
+}
+
+html.dark .bx-prof-stat-card:hover,
+body.dark .bx-prof-stat-card:hover {
+  background: var(--bx-glass-05);
+  border-color: rgba(10, 132, 255, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+html.dark .bx-prof-section-box,
+body.dark .bx-prof-section-box {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--bx-glass-06);
+}
+
+html.dark .bx-prof-pill.tag-forms,
+body.dark .bx-prof-pill.tag-forms {
+  background: rgba(10, 132, 255, 0.15);
+  color: #2997ff;
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+html.dark .bx-prof-pill.tag-surface,
+body.dark .bx-prof-pill.tag-surface {
+  background: rgba(48, 209, 88, 0.15);
+  color: #30d158;
+  border-color: rgba(48, 209, 88, 0.3);
+}
+
+html.dark .bx-prof-pill.tag-neutral,
+body.dark .bx-prof-pill.tag-neutral {
+  background: var(--bx-glass-05);
+  color: var(--bx-text-muted);
+  border-color: var(--bx-glass-10);
+}
+
+html.dark .bx-prof-pill.tag-lang,
+body.dark .bx-prof-pill.tag-lang {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--bx-glass-08);
+}
+
+html.dark .bx-prof-lang-bar,
+body.dark .bx-prof-lang-bar {
+  background: var(--bx-glass-08);
+}
+
+html.dark .bx-prof-threat-item,
+body.dark .bx-prof-threat-item {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--bx-glass-06);
+}
+
+
+
+

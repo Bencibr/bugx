@@ -1,7 +1,8 @@
 # BugX 智能体执行协议与交互契约子系统 (Agent Runtime Contracts & Protocols)
 
-> **版本契约**: `0.1.0` | **父系统**: `core/`  
-> **公开架构说明**: 参见 [`docs/02_architecture/01_ARCHITECTURE.md`](../../docs/02_architecture/01_ARCHITECTURE.md)。
+> **版本契约**: `0.1.1` | **父系统**: `core/`
+> **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
+> **守卫机制**: `scripts/verify_directory_indices.py` (100% 索引对齐防漂移)
 
 本文档定义 BugX 运行于各大主流宿主（Claude, Cline, OpenCode, Codex, Pi, Qoder 等）以及并发 Worker 执行时的核心提示词契约、生命周期控制协议与人机交互规范。
 

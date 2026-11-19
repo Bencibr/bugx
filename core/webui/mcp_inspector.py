@@ -435,15 +435,18 @@ def inspect_workspace_mcp(workspace_path: Path | str) -> dict[str, Any]:
                 cmd_str = f"{cmd} {' '.join(str(a) for a in args)}".strip()
                 is_disabled = bool(cfg.get("disabled")) or (name in disabled_mcps)
 
-                tool_count = 6
+                # F-RSI-20261115-317：tool_count 是按名字片段猜测的启发式估计值
+                # （真实工具数由 runtime 会话握手后 tools/list 才确定）。字段改名
+                # estimated_tool_count 防止宿主把它当真实计数消费。
+                estimated_tool_count = 6
                 if "supervisor" in name:
-                    tool_count = 12
+                    estimated_tool_count = 12
                 elif "docs" in name:
-                    tool_count = 4
+                    estimated_tool_count = 4
                 elif "memory" in name:
-                    tool_count = 14
+                    estimated_tool_count = 14
                 elif "playwright" in name:
-                    tool_count = 10
+                    estimated_tool_count = 10
 
                 reg_info = registry.get(name) or {}
                 raw_creds = reg_info.get("credentials")
@@ -461,8 +464,9 @@ def inspect_workspace_mcp(workspace_path: Path | str) -> dict[str, Any]:
                     "name": name,
                     "enabled": not is_disabled,
                     "status": status,
-                    "tools": tool_count,
-                    "tool_count": tool_count,
+                    # project-settings.js 消费 tool_count 字段名（向后兼容）；
+                    # 值是启发式估计非真实计数（F-RSI-20261115-317）。
+                    "tool_count": estimated_tool_count,
                     "command": cmd_str or "stdio",
                     "source": str(mcp_file.relative_to(ws)),
                     "tier": reg_info.get("tier", "custom"),

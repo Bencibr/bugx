@@ -29,8 +29,8 @@
 
 ## 产物
 
-    evals/fixtures/<slug>.fixture   从发现证据里摘出的最小可复现片段
-    evals/cases.json                追加新 case
+    verification/evals/fixtures/<slug>.fixture   从发现证据里摘出的最小可复现片段
+    verification/evals/cases.json                追加新 case
 
 fixture 摘取**按行窗口**而不是整文件复制：真实项目动辄上千行，把整文件塞进
 评测集会让人工审视标准答案变得不可能，且会带进大量无关代码干扰判定。
@@ -56,7 +56,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_EVALS_DIR = (REPO_ROOT / "verification" / "evals") if (REPO_ROOT / "verification" / "evals").is_dir() else (REPO_ROOT / "evals")
+_EVALS_DIR = REPO_ROOT / "verification" / "evals"
 CASES_PATH = _EVALS_DIR / "cases.json"
 GOLDEN_PATH = _EVALS_DIR / "golden-findings.json"
 FIXTURES_DIR = _EVALS_DIR / "fixtures"
@@ -285,13 +285,8 @@ def solidify(payload: dict, *, source_root: Path,
     # 而 fixtures_dir 没有时，``relative_to(root)`` 会抛 ValueError（两者字面
     # 前缀不同）。这类「同一目录的两个名字」在真实环境里到处都是，必须在入口
     # 统一归一，而不是指望每个调用方都记得 resolve。
-    # evals 目录随仓库布局迁移（evals/ → verification/evals/），与模块级
-    # _EVALS_DIR 的双路径回退保持同一规则；root 注入时按注入根推导，测试隔离不破。
-    evals_dir = (
-        (root / "verification" / "evals")
-        if (root / "verification" / "evals").is_dir()
-        else (root / "evals")
-    )
+    # 评测资产的唯一仓库路径是 verification/evals；旧的 evals/ 双轨已移除。
+    evals_dir = root / "verification" / "evals"
     cases_path = (cases_path or (evals_dir / "cases.json")).resolve()
     fixtures_dir = (fixtures_dir or (evals_dir / "fixtures")).resolve()
     golden_path = (golden_path or (

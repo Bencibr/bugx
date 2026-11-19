@@ -122,7 +122,10 @@ class _BugXArgumentParser(argparse.ArgumentParser):
         if match:
             bad_cmd = match.group(1).strip()
             from .infra.ai_advisor import CommandIntentArbitrator
-            arbitrator = CommandIntentArbitrator()
+            # 命令面真值来自解析器自身的 choose-from 清单——建议永不指向不存在的命令。
+            choices_match = re.search(r"choose from (.+?)\)", message)
+            known = re.findall(r"'([^']+)'", choices_match.group(1)) if choices_match else None
+            arbitrator = CommandIntentArbitrator(known_commands=known)
             res = arbitrator.infer_intent(bad_cmd)
 
             err_output = [
@@ -653,6 +656,10 @@ def build_parser() -> argparse.ArgumentParser:
     knowledge.add_argument("--output", type=Path)
     knowledge.add_argument("--bundle-id")
     knowledge.add_argument("--contributor", default="local-supervisor")
+    knowledge.add_argument(
+        "--include-source-snippets", action="store_true",
+        help="导出时在便携包中携带 before/after 源码片段（默认不带；开启后经片段级审查）",
+    )
     knowledge.add_argument("--reviewer")
     knowledge.add_argument("--reason")
     knowledge.set_defaults(handler=command_knowledge)
@@ -1395,7 +1402,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--source", choices=("project", "eval", "auto"), default="project",
                        help=report_source_help)
         p.add_argument("--root", type=Path, help="项目根目录 (默认当前工作目录)")
-        p.add_argument("--eval-dir", type=Path, help="审计收据目录 (默认 evals/oss)")
+        p.add_argument("--eval-dir", type=Path, help="审计收据目录 (默认 verification/evals/oss)")
         p.add_argument("--out", type=Path, help="报告输出目录 (默认与 eval-dir 相同)")
         p.add_argument("--format", choices=("html", "md", "pdf", "both"), default="both", help="文件格式 (默认 both)")
         p.add_argument("--title", help="自定义报告主标题")
@@ -1495,7 +1502,7 @@ def main(argv: list[str] | None = None) -> int:
             "matrix": "项目级攻防渗透审计已统一收敛至: bugx audit",
             "console": "启动统一 Web 控制台与报告预览请使用: bugx report serve",
             "watch": "实时流式监视日志与 MCP 工具调用请使用: bugx log --watch",
-            "test": "受影响测试选择器属于引擎核心开发工具，公共 CLI 已移除；开发者请使用: python3 scripts/test_selector.py",
+            "test": "单元测试与提交门禁已从当前发行版移除",
         }
         if first_cmd in removed_map:
             print(

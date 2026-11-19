@@ -1,7 +1,7 @@
 {
   "name": "bugx-cli",
-  "version": "0.1.0",
-  "description": "Evidence-driven AI code auditing, application security review, vulnerability hunting, and verified bug reproduction CLI for MCP/ACP coding agents",
+  "version": "${BUGX_VERSION}",
+  "description": "Host-neutral adversarial white-box and black-box auditing agent CLI wrapper",
   "type": "module",
   "bin": {
     "bugx": "interfaces/bin/bugx.js"
@@ -70,6 +70,7 @@
     "core/**/*.yaml",
     "core/**/*.yml",
     "core/**/*.sh",
+    "core/**/*.jpg",
     "core/**/*.png",
     "core/**/*.svg",
     "core/**/*.woff",
@@ -82,22 +83,12 @@
     "LICENSE"
   ],
   "keywords": [
-    "ai code auditing",
-    "application security",
-    "security code review",
-    "vulnerability hunting",
-    "bug finding",
-    "verified bug reproduction",
-    "mcp",
-    "acp",
-    "claude code",
-    "openai codex",
-    "opencode",
-    "cline",
-    "python",
-    "nodejs",
-    "npm",
-    "pypi"
+    "ai",
+    "code-audit",
+    "security",
+    "vulnerability",
+    "cli",
+    "mcp"
   ],
   "engines": {
     "node": ">=18.0.0"

@@ -1,6 +1,6 @@
 {
   "name": "@bencibro/bugx-dsh-ui",
-  "version": "0.1.0",
+  "version": "${BUGX_VERSION}",
   "description": "BugX branding and Sidebar icon for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",

@@ -1,0 +1,105 @@
+/* =========================================================================
+   Apple HIG & Modern IDE SVG Vector Icon System
+   ========================================================================= */
+.bx-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, stroke 0.15s ease;
+}
+
+.bx-modal-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: rgba(0, 102, 204, 0.1);
+  color: var(--bx-accent, #0066cc);
+}
+
+.bx-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.bx-proj-files-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-primary-foreground, var(--bx-slate-500));
+}
+
+.bx-proj-del-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bx-ctx-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.bx-ctx-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--bx-accent, #0066cc);
+}
+
+.bx-confirm-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bx-confirm-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+}
+
+.bx-confirm-note-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--bx-apple-blue);
+  display: inline-flex;
+}
+
+.bx-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: var(--sp-3);
+  flex-shrink: 0;
+  color: var(--bx-slate-500);
+}
+
+html.dark .bx-file-icon {
+  color: var(--bx-apple-gray-400);
+}
+
+html.dark .bx-ctx-header-icon {
+  color: var(--bx-apple-blue);
+}
+
+html.dark .bx-modal-icon {
+  background: rgba(10, 132, 255, 0.15);
+  color: var(--bx-apple-blue);
+}
+

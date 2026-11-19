@@ -221,7 +221,12 @@ def validate_rows(rows: list[ModuleRow], root: Path = REPO_ROOT,
         )
 
     parent_modules = {row.parent for row in internals if row.parent not in {"", "ROOT", "-"}}
-    if len(parent_modules) >= 2 and not business:
+    # F-RSI-20261118-007：flows 为空（关系图 complete 且机器结论 0 条跨模块
+    # 调用）时，多父模块无业务行是**合法形态**——纯样本/独立模块仓库本就
+    # 没有可建链路的调用关系；此时要求建清单与 discover-flows 的机器结论
+    # 互相矛盾（移动靶场 post 死锁实证）。只有「机器发现了流但清单漏建」
+    # 才是缺口。本检查位于 require_graph 分支内，flows 为该分支已排序变量。
+    if len(parent_modules) >= 2 and not business and flows:
         errors.append("存在多个父模块，但未建立模块间业务逻辑链路清单")
     if final:
         uncovered = [r for r in rows if r.status != "已覆盖"]

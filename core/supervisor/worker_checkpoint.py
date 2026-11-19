@@ -213,7 +213,14 @@ def main(argv: list[str] | None = None) -> int:
             artifacts=artifacts,
         )
     except (OSError, ValueError, audit_supervisor.SupervisorError) as exc:
-        print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+        payload = {"error": str(exc)}
+        # DEF-2：finalize 有界重提通道接线——摄入侧结构化拒绝原因
+        # （evidence_feedback：缺什么字段 / 哪个 path 不存在 / 正确格式样例 /
+        # 重试提示词）随错误一起回注，宿主与模型无需再从一行纯文本里猜。
+        feedback = getattr(exc, "evidence_feedback", None)
+        if isinstance(feedback, dict) and feedback:
+            payload["evidence_feedback"] = feedback
+        print(json.dumps(payload, ensure_ascii=False))
         return 1
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0

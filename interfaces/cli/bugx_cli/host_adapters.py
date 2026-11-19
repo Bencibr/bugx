@@ -17,6 +17,16 @@ import shutil
 import subprocess
 
 from .hosts.registry import engine_host_plugin
+from .hosts.template_engine import (
+    AGENT_DESCRIPTION,
+    AGENT_DESCRIPTION_EN,
+    AGENT_DESCRIPTION_ZH,
+    BUGX_WORKER_DESCRIPTION,
+    BUGX_WORKER_DESCRIPTION_EN,
+    BUGX_WORKER_DESCRIPTION_ZH,
+    get_agent_description,
+    get_worker_description,
+)
 
 
 def _windows_drive_roots() -> tuple[Path, ...]:
@@ -81,55 +91,6 @@ def _running_zcode_markers() -> tuple[Path, ...]:
         if candidate.name.casefold() in expected_names and candidate.is_file():
             markers.append(candidate)
     return tuple(markers)
-
-
-# 宿主入口 frontmatter 的触发文案。description 是各宿主决定"何时自动
-# 启用 BugX agent"的路由依据，必须跨宿主保持一致。支持中英双语自适应，
-# 非 zh 语言一律回退为规范英文。
-AGENT_DESCRIPTION_EN = (
-    "An autonomous agent dedicated to code review, vulnerability hunting, and automated bug fixing. "
-    "Built for deep investigations, BugX steps in when you are wrapping up a feature, opening a pull request, or hunting down an elusive bug. "
-    "It analyzes code logic, automatically writes test cases to uncover and reproduce hidden flaws, and delivers verified patches that resolve root causes. "
-    "Always safeguarding your code quality and security."
-)
-
-AGENT_DESCRIPTION_ZH = (
-    "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，"
-    "它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。"
-)
-
-# 并发 worker 子智能体的路由描述。OpenCode v2 通过 ``subagent`` 的 agent ID
-# ``bugx-worker`` 派发；描述用于让主 Agent 在子智能体目录中识别其职责；文案与
-# core/bugx-worker.md 的 frontmatter 保持一致，支持中英双语自适应。
-BUGX_WORKER_DESCRIPTION_ZH = (
-    "BugX 并发审查 Worker。由 BugX 主智能体并发调度，负责具体代码模块的深度审查、缺陷挖掘与可复现用例验证；"
-    "仅作为子智能体工作节点协同运行。"
-)
-
-BUGX_WORKER_DESCRIPTION_EN = (
-    "A concurrent audit worker dispatched in parallel by the primary BugX agent to inspect assigned modules, "
-    "hunt vulnerabilities, and verify defect reproduction as a collaborative subagent."
-)
-
-# 默认导出别名（维持向后兼容性，默认中文）
-AGENT_DESCRIPTION = AGENT_DESCRIPTION_ZH
-BUGX_WORKER_DESCRIPTION = BUGX_WORKER_DESCRIPTION_ZH
-
-
-def get_agent_description(locale: str | None = None) -> str:
-    """Return the localized host agent description (fallback to en-US)."""
-    loc = (locale or "").strip()
-    if loc.startswith("zh"):
-        return AGENT_DESCRIPTION_ZH
-    return AGENT_DESCRIPTION_EN
-
-
-def get_worker_description(locale: str | None = None) -> str:
-    """Return the localized concurrent worker description (fallback to en-US)."""
-    loc = (locale or "").strip()
-    if loc.startswith("zh"):
-        return BUGX_WORKER_DESCRIPTION_ZH
-    return BUGX_WORKER_DESCRIPTION_EN
 
 
 # ZCode 并发 worker 子智能体的模板路径与历史项目级安装位置。
@@ -1486,6 +1447,20 @@ class ZCodeAdapter(HostAdapter):
 
     def _app_markers(self) -> tuple[Path, ...]:
         return _zcode_app_markers()
+
+    def _user_marker(self) -> bool:
+        # F-RSI-20261118-009：ZCode Desktop 的 agent 注册是用户级全局的
+        # （~/.zcode/agents/bugx.md），不是项目级 .zcode 目录——所有项目都
+        # 能用。project_marker 检查 root/.zcode 对用户注册宿主永远 False。
+        agents_dir = Path.home() / ".zcode" / "agents"
+        return (agents_dir / "bugx.md").is_file()
+
+    def _project_marker(self, root: Path) -> bool:
+        # ZCode 是用户级注册宿主：用户级 agents 已注册即视为宿主可用，
+        # 项目级 .zcode 目录不是必要条件（ZCode Desktop 不按项目写入 .zcode）。
+        if self._user_marker():
+            return True
+        return super()._project_marker(root)
 
     def render_required_entry(
         self, relative_path: str, source: Path, *, locale: str | None = None,

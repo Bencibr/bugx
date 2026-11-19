@@ -49,6 +49,9 @@ _MACHINE_PREFIX_RE = re.compile(r"/(?:Users|home)/[^/\s\"'`,;)\]]+")
 
 # 摘要模式的声明字段（TO-008-013）：只保留摘要、分类、指纹、计数与必要状态；
 # 结构化错误上下文、before/after、决策链、探针等详情一律不随摘要出网。
+# F-249：full 模式同样默认不带 before/after 源码片段——「不携带源码片段」不再是
+# summary 模式的专属约束，而是两种模式的共同默认；full 与 summary 的差别只在
+# 方法论字段的保留粒度。需要片段的调用方必须显式 ``include_source_snippets=True``。
 SUMMARY_PATTERN_FIELDS = (
     "pattern_id", "category", "title", "root_cause", "status",
     "use_count", "hit_count", "miss_count",
@@ -112,6 +115,67 @@ def _safe_text(value: Any, field: str) -> str:
     return text
 
 
+#: 片段级审查的敏感标识（F-249）：源码片段出网前，值位置一律替换为占位符，
+#: 保留标识名/结构用于复现。凭据形态与绝对路径的硬闸仍是 ``_safe_text``。
+_SNIPPET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?key|secret|password|passwd|private[_-]?key|"
+    r"access[_-]?token|auth[_-]?token|token)\b"
+    r"(\s*(?::\s*[^=:]+?)?\s*=\s*)(.*)$"
+)
+_SNIPPET_AUTH_HEADER_RE = re.compile(
+    r"(?i)\b(bearer|basic)\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}"
+)
+_SNIPPET_EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+
+
+def _mask_sensitive_assignment(match: re.Match[str]) -> str:
+    """把敏感标识赋值的**整个右侧**替换为占位符，只保留标识名与赋值结构。
+
+    ``token = get_token()`` / ``api_key = os.environ["KEY"]`` 的右侧虽非硬编码
+    字面量，但仍会命中 ``_safe_text`` 的「未脱敏凭据」硬闸而拒绝整包；片段是
+    显式要求才出网的证据，宁可抹掉表达式也不能让审查与硬闸互相矛盾。保留
+    标识名足以表达「这里用了什么」，具体取值由本地源码负责复现。
+    """
+    name, sep, _rest = match.groups()
+    return f"{name}{sep}{{{{REDACTED_SECRET}}}}"
+
+
+def _review_source_snippet(value: Any, field: str) -> str:
+    """片段级审查：语法归一化 + 敏感标识剔除，之后仍过 ``_safe_text`` 硬闸。
+
+    仅在显式 ``include_source_snippets=True`` 时调用。归一化让片段与本地源码
+    形态一致（统一行尾、tab 展开、逐行去尾空白、压缩连续空行、去首尾空行）；
+    剔除把赋值/认证头/邮箱里的敏感值换成占位符。**不做凭据豁免**：审查漏掉的
+    凭据形态仍由 ``_safe_text`` 阻断，绝对路径仍按 ``_safe_text`` 既有判定处理
+    （该判定只认行首/空白前的绝对路径，引号内路径不在其覆盖范围——这是修复前
+    就存在的边界，本次不放宽也不扩大）。
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise KnowledgeSyncError(f"{field}必须是非空字符串")
+    lines = [
+        line.replace("\t", "    ").rstrip()
+        for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    normalized: list[str] = []
+    for line in lines:
+        if not line.strip():
+            # 首部空行丢弃、连续空行压成一行、尾部空行在收尾时统一去掉。
+            if not normalized or normalized[-1] == "":
+                continue
+            normalized.append("")
+            continue
+        normalized.append(line)
+    while normalized and normalized[-1] == "":
+        normalized.pop()
+    reviewed = []
+    for line in normalized:
+        line = _SNIPPET_ASSIGNMENT_RE.sub(_mask_sensitive_assignment, line)
+        line = _SNIPPET_AUTH_HEADER_RE.sub(lambda m: f"{m.group(1)} {{{{REDACTED_TOKEN}}}}", line)
+        line = _SNIPPET_EMAIL_RE.sub("{{REDACTED_EMAIL}}", line)
+        reviewed.append(line)
+    return _safe_text("\n".join(reviewed), field)
+
+
 def _bundle_content(bundle: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": bundle.get("schema_version"),
@@ -158,7 +222,16 @@ def _validate_bundle(bundle: dict[str, Any], *, require_approved: bool = False) 
     return {"bundle_id": bundle_id, "patterns": normalized, "approval": approval}
 
 
-def _portable_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
+def _portable_pattern(
+    pattern: dict[str, Any], *, include_source_snippets: bool = False,
+) -> dict[str, Any]:
+    """把本地 pattern 投影为可出网的便携记录（数据最小化边界）。
+
+    F-249：默认**不携带** ``before_code``/``after_code`` 源码片段——出网面只保留
+    ``fix_summary``/``pattern_id``/指纹与 ``source_refs`` 定位引用。源码片段只有在
+    调用方显式 ``include_source_snippets=True`` 时才写入，且必须先经
+    ``_review_source_snippet``（语法归一化 + 敏感标识剔除）再落盘。
+    """
     source_refs = []
     for value in pattern.get("source_refs", []):
         text = _safe_text(value, "source_refs")
@@ -191,16 +264,9 @@ def _portable_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
             _safe_text(x, "successful_solution")
             for x in pattern.get("successful_solution", [])
         ],
-        # 源码证据是经验的一部分：保留与 Finding/Incident 直接相关的修前/修后
-        # 片段，供后续项目复现和定位；_safe_text 仍阻断凭据与不可移植绝对路径。
-        "before_code": (
-            _safe_text(pattern["before_code"], "before_code")
-            if pattern.get("before_code") else ""
-        ),
-        "after_code": (
-            _safe_text(pattern["after_code"], "after_code")
-            if pattern.get("after_code") else ""
-        ),
+        # 源码证据默认不出网（F-249）：便携包只带「怎么修」的结论（fix_summary）
+        # 与定位引用（source_refs）。before/after 片段是调用方显式要求时才追加，
+        # 见本函数末尾的 include_source_snippets 分支——不再由模式名隐式决定。
         "fix_summary": (
             _safe_text(pattern["fix_summary"], "fix_summary")
             if pattern.get("fix_summary") else ""
@@ -218,17 +284,37 @@ def _portable_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
         "source_refs": source_refs,
         "status": "candidate",
     }
+    if include_source_snippets:
+        # 显式开关 + 片段级审查：先归一化/剔除敏感标识，再由 _safe_text 兜住
+        # 凭据与绝对路径。空片段保持空串，不因开关打开就凭空生成内容。
+        result["before_code"] = (
+            _review_source_snippet(pattern["before_code"], "before_code")
+            if pattern.get("before_code") else ""
+        )
+        result["after_code"] = (
+            _review_source_snippet(pattern["after_code"], "after_code")
+            if pattern.get("after_code") else ""
+        )
     # Validate after stripping local counters, timestamps and finding fingerprints.
     ledger._pattern(result)  # noqa: SLF001
     return result
 
 
-def export_candidates(project_ledger: Path, output: Path, contributor: str) -> dict[str, Any]:
+def export_candidates(
+    project_ledger: Path, output: Path, contributor: str,
+    *, include_source_snippets: bool = False,
+) -> dict[str, Any]:
+    """导出 candidate 便携包。
+
+    ``include_source_snippets`` 默认 False：出网包只带修复结论与定位引用，
+    before/after 源码片段需调用方显式开启（并接受片段级审查）。该默认对
+    export/approve/import 全链路一致，不按 detail_mode 隐式区分（F-249）。
+    """
     _regular(project_ledger.with_suffix(".sqlite3"), "项目 SQLite 账本")
     contributor = _safe_text(contributor, "contributor")
     state = ledger.read(project_ledger)
     patterns = [
-        _portable_pattern(value)
+        _portable_pattern(value, include_source_snippets=include_source_snippets)
         for value in state["lessons"].values()
         if value.get("status") == "candidate"
     ]
@@ -252,6 +338,7 @@ def export_candidates(project_ledger: Path, output: Path, contributor: str) -> d
     _atomic_json(output, bundle)
     return {"status": "exported", "bundle_id": bundle["bundle_id"],
             "patterns": len(patterns), "content_hash": bundle["content_hash"],
+            "source_snippets": bool(include_source_snippets),
             "output": str(output)}
 
 
@@ -874,6 +961,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--bundle-id")
     parser.add_argument("--contributor", default="local-supervisor")
+    parser.add_argument(
+        "--include-source-snippets", action="store_true",
+        help="在便携包中携带 before/after 源码片段（默认不带；开启后经片段级审查）",
+    )
     parser.add_argument("--reviewer")
     parser.add_argument("--reason")
     args = parser.parse_args(argv)
@@ -881,7 +972,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "export":
             if not all((args.project_ledger, args.output)):
                 raise KnowledgeSyncError("export 需要 --project-ledger 和 --output")
-            result = export_candidates(args.project_ledger, args.output, args.contributor)
+            result = export_candidates(
+                args.project_ledger, args.output, args.contributor,
+                include_source_snippets=args.include_source_snippets,
+            )
         elif args.command == "approve":
             if not all((args.bundle, args.output, args.reviewer, args.reason)):
                 raise KnowledgeSyncError("approve 需要 --bundle --output --reviewer --reason")

@@ -3,7 +3,7 @@
 统一管理所有受支持宿主组件声明，对外导出 HOST_COMPONENTS 清单与查找方法。
 """
 
-from bugx_cli.infra.security import _find_repo_root
+from ..infra.security import _find_repo_root
 
 from pathlib import Path
 from typing import Any
@@ -281,12 +281,14 @@ def engine_worker_entry_dir(name: str) -> str:
 
 
 #: ``bugx autonomous`` / ``bugx goal`` 的 ``--host`` 展示基线（顺序即 help 顺序）。
-#: 三项都是**原生 Task 派发**宿主（无 CLI 进程池执行器）；已迁移插件的取值由
-#: ``worker_runtime.autonomous_cli`` 自动追加，未迁移宿主（claude）只能靠本表。
-#: 这不是第二份宿主事实：宿主身份仍在插件/``SUPPORTED_HOSTS``，本表只说「CLI
-#: 的 host 选项按什么顺序出现」。
+#: 成员都是**无 CLI 进程池执行器**的宿主：claude/codex/opencode/dsh 走原生 Task
+#: 派发；pi 无原生 Task（``native_task=False``）但插件已声明
+#: ``engine_run.autonomous_argv`` 无头自治通道（``pi --approve -p --mode json``），
+#: 前台自治循环直接驱动。声明 ``worker_runtime.autonomous_cli`` 的插件（CLI
+#: 进程池执行器）自动追加，不进本表。这不是第二份宿主事实：宿主身份仍在
+#: 插件/``SUPPORTED_HOSTS``，本表只说「CLI 的 host 选项按什么顺序出现」。
 AUTONOMOUS_HOST_BASELINE: tuple[str, ...] = (
-    "claude", "codex", "opencode", "dsh",
+    "claude", "codex", "opencode", "dsh", "pi",
 )
 
 

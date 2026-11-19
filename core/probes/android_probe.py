@@ -9,9 +9,25 @@
 
 from __future__ import annotations
 
+# 脚本被 CLI 以独立进程执行（bugx probe android）时的 sys.path 自举：
+# 沿 parents 找 ``core/bugx.md`` 引擎标记，把引擎/仓库根插入 sys.path——
+# 与 mobile_probe.py 同形态（缺了它 ``from core.probes.base`` 在子进程
+# 里必然 ImportError，F-RSI-20261118-003 实测）。
+import sys as _sys
+from pathlib import Path as _Path
+for _p in _Path(__file__).resolve().parents:
+    if (_p / "core" / "bugx.md").is_file():
+        if str(_p) not in _sys.path:
+            _sys.path.insert(0, str(_p))
+        break
+del _p
+
+import argparse
+import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -39,7 +55,11 @@ class AndroidProbe(BaseProbe):
         return "android_probe"
 
     def is_available(self) -> bool:
-        """AUDIT-04: 极速探活 (<5ms，零阻塞)。"""
+        """AUDIT-04: 极速探活 (<5ms，零阻塞)。
+
+        降级契约：布尔返回值受 BaseProbe 布尔契约约束（execute_probe 以真值
+        判定是否降级）；(bool, detail) 明细结构见模块级 ``check_availability()``。
+        """
         return shutil.which("adb") is not None
 
     @classmethod
@@ -99,6 +119,17 @@ class AndroidProbe(BaseProbe):
                     "rule_id": "ALLOW_BACKUP_ENABLED",
                     "severity": "MEDIUM",
                     "message": "Application has android:allowBackup enabled, allowing unauthorized adb backup extraction",
+                })
+
+            # AM-4: 明文流量声明（CWE-311/MSTG-NETWORK-1）。与 debuggable/allowBackup
+            # 同形态的 application 级 Manifest 属性检查；targetSdk >= 28 默认禁用，
+            # 显式声明 true 即为回退到明文通道，全量 HTTP 流量暴露于中间人拦截。
+            uses_cleartext = self._get_android_attr(application, "usesCleartextTraffic")
+            if uses_cleartext and uses_cleartext.lower() == "true":
+                findings.append({
+                    "rule_id": "CLEARTEXT_TRAFFIC_ENABLED",
+                    "severity": "HIGH",
+                    "message": "Application declares android:usesCleartextTraffic='true', permitting unencrypted HTTP traffic that is exposed to MITM interception",
                 })
 
             component_tags = ("activity", "activity-alias", "service", "receiver", "provider")
@@ -332,13 +363,44 @@ class AndroidProbe(BaseProbe):
         context: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """AUDIT-04: 无 adb 环境时，优雅降级为静态 AndroidManifest.xml 语义解析。"""
+        """AUDIT-04: 无 adb 环境时，优雅降级为静态 AndroidManifest.xml 语义解析。
+
+        降级契约：输出与成功路径（run_dynamic，status="ok"）**可区分**——
+        status="degraded" + degraded=True + degraded_reason，绝不伪装成正常动态结果。
+        """
+        if self.is_available():
+            degraded_reason = "static_mode_forced"
+        else:
+            degraded_reason = "adb_unavailable"
+
         manifest_file = self._find_manifest(target)
         if manifest_file and manifest_file.exists():
-            parsed = self.parse_manifest(manifest_file)
+            try:
+                parsed = self.parse_manifest(manifest_file)
+            except Exception as exc:
+                # 显式失败结构，禁止静默吞错（解析失败 ≠ 未发现问题）
+                return {
+                    "success": False,
+                    "status": "degraded",
+                    "degraded": True,
+                    "degraded_reason": "android_manifest_parse_failed",
+                    "probe_mode": "static_degraded",
+                    "findings": [],
+                    "evidence": {
+                        "manifest_path": str(manifest_file),
+                        "error": str(exc),
+                        "error_type": exc.__class__.__name__,
+                    },
+                    "metadata": {
+                        "target": str(target),
+                        "degraded_mode": "static_manifest_semantic_analysis",
+                    },
+                }
             return {
                 "success": True,
-                "status": "ok",
+                "status": "degraded",
+                "degraded": True,
+                "degraded_reason": degraded_reason,
                 "probe_mode": "static_degraded",
                 "findings": parsed["findings"],
                 "evidence": {
@@ -355,10 +417,29 @@ class AndroidProbe(BaseProbe):
 
         # 若 target 是直接传入的 XML 文本
         if isinstance(target, str) and "<manifest" in target:
-            parsed = self.parse_manifest(target)
+            try:
+                parsed = self.parse_manifest(target)
+            except Exception as exc:
+                return {
+                    "success": False,
+                    "status": "degraded",
+                    "degraded": True,
+                    "degraded_reason": "android_manifest_parse_failed",
+                    "probe_mode": "static_degraded",
+                    "findings": [],
+                    "evidence": {
+                        "error": str(exc),
+                        "error_type": exc.__class__.__name__,
+                    },
+                    "metadata": {
+                        "degraded_mode": "static_manifest_string_analysis",
+                    },
+                }
             return {
                 "success": True,
-                "status": "ok",
+                "status": "degraded",
+                "degraded": True,
+                "degraded_reason": degraded_reason,
                 "probe_mode": "static_degraded",
                 "findings": parsed["findings"],
                 "evidence": {
@@ -372,13 +453,100 @@ class AndroidProbe(BaseProbe):
             }
 
         return {
-            "success": True,
-            "status": "degraded_empty",
+            "success": False,
+            "status": "degraded",
+            "degraded": True,
+            "degraded_reason": "android_manifest_not_found",
             "probe_mode": "static_degraded",
             "findings": [],
             "evidence": {},
             "metadata": {
                 "target": str(target),
-                "degraded_reason": "android_manifest_not_found",
+                "degraded_mode": "static_manifest_semantic_analysis",
             },
         }
+
+
+def check_availability() -> dict[str, Any]:
+    """降级契约：Android 审计能力结构化探活明细（(bool, detail) 的结构化形态）。
+
+    机械探测 adb 是否在 PATH（<5ms，零阻塞、零子进程）；READY/DEGRADED
+    与 check_availability 明细一并返回，DEGRADED 时必须走
+    ``AndroidProbe.run_static_degraded``，禁止伪装成动态审计结果。
+    """
+    adb_path = shutil.which("adb")
+    ready = adb_path is not None
+    return {
+        "name": "android_probe",
+        "status": "READY" if ready else "DEGRADED",
+        "available": ready,
+        "detail": adb_path or "adb 未安装：动态 Intent 拉起不可用，降级为静态 Manifest 解析",
+        "checks": [
+            {
+                "name": "adb",
+                "ok": ready,
+                "required": True,
+                "detail": adb_path or "未找到 adb（安装：brew install android-platform-tools）",
+            }
+        ],
+        "capabilities": ["adb_intent_dispatch", "device_lock_mutex"] if ready else [],
+        "fallbacks": {} if ready else {
+            "audit": "AndroidProbe.run_static_degraded（AndroidManifest.xml 静态语义解析）",
+        },
+        "warnings": [],
+    }
+
+
+def print_report(report: dict[str, Any], as_json: bool = False) -> None:
+    """打印 check 报告（``--json`` 原样输出，否则人读摘要）。"""
+    if as_json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+    status = report.get("status", "UNKNOWN")
+    print(f"[{status}] Android 审计通道（Manifest 静态语义 + adb 动态）")
+    for item in report.get("checks", []):
+        print(f"  {'✓' if item.get('ok') else '!'} {item['name']}: {item['detail']}")
+    if status != "READY":
+        print("  ⏸ 动态 Intent 通道不可用；静态审计可显式执行：--static-degraded")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI 入口（``bugx probe android``）：check=通道探活，--static-degraded=静态审计。
+
+    与 mobile_probe 同语义：``check``/``status`` 只探测通道可用性（不产出
+    findings）；静态 manifest 审计必须显式 ``--static-degraded`` 触发，
+    DEGRADED 结果绝不伪装为动态审计。
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("check", "status"), nargs="?", default="check")
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--allow-degraded", action="store_true",
+        help="明确允许使用回退方案；否则 DEGRADED 返回 2",
+    )
+    parser.add_argument(
+        "--static-degraded", action="store_true",
+        help="显式执行降级路径（AndroidManifest.xml 静态语义解析；"
+             "输出 status=degraded，绝不伪造 adb 动态证据）",
+    )
+    args = parser.parse_args(argv)
+    if args.static_degraded:
+        report = AndroidProbe().run_static_degraded(args.root)
+        print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else
+              f"[{report.get('status')}] findings={len(report.get('findings', []))}")
+        return 0
+    report = check_availability()
+    print_report(report, args.json)
+    if report["status"] == "READY":
+        return 0
+    if args.allow_degraded:
+        return 0
+    if args.strict:
+        return 2
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

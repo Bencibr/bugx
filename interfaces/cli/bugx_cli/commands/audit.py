@@ -230,7 +230,7 @@ def _command_audit_graph(args: argparse.Namespace) -> int:
     result: dict[str, object] | None = None
     exit_code = 1
     try:
-        from bugx_cli.infra.security import _find_repo_root
+        from ..infra.security import _find_repo_root
         repo_root = _find_repo_root(Path(__file__))
         workspace_module, targets_module, orchestrator_module = _engine_modules(repo_root)
         runtime_root = _private_runtime_root()
@@ -327,7 +327,7 @@ def _command_audit_penetration(args: argparse.Namespace) -> int:
 
     try:
         _ensure_core_importable()
-        from bugx_cli.infra.security import _find_repo_root
+        from ..infra.security import _find_repo_root
         repo_root = _find_repo_root(Path(__file__))
         core_root = repo_root / "core"
         scripts_root = repo_root / "scripts"

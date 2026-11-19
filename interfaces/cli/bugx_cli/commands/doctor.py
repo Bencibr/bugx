@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import copy
 import hashlib
 import json
@@ -171,7 +172,7 @@ def _heal_project_manifest_version(root: Path, *, force: bool = False) -> tuple[
     运行态（生命、结算、错题集）。
 
     历史缺陷：这段自愈原先嵌在 ``if not version_ok:`` 里，而
-    ``_version_contract_status`` 的归一化会把 ``0.1.0+2`` 视同 ``0.1.0`` 并返回
+    ``_version_contract_status`` 的归一化会把 ``0.1.1+2`` 视同 ``0.1.1`` 并返回
     ``version_ok=True``，于是**自愈分支永远进不去**——清单永久停在旧标记，而引擎
     门禁（另一套不归一化的比较）却一直拒绝启动。虚假阻断就这样被"修"成了永久阻断。
     """
@@ -502,7 +503,7 @@ def _inspect_cli_entry(path: Path) -> dict[str, Any]:
         if proc.returncode == 0:
             out = proc.stdout.strip()
             parts = out.split()
-            if len(parts) >= 2 and parts[0] in ("bugx", "bugx-cli"):
+            if len(parts) >= 2 and parts[0] == "bugx":
                 version = parts[1]
             elif parts:
                 version = parts[-1]
@@ -786,8 +787,9 @@ def _generate_ai_diagnostics(
     root: Path,
     strict: bool = False,
     auto_repairable_checks: set[str] | None = None,
+    use_ai: bool = False,
 ) -> dict[str, Any]:
-    """基于失败项生成 AI 根因分析和本地确定性修复提示。"""
+    """基于失败项生成根因分析和修复提示（默认确定性基线，--ai 开启 AI 深诊）。"""
     from ..infra.ai_advisor import DiagnosticAIArbitrator
     arbitrator = DiagnosticAIArbitrator(root)
     result = arbitrator.diagnose(
@@ -795,6 +797,7 @@ def _generate_ai_diagnostics(
         installation_required,
         strict=strict,
         auto_repairable_checks=auto_repairable_checks,
+        use_ai=use_ai,
     )
     return result.as_dict()
 
@@ -822,6 +825,325 @@ def _render_ai_diagnostics_panel(ai_diag: dict[str, Any], is_explicit_ai: bool =
         print("\n╭── 🤖 BugX AI 智能排障分析 ──────────────────────────────────────────╮")
         print(f"│ {ai_diag.get('summary', '')}")
         print("╰───────────────────────────────────────────────────────────────────────╯")
+
+
+# ---------------------------------------------------------------------------
+# Doctor 并行只读探测（耗时账目 W-002 遗留性能项）
+#
+# 检查项并行性分类（依据 command_doctor 的检查链逐项审计）：
+# - 【纯读取可并行】只读文件系统 / 进程表 / 网络探测，互相独立、无顺序依赖：
+#   工作树卫生、云端端点连通性、全局引擎完整性判定、版本契约判定、引擎副本
+#   一致性、OpenCode/Pi 全局入口完整性、各宿主 MCP 配置（repair=False）、
+#   错题集账本、全局错题集、codebase-memory 探测、基础效率工具、MCP 离线
+#   runtime 诊断、MCP 会话进程卫生、UI 环境状态、BugX CLI 路径。
+# - 【有写操作须串行】所有 --repair 写路径永远不进入并行块：
+#   layout_module.repair / _doctor_repair_assets（项目资产修复）、
+#   _install_engine(force=True)（引擎重放）、_heal_project_manifest_version
+#   （清单自愈）、pip install（Tree-sitter 补装）、
+#   _check_host_mcp_config(repair=True)。因此并行批只在
+#   「非 --repair 且非 --installation-only」的运行态诊断启用，两种模式都
+#   保持原串行路径不变。
+# - 【有顺序依赖】项目初始化状态/.bugx 运行目录依赖 manifest+layout；
+#   宿主适配包检查（_host_bundle_checks）的 installed_host_names 是
+#   OpenCode/Pi/MCP 配置检查的注册条件；错题集依赖 initialized；
+#   全局错题集与 UI 检查依赖 layout/ui_script 存在性。这些依赖在入批前
+#   已由串行前置段完成。
+# 渲染处按原始行序从并行结果中取值；timeout 语义与判定逻辑逐字保留。
+# ---------------------------------------------------------------------------
+
+_DOCTOR_PARALLEL_MAX_WORKERS = 6
+
+
+def _doctor_probe_job(fn):
+    """包装单个并行探测任务。
+
+    各检查 row 函数已在内部按串行语义捕获预期异常类型；此处仅兜底意外异常，
+    取用处（_unwrap_parallel_result）会将其原样重抛，保持与串行实现一致的
+    失败行为：意外异常 = 命令失败，而不是静默降级。
+    """
+    try:
+        return ("ok", fn())
+    except Exception as exc:  # noqa: BLE001 - 意外异常延迟到取用处重抛
+        return ("error", exc)
+
+
+def _unwrap_parallel_result(parallel_results: dict[str, Any], key: str) -> Any:
+    status, value = parallel_results[key]
+    if status != "ok":
+        raise value
+    return value
+
+
+def _engine_integrity_check_row() -> tuple[bool, str]:
+    """全局引擎完整性（只读判定；--repair 的引擎重放写路径留在串行段）。"""
+    try:
+        return _engine_integrity_status(asset_root(), global_engine_root())
+    except (CliError, OSError, ValueError) as exc:
+        return False, f"全局引擎无法校验：{exc}"
+
+
+def _version_contract_check_row(root: Path) -> tuple[bool, str]:
+    """版本契约一致性（只读；--repair 的清单自愈写路径留在串行段）。"""
+    try:
+        return _version_contract_status(root, global_engine_root())
+    except (CliError, OSError, ValueError) as exc:
+        return False, f"版本契约无法校验：{exc}"
+
+
+def _lesson_ledger_check_row(root: Path, lesson_json: Path) -> tuple[bool, str]:
+    lesson_db = lesson_json.with_suffix(".sqlite3")
+    if not lesson_db.is_file() or lesson_db.is_symlink():
+        return False, "缺少或不安全的 SQLite 运行库；请从备份恢复，禁止静默重建"
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_script(root, "lesson_ledger.py")),
+             "validate", "--ledger", str(lesson_json), "--json"],
+            cwd=root, capture_output=True, text=True, check=False, timeout=30,
+            env=_python_environment(),
+        )
+        lesson_ready = result.returncode == 0
+        lesson_detail = ("SQLite 运行库有效" if lesson_ready else (
+            (result.stderr or result.stdout).strip()[:500] or "SQLite 校验失败"
+        ))
+        if lesson_ready and (not lesson_json.is_file() or lesson_json.is_symlink()):
+            lesson_detail += "；JSON 种子缺失（不影响读取，恢复时需人工确认）"
+        return lesson_ready, lesson_detail
+    except (OSError, subprocess.TimeoutExpired, CliError) as exc:
+        return False, f"SQLite 校验异常：{exc}"
+
+
+def _global_lesson_ledger_check_row(root: Path, layout: Any) -> tuple[bool, str]:
+    global_db = layout.global_knowledge_db
+    global_marker = layout.global_knowledge_root / "manifest.json"
+    if not global_marker.exists() and not global_db.exists():
+        return True, "尚未初始化；项目库可独立运行"
+    if not global_db.is_file() or global_db.is_symlink():
+        return False, "全局 SQLite 缺失；不会静默从 JSON 重建"
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_script(root, "lesson_ledger.py")),
+             "validate", "--ledger", str(layout.global_knowledge_seed), "--json"],
+            cwd=root, capture_output=True, text=True, check=False, timeout=30,
+            env=_python_environment(),
+        )
+        global_ok = result.returncode == 0
+        global_detail = "全局 SQLite 有效（只读投影源）" if global_ok else (
+            (result.stderr or result.stdout).strip()[:500] or "全局 SQLite 校验失败"
+        )
+        return global_ok, global_detail
+    except (OSError, subprocess.TimeoutExpired, CliError) as exc:
+        return False, f"全局 SQLite 校验异常：{exc}"
+
+
+def _codebase_memory_check_row(root: Path) -> tuple[bool, str]:
+    # 优化：优先尝试内存级快速 inspect，失败回退子进程（判定语义与串行版一致）
+    try:
+        from core.probes import codebase_memory_probe
+        cbm = codebase_memory_probe.inspect(root)
+        cbm_ok = cbm.get("status") == "READY"
+        cbm_detail = (
+            f"{cbm.get('status')}，版本 {cbm.get('version') or '未安装'}"
+            + ("；项目索引已就绪" if cbm_ok else f"；未就绪：{cbm.get('fallback')}")
+        )
+        return cbm_ok, cbm_detail
+    except Exception:
+        try:
+            cbm_result = subprocess.run(
+                [sys.executable, str(_script(root, "codebase_memory_probe.py")),
+                 "status", "--root", str(root), "--json"],
+                cwd=root, capture_output=True, text=True, check=False, timeout=60,
+                env=_python_environment(),
+            )
+            cbm = json.loads(cbm_result.stdout)
+            cbm_ok = cbm.get("status") == "READY"
+            cbm_detail = (
+                f"{cbm.get('status')}，版本 {cbm.get('version') or '未安装'}"
+                + ("；项目索引已就绪" if cbm_ok else f"；未就绪：{cbm.get('fallback')}")
+            )
+            return cbm_ok, cbm_detail
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, CliError) as exc:
+            return False, f"DEGRADED：{exc}"
+
+
+def _efficiency_tools_check_row(root: Path) -> tuple[bool, str]:
+    try:
+        from core.probes import efficiency_probe
+        efficiency = efficiency_probe.inspect(root)
+        efficiency_ok = efficiency.get("status") == "READY"
+        missing = [
+            item.get("name", "unknown")
+            for item in efficiency.get("base_tools", []) if not item.get("ok")
+        ]
+        efficiency_detail = efficiency.get("status", "DEGRADED")
+        if missing:
+            efficiency_detail += f"；待补充 {', '.join(missing)}"
+        efficiency_detail += "；内置回退可用"
+        return efficiency_ok, efficiency_detail
+    except Exception:
+        try:
+            efficiency_result = subprocess.run(
+                [sys.executable, str(_script(root, "efficiency_probe.py")),
+                 "status", "--root", str(root), "--json"],
+                cwd=root, capture_output=True, text=True, check=False, timeout=45,
+                env=_python_environment(),
+            )
+            efficiency = json.loads(efficiency_result.stdout)
+            efficiency_ok = efficiency.get("status") == "READY"
+            missing = [
+                item.get("name", "unknown")
+                for item in efficiency.get("base_tools", []) if not item.get("ok")
+            ]
+            efficiency_detail = efficiency.get("status", "DEGRADED")
+            if missing:
+                efficiency_detail += f"；待补充 {', '.join(missing)}"
+            efficiency_detail += "；内置回退可用"
+            return efficiency_ok, efficiency_detail
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, CliError) as exc:
+            return False, f"DEGRADED：{exc}"
+
+
+def _mcp_hygiene_check_row(root: Path) -> tuple[bool, str]:
+    # DOC-230 3.2 第 6 项：MCP 会话进程卫生（阈值化 + advisory）。传 state_root
+    # 以做**活动感知**判定，避免把长命但健康的会话误报为泄漏；拿不到状态根时
+    # 退化为跳过遗弃判定。
+    try:
+        import core.bugx_paths as bugx_paths
+
+        mcp_state_root = bugx_paths.require(root).state_root
+    except Exception:  # noqa: BLE001 - 拿不到状态根时退化为跳过遗弃判定
+        mcp_state_root = None
+    return _mcp_session_hygiene_check(root, mcp_state_root)
+
+
+def _ui_env_check_row(root: Path, ui_script: Path) -> tuple[bool, str]:
+    try:
+        ui_res = subprocess.run(
+            [sys.executable, str(ui_script), "status"],
+            cwd=root, capture_output=True, text=True, check=False, timeout=30,
+            env=_python_environment(),
+        )
+        if ui_res.returncode == 0:
+            return True, "UI/TUI 环境就绪（Playwright / TUI 可用）"
+        missing_lines = [
+            line.strip() for line in (ui_res.stdout or "").splitlines()
+            if "缺失" in line or "✗" in line
+        ]
+        detail = missing_lines[0] if missing_lines else (
+            "部分依赖缺失；运行 python3 setup_ui_env.py install 补装"
+        )
+        return False, detail
+    except Exception as exc:
+        return False, f"检测跳过: {exc}"
+
+
+def _bugx_cli_path_check_row() -> tuple[bool, str]:
+    """BugX CLI 路径检查（只读：PATH 扫描 + 对每个入口采样 --version）。"""
+    cli_paths = _bugx_cli_paths()
+    if len(cli_paths) > 1:
+        inspected = [_inspect_cli_entry(p) for p in cli_paths]
+        active_entry = shutil.which("bugx") or (str(cli_paths[0]) if cli_paths else None)
+        active_path = Path(active_entry).resolve() if active_entry else cli_paths[0]
+
+        has_npm = any(item["type"] == "npm" for item in inspected)
+        has_pip = any(item["type"] in ("pip", "uv", "pyenv", "python") for item in inspected)
+        versions = {item["version"] for item in inspected if item["version"]}
+
+        parts_desc = []
+        for item in inspected:
+            is_active = (item["path"] == active_path)
+            tag = "生效中" if is_active else "被覆盖"
+            ver_str = f" v{item['version']}" if item["version"] else ""
+            parts_desc.append(f"{item['path']} ({item['type']}{ver_str}, {tag})")
+
+        if has_npm and has_pip:
+            if len(versions) > 1:
+                cli_detail = (
+                    "发现 npm 与 pip/uv 双重安装且版本冲突："
+                    + "；".join(parts_desc)
+                    + "。建议卸载多余版本：npm 运行 npm uninstall -g bugx-cli，"
+                    "pip 运行 pip uninstall bugx-cli 或 uv tool uninstall bugx-cli"
+                )
+            else:
+                cli_detail = (
+                    "发现 npm 与 pip/uv 均存在安装（当前版本一致）："
+                    + "；".join(parts_desc)
+                    + "。建议保留单一包管理器以避免后续升级漂移"
+                )
+        else:
+            cli_detail = "发现多个 PATH 中的 BugX 入口，可能存在安装覆盖：" + "；".join(parts_desc)
+    elif cli_paths:
+        cli_detail = str(cli_paths[0])
+    else:
+        cli_detail = "PATH 中未发现 bugx 入口"
+    return len(cli_paths) <= 1, cli_detail
+
+
+def _doctor_parallel_reads(
+    root: Path,
+    *,
+    layout: Any,
+    initialized: bool,
+    installed_host_names: set[str],
+    target_hosts: set[str] | None,
+) -> dict[str, Any]:
+    """并发执行 doctor 中互相独立的【纯读取】检查（仅非 --repair 运行态调用）。
+
+    只收录同时满足以下条件的检查：
+    1. 纯读取：只读文件系统、进程表或做网络探测，无写副作用；
+    2. 互相独立：不依赖其他并行检查的计算结果；
+    3. 依赖已就绪：依赖 layout/initialized/宿主清单的检查在调用方串行
+       前置段完成依赖计算后才注册。
+
+    返回 ``{key: ("ok", value) | ("error", exc)}``；渲染处按原始行序取用，
+    意外异常在取用处原样重抛（与串行失败语义一致）。
+    codebase-memory 探针含 DOC-180 的一次性索引自举（写外部工具自己的
+    存储，非项目工作树），是该检查的既有语义，与 --repair 无关。
+    """
+    from .agent import _check_host_mcp_config
+    from .lifecycle import _global_opencode_integrity_check, _global_pi_integrity_check
+
+    jobs: dict[str, Any] = {
+        "worktree_hygiene": lambda: _check_nested_worktrees_hygiene(root),
+        "cloud_endpoint": lambda: _cloud_endpoint_check(root),
+        "engine_integrity": _engine_integrity_check_row,
+        "version_contract": lambda: _version_contract_check_row(root),
+        "engine_replicas": _engine_replica_consistency_check,
+        "detected_hosts": lambda: {item["name"]: item for item in discover_hosts(root)},
+        "codebase_memory": lambda: _codebase_memory_check_row(root),
+        "efficiency_tools": lambda: _efficiency_tools_check_row(root),
+        "mcp_runtime": lambda: _mcp_runtime_check(root),
+        "mcp_hygiene": lambda: _mcp_hygiene_check_row(root),
+        "cli_paths": _bugx_cli_path_check_row,
+    }
+    if "opencode" in installed_host_names and (target_hosts is None or "opencode" in target_hosts):
+        jobs["opencode_integrity"] = _global_opencode_integrity_check
+    if "pi" in installed_host_names and (target_hosts is None or "pi" in target_hosts):
+        jobs["pi_integrity"] = lambda: _global_pi_integrity_check(root)
+    for host_name in sorted(installed_host_names):
+        if target_hosts is not None and host_name not in target_hosts:
+            continue
+        try:
+            get_adapter(host_name)
+        except ValueError:
+            # 未识别宿主：渲染处按原逻辑输出结构化失败行，不进入并行探测。
+            continue
+        jobs[f"mcp_config:{host_name}"] = (
+            lambda host=host_name: _check_host_mcp_config(root, host, repair=False)
+        )
+    if initialized:
+        lesson_json = (
+            layout.knowledge_seed if layout is not None
+            else root / ".bugx" / "knowledge" / "lesson-ledger.json"
+        )
+        jobs["lesson_ledger"] = lambda: _lesson_ledger_check_row(root, lesson_json)
+    if layout is not None:
+        jobs["global_lesson_ledger"] = lambda: _global_lesson_ledger_check_row(root, layout)
+    ui_script = _script(root, "setup_ui_env.py")
+    if ui_script.is_file():
+        jobs["ui_env"] = lambda: _ui_env_check_row(root, ui_script)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_DOCTOR_PARALLEL_MAX_WORKERS) as pool:
+        futures = {key: pool.submit(_doctor_probe_job, fn) for key, fn in jobs.items()}
+        return {key: future.result() for key, future in futures.items()}
 
 
 def command_doctor(args: argparse.Namespace) -> int:
@@ -913,20 +1235,6 @@ def command_doctor(args: argparse.Namespace) -> int:
 
     checks.append(("项目初始化状态", initialized, init_detail))
     checks.append((".bugx 运行目录", layout is not None, layout_error or str(root / ".bugx")))
-    wt_ok, wt_detail = _check_nested_worktrees_hygiene(root)
-    checks.append(("工作树卫生与嵌套隔离", wt_ok, wt_detail))
-    if getattr(args, "installation_only", False):
-        checks.append((_CLOUD_ENDPOINT_CHECK_NAME, True, "跳过（--installation-only）"))
-    else:
-        checks.append(_cloud_endpoint_check(root))
-
-    if args.repair:
-        repair_errors = [item for item in repair_actions if item.startswith("ERROR:")]
-        checks.append((
-            "项目资产修复",
-            not repair_errors,
-            "；".join(repair_errors or repair_actions or ["无需修复"]),
-        ))
     raw_requested_hosts = []
     for item in getattr(args, "agent", []):
         for sub in str(item).split(","):
@@ -953,13 +1261,48 @@ def command_doctor(args: argparse.Namespace) -> int:
         )
         for name, ok, detail in host_checks
     ]
-    checks.extend(host_checks)
-    try:
-        engine_ok, engine_detail = _engine_integrity_status(
-            asset_root(), global_engine_root(),
+    # ---- 并行只读探测批（W-002 遗留性能项）：仅非 --repair 运行态启用 ----
+    # --repair 的全部写路径（资产修复、引擎重放、清单自愈、pip 补装、MCP 配置
+    # 修复）与 --installation-only 模式都保持原串行路径，绝不进入并行块。
+    # 检查行仍按原始顺序渲染：这里先并发算完互相独立的纯读取检查，
+    # 后续渲染处按各自原始行序从结果中取值。
+    parallel_results: dict[str, Any] = {}
+    if (not getattr(args, "repair", False)
+            and not getattr(args, "installation_only", False)):
+        progress.update(30, "并发执行独立只读检查")
+        parallel_results = _doctor_parallel_reads(
+            root,
+            layout=layout,
+            initialized=initialized,
+            installed_host_names=installed_host_names,
+            target_hosts=target_hosts,
         )
-    except (CliError, OSError, ValueError) as exc:
-        engine_ok, engine_detail = False, f"全局引擎无法校验：{exc}"
+        progress.update(42, "独立只读检查完成")
+    wt_ok, wt_detail = (
+        _unwrap_parallel_result(parallel_results, "worktree_hygiene")
+        if "worktree_hygiene" in parallel_results
+        else _check_nested_worktrees_hygiene(root)
+    )
+    checks.append(("工作树卫生与嵌套隔离", wt_ok, wt_detail))
+    if getattr(args, "installation_only", False):
+        checks.append((_CLOUD_ENDPOINT_CHECK_NAME, True, "跳过（--installation-only）"))
+    elif "cloud_endpoint" in parallel_results:
+        checks.append(_unwrap_parallel_result(parallel_results, "cloud_endpoint"))
+    else:
+        checks.append(_cloud_endpoint_check(root))
+
+    if args.repair:
+        repair_errors = [item for item in repair_actions if item.startswith("ERROR:")]
+        checks.append((
+            "项目资产修复",
+            not repair_errors,
+            "；".join(repair_errors or repair_actions or ["无需修复"]),
+        ))
+    checks.extend(host_checks)
+    if "engine_integrity" in parallel_results:
+        engine_ok, engine_detail = _unwrap_parallel_result(parallel_results, "engine_integrity")
+    else:
+        engine_ok, engine_detail = _engine_integrity_check_row()
     if not engine_ok and getattr(args, "repair", False):
         can_replace, guard_detail = _asset_can_replace_global_engine()
         if not can_replace:
@@ -974,12 +1317,10 @@ def command_doctor(args: argparse.Namespace) -> int:
             except Exception as exc:
                 engine_detail = f"自动修复全局引擎失败：{exc}"
     checks.append(("全局引擎完整性", engine_ok, engine_detail))
-    try:
-        version_ok, version_detail = _version_contract_status(
-            root, global_engine_root(),
-        )
-    except (CliError, OSError, ValueError) as exc:
-        version_ok, version_detail = False, f"版本契约无法校验：{exc}"
+    if "version_contract" in parallel_results:
+        version_ok, version_detail = _unwrap_parallel_result(parallel_results, "version_contract")
+    else:
+        version_ok, version_detail = _version_contract_check_row(root)
     # 项目 manifest 只存语义版本；它的基础版本自愈必须独立于完整 Build ID 比对。
     if version_ok and getattr(args, "repair", False):
         healed = _heal_project_manifest_version(root)
@@ -1000,14 +1341,33 @@ def command_doctor(args: argparse.Namespace) -> int:
             except Exception as exc:
                 version_detail = f"自动对齐版本失败：{exc}"
     checks.append(("BugX 版本一致性", version_ok, version_detail))
-    replicas_ok, replicas_detail = _engine_replica_consistency_check()
+    if "engine_replicas" in parallel_results:
+        replicas_ok, replicas_detail = _unwrap_parallel_result(parallel_results, "engine_replicas")
+    else:
+        replicas_ok, replicas_detail = _engine_replica_consistency_check()
     checks.append(("引擎副本一致性", replicas_ok, replicas_detail))
     progress.update(45, "引擎和版本检查完成")
     if "opencode" in installed_host_names and (target_hosts is None or "opencode" in target_hosts):
-        checks.append(("OpenCode 全局入口完整性", *_global_opencode_integrity_check()))
+        if "opencode_integrity" in parallel_results:
+            checks.append((
+                "OpenCode 全局入口完整性",
+                *_unwrap_parallel_result(parallel_results, "opencode_integrity"),
+            ))
+        else:
+            checks.append(("OpenCode 全局入口完整性", *_global_opencode_integrity_check()))
     if "pi" in installed_host_names and (target_hosts is None or "pi" in target_hosts):
-        checks.append(("Pi 全局 Skill 完整性", *_global_pi_integrity_check(root)))
-    detected_hosts = {item["name"]: item for item in discover_hosts(root)}
+        if "pi_integrity" in parallel_results:
+            checks.append((
+                "Pi 全局 Skill 完整性",
+                *_unwrap_parallel_result(parallel_results, "pi_integrity"),
+            ))
+        else:
+            checks.append(("Pi 全局 Skill 完整性", *_global_pi_integrity_check(root)))
+    detected_hosts = (
+        _unwrap_parallel_result(parallel_results, "detected_hosts")
+        if "detected_hosts" in parallel_results
+        else {item["name"]: item for item in discover_hosts(root)}
+    )
     for host_name in sorted(installed_host_names):
         if target_hosts is not None and host_name not in target_hosts:
             continue
@@ -1019,10 +1379,14 @@ def command_doctor(args: argparse.Namespace) -> int:
                 "当前 CLI 不识别该宿主（可能由更新版本的 BugX 安装）；请升级 CLI 后重试",
             ))
             continue
-        ok, detail = _check_host_mcp_config(
-            root, host_name,
-            repair=getattr(args, "repair", False) and not host_registry_fallback,
-        )
+        mcp_config_key = f"mcp_config:{host_name}"
+        if mcp_config_key in parallel_results:
+            ok, detail = _unwrap_parallel_result(parallel_results, mcp_config_key)
+        else:
+            ok, detail = _check_host_mcp_config(
+                root, host_name,
+                repair=getattr(args, "repair", False) and not host_registry_fallback,
+            )
         adapter = get_adapter(host_name)
         checks.append((f"{adapter.label} MCP 配置", ok, detail))
     is_installation_only = bool(getattr(args, "installation_only", False))
@@ -1041,50 +1405,20 @@ def command_doctor(args: argparse.Namespace) -> int:
         checks.append(("UI 视觉与浏览器挖掘环境（可选）", True, "跳过运行态检查（--installation-only）"))
     else:
         lesson_json = layout.knowledge_seed if layout is not None else root / ".bugx" / "knowledge" / "lesson-ledger.json"
-        lesson_db = lesson_json.with_suffix(".sqlite3")
-        lesson_ready = False
-        lesson_detail = "项目尚未初始化"
-        if initialized:
-            if not lesson_db.is_file() or lesson_db.is_symlink():
-                lesson_detail = "缺少或不安全的 SQLite 运行库；请从备份恢复，禁止静默重建"
-            else:
-                try:
-                    result = subprocess.run(
-                        [sys.executable, str(_script(root, "lesson_ledger.py")),
-                         "validate", "--ledger", str(lesson_json), "--json"],
-                        cwd=root, capture_output=True, text=True, check=False, timeout=30,
-                        env=_python_environment(),
-                    )
-                    lesson_ready = result.returncode == 0
-                    lesson_detail = ("SQLite 运行库有效" if lesson_ready else (
-                        (result.stderr or result.stdout).strip()[:500] or "SQLite 校验失败"
-                    ))
-                    if lesson_ready and (not lesson_json.is_file() or lesson_json.is_symlink()):
-                        lesson_detail += "；JSON 种子缺失（不影响读取，恢复时需人工确认）"
-                except (OSError, subprocess.TimeoutExpired, CliError) as exc:
-                    lesson_detail = f"SQLite 校验异常：{exc}"
+        if "lesson_ledger" in parallel_results:
+            lesson_ready, lesson_detail = _unwrap_parallel_result(parallel_results, "lesson_ledger")
+        elif initialized:
+            lesson_ready, lesson_detail = _lesson_ledger_check_row(root, lesson_json)
+        else:
+            lesson_ready, lesson_detail = False, "项目尚未初始化"
         checks.append(("错题集账本", lesson_ready, lesson_detail))
         if layout is not None:
-            global_db = layout.global_knowledge_db
-            global_marker = layout.global_knowledge_root / "manifest.json"
-            if not global_marker.exists() and not global_db.exists():
-                global_ok, global_detail = True, "尚未初始化；项目库可独立运行"
-            elif not global_db.is_file() or global_db.is_symlink():
-                global_ok, global_detail = False, "全局 SQLite 缺失；不会静默从 JSON 重建"
+            if "global_lesson_ledger" in parallel_results:
+                global_ok, global_detail = _unwrap_parallel_result(
+                    parallel_results, "global_lesson_ledger",
+                )
             else:
-                try:
-                    result = subprocess.run(
-                        [sys.executable, str(_script(root, "lesson_ledger.py")),
-                         "validate", "--ledger", str(layout.global_knowledge_seed), "--json"],
-                        cwd=root, capture_output=True, text=True, check=False, timeout=30,
-                        env=_python_environment(),
-                    )
-                    global_ok = result.returncode == 0
-                    global_detail = "全局 SQLite 有效（只读投影源）" if global_ok else (
-                        (result.stderr or result.stdout).strip()[:500] or "全局 SQLite 校验失败"
-                    )
-                except (OSError, subprocess.TimeoutExpired, CliError) as exc:
-                    global_ok, global_detail = False, f"全局 SQLite 校验异常：{exc}"
+                global_ok, global_detail = _global_lesson_ledger_check_row(root, layout)
             checks.append(("全局错题集（可选）", global_ok, global_detail))
         graph = importlib.util.find_spec("tree_sitter_language_pack") is not None
         if not graph and getattr(args, "repair", False):
@@ -1101,138 +1435,48 @@ def command_doctor(args: argparse.Namespace) -> int:
                 pass
         graph_detail = "已就绪" if graph else "可选：缺失（执行 bugx doctor --repair 或 pip install 'bugx-cli[graph]' 启用）"
         checks.append(("Tree-sitter 多语言增强", graph, graph_detail))
-        # 优化：优先尝试内存级快速 inspect，失败回退子进程
-        try:
-            from core.probes import codebase_memory_probe
-            cbm = codebase_memory_probe.inspect(root)
-            cbm_ok = cbm.get("status") == "READY"
-            cbm_detail = (
-                f"{cbm.get('status')}，版本 {cbm.get('version') or '未安装'}"
-                + (f"；项目索引已就绪" if cbm_ok else f"；未就绪：{cbm.get('fallback')}")
-            )
-        except Exception:
-            try:
-                cbm_result = subprocess.run(
-                    [sys.executable, str(_script(root, "codebase_memory_probe.py")),
-                     "status", "--root", str(root), "--json"],
-                    cwd=root, capture_output=True, text=True, check=False, timeout=60,
-                    env=_python_environment(),
-                )
-                cbm = json.loads(cbm_result.stdout)
-                cbm_ok = cbm.get("status") == "READY"
-                cbm_detail = (
-                    f"{cbm.get('status')}，版本 {cbm.get('version') or '未安装'}"
-                    + (f"；项目索引已就绪" if cbm_ok else f"；未就绪：{cbm.get('fallback')}")
-                )
-            except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, CliError) as exc:
-                cbm_ok, cbm_detail = False, f"DEGRADED：{exc}"
+        if "codebase_memory" in parallel_results:
+            cbm_ok, cbm_detail = _unwrap_parallel_result(parallel_results, "codebase_memory")
+        else:
+            cbm_ok, cbm_detail = _codebase_memory_check_row(root)
         checks.append(("codebase-memory 推荐加速", cbm_ok, cbm_detail))
-        try:
-            from core.probes import efficiency_probe
-            efficiency = efficiency_probe.inspect(root)
-            efficiency_ok = efficiency.get("status") == "READY"
-            missing = [
-                item.get("name", "unknown")
-                for item in efficiency.get("base_tools", []) if not item.get("ok")
-            ]
-            efficiency_detail = efficiency.get("status", "DEGRADED")
-            if missing:
-                efficiency_detail += f"；待补充 {', '.join(missing)}"
-            efficiency_detail += "；内置回退可用"
-        except Exception:
-            try:
-                efficiency_result = subprocess.run(
-                    [sys.executable, str(_script(root, "efficiency_probe.py")),
-                     "status", "--root", str(root), "--json"],
-                    cwd=root, capture_output=True, text=True, check=False, timeout=45,
-                    env=_python_environment(),
-                )
-                efficiency = json.loads(efficiency_result.stdout)
-                efficiency_ok = efficiency.get("status") == "READY"
-                missing = [
-                    item.get("name", "unknown")
-                    for item in efficiency.get("base_tools", []) if not item.get("ok")
-                ]
-                efficiency_detail = efficiency.get("status", "DEGRADED")
-                if missing:
-                    efficiency_detail += f"；待补充 {', '.join(missing)}"
-                efficiency_detail += "；内置回退可用"
-            except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, CliError) as exc:
-                efficiency_ok, efficiency_detail = False, f"DEGRADED：{exc}"
+        if "efficiency_tools" in parallel_results:
+            efficiency_ok, efficiency_detail = _unwrap_parallel_result(
+                parallel_results, "efficiency_tools",
+            )
+        else:
+            efficiency_ok, efficiency_detail = _efficiency_tools_check_row(root)
         checks.append(("基础效率工具", efficiency_ok, efficiency_detail))
-        mcp_runtime_ok, mcp_runtime_detail = _mcp_runtime_check(root)
+        if "mcp_runtime" in parallel_results:
+            mcp_runtime_ok, mcp_runtime_detail = _unwrap_parallel_result(
+                parallel_results, "mcp_runtime",
+            )
+        else:
+            mcp_runtime_ok, mcp_runtime_detail = _mcp_runtime_check(root)
         checks.append(("MCP 离线 runtime", mcp_runtime_ok, mcp_runtime_detail))
         # DOC-230 3.2 第 6 项：MCP 会话进程卫生（阈值化 + advisory，不进
-        # installation_required —— 审计 Q7）。传 state_root 以做**活动感知**判定，
-        # 避免把长命但健康的会话误报为泄漏。
-        try:
-            import core.bugx_paths as bugx_paths
-
-            mcp_state_root = bugx_paths.require(root).state_root
-        except Exception:  # noqa: BLE001 - 拿不到状态根时退化为跳过遗弃判定
-            mcp_state_root = None
-        mcp_hygiene_ok, mcp_hygiene_detail = _mcp_session_hygiene_check(root, mcp_state_root)
+        # installation_required —— 审计 Q7）。state_root 的**活动感知**判定与
+        # 拿不到状态根时的退化跳过都保留在 _mcp_hygiene_check_row 内。
+        if "mcp_hygiene" in parallel_results:
+            mcp_hygiene_ok, mcp_hygiene_detail = _unwrap_parallel_result(
+                parallel_results, "mcp_hygiene",
+            )
+        else:
+            mcp_hygiene_ok, mcp_hygiene_detail = _mcp_hygiene_check_row(root)
         checks.append(("MCP 会话进程卫生", mcp_hygiene_ok, mcp_hygiene_detail))
         progress.update(80, "运行态检查完成")
         # DOC-065: UI 视觉与浏览器挖掘环境诊断（可选）
-        try:
-            ui_script = _script(root, "setup_ui_env.py")
-            if ui_script.is_file():
-                ui_res = subprocess.run(
-                    [sys.executable, str(ui_script), "status"],
-                    cwd=root, capture_output=True, text=True, check=False, timeout=30,
-                    env=_python_environment(),
-                )
-                ui_ok = ui_res.returncode == 0
-                if ui_ok:
-                    ui_detail = "UI/TUI 环境就绪（Playwright / TUI 可用）"
-                else:
-                    missing_lines = [
-                        line.strip() for line in (ui_res.stdout or "").splitlines()
-                        if "缺失" in line or "✗" in line
-                    ]
-                    ui_detail = missing_lines[0] if missing_lines else "部分依赖缺失；运行 python3 setup_ui_env.py install 补装"
-                checks.append(("UI 视觉与浏览器挖掘环境（可选）", ui_ok, ui_detail))
-        except Exception as exc:
-            checks.append(("UI 视觉与浏览器挖掘环境（可选）", False, f"检测跳过: {exc}"))
-    cli_paths = _bugx_cli_paths()
-    if len(cli_paths) > 1:
-        inspected = [_inspect_cli_entry(p) for p in cli_paths]
-        active_entry = shutil.which("bugx") or (str(cli_paths[0]) if cli_paths else None)
-        active_path = Path(active_entry).resolve() if active_entry else cli_paths[0]
-
-        has_npm = any(item["type"] == "npm" for item in inspected)
-        has_pip = any(item["type"] in ("pip", "uv", "pyenv", "python") for item in inspected)
-        versions = {item["version"] for item in inspected if item["version"]}
-
-        parts_desc = []
-        for item in inspected:
-            is_active = (item["path"] == active_path)
-            tag = "生效中" if is_active else "被覆盖"
-            ver_str = f" v{item['version']}" if item["version"] else ""
-            parts_desc.append(f"{item['path']} ({item['type']}{ver_str}, {tag})")
-
-        if has_npm and has_pip:
-            if len(versions) > 1:
-                cli_detail = (
-                    "发现 npm 与 pip/uv 双重安装且版本冲突："
-                    + "；".join(parts_desc)
-                    + "。建议卸载多余版本：npm 运行 npm uninstall -g bugx-cli，"
-                    "pip 运行 pip uninstall bugx-cli 或 uv tool uninstall bugx-cli"
-                )
-            else:
-                cli_detail = (
-                    "发现 npm 与 pip/uv 均存在安装（当前版本一致）："
-                    + "；".join(parts_desc)
-                    + "。建议保留单一包管理器以避免后续升级漂移"
-                )
-        else:
-            cli_detail = "发现多个 PATH 中的 BugX 入口，可能存在安装覆盖：" + "；".join(parts_desc)
-    elif cli_paths:
-        cli_detail = str(cli_paths[0])
+        ui_script = _script(root, "setup_ui_env.py")
+        if "ui_env" in parallel_results:
+            ui_ok, ui_detail = _unwrap_parallel_result(parallel_results, "ui_env")
+            checks.append(("UI 视觉与浏览器挖掘环境（可选）", ui_ok, ui_detail))
+        elif ui_script.is_file():
+            checks.append(("UI 视觉与浏览器挖掘环境（可选）", *_ui_env_check_row(root, ui_script)))
+    if "cli_paths" in parallel_results:
+        cli_ok, cli_detail = _unwrap_parallel_result(parallel_results, "cli_paths")
     else:
-        cli_detail = "PATH 中未发现 bugx 入口"
-    checks.append(("BugX CLI 路径", len(cli_paths) <= 1, cli_detail))
+        cli_ok, cli_detail = _bugx_cli_path_check_row()
+    checks.append(("BugX CLI 路径", cli_ok, cli_detail))
     installation_required = {
         "Python >= 3.11", "安装资源", "全局引擎完整性",
         "BugX 版本一致性",
@@ -1298,6 +1542,7 @@ def command_doctor(args: argparse.Namespace) -> int:
         root,
         strict=strict,
         auto_repairable_checks=auto_repairable_checks,
+        use_ai=bool(getattr(args, "ai", False)),
     )
     escalation = None
     if not ready:

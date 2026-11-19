@@ -208,6 +208,57 @@ def _readonly_concurrency_granted(runtime: dict | None) -> bool:
         return False
 
 
+# pi mock 脚枪 fail-closed（OBS3B）：这些宿主的 worker 由引擎默认执行器
+# （``worker_runtime._execute_autonomous_worker``）驱动且无宿主 runner，
+# 其 provider 兜底链此前以 ``or "mock"`` 收尾——``workers --execute`` 无显式
+# ``--provider`` 时会**静默**落 mock（引擎诚实记 skipped，但运维预期是真实
+# 宿主通道）。在册宿主的无显式 provider 派发改走仲裁 fail-closed。
+# 仅 pi 完成集成实证在册；新宿主加入前必须完成同型取证（不得凭宿主名猜测）。
+FAIL_CLOSED_PROVIDER_HOSTS: frozenset[str] = frozenset({"pi"})
+
+
+def _resolve_fail_closed_provider(
+    host: str | None,
+    provider: str | None,
+    runtime_provider: object,
+    *,
+    execute: bool,
+) -> tuple[str | None, str | None]:
+    """无显式 provider 时的 fail-closed 默认通道裁决。
+
+    返回 ``(provider, error)``：``error`` 非空表示仲裁无真实通道，调用方必须
+    显式报错终止派发，**绝不**静默落 mock。语义：
+      * 非在册宿主 / 提示词模式（execute=False）：行为不变，原样返回；
+      * 显式 ``--provider`` 或 runtime context 已带 provider：100% 尊重，不仲裁；
+      * 在册宿主 + 执行模式 + 无任何显式 provider：``arbitrate_host_provider``
+        取最优真实通道；仲裁为空 / mock-only 时返回显式错误。
+    """
+    host_key = str(host or "").strip().casefold()
+    if host_key not in FAIL_CLOSED_PROVIDER_HOSTS:
+        return provider, None
+    if not execute:
+        return provider, None
+    explicit = str(provider or "").strip()
+    if explicit:
+        return explicit, None
+    from_runtime = str(runtime_provider or "").strip()
+    if from_runtime:
+        return from_runtime, None
+    try:
+        from core.host_runtime.host_provider_arbitrator import arbitrate_host_provider
+
+        arbitrated, _model, _cand, _manifest = arbitrate_host_provider(host_key)
+    except (ImportError, OSError, ValueError, RuntimeError) as exc:
+        return None, (
+            f"{host_key} 无可用真实通道，需显式 --provider 或检查宿主配置"
+            f"（仲裁失败: {exc}）"
+        )
+    channel = str(arbitrated or "").strip()
+    if not channel or channel.casefold() in {"mock", "none"}:
+        return None, f"{host_key} 无可用真实通道，需显式 --provider 或检查宿主配置"
+    return channel, None
+
+
 def workers(
     count: int | None = None,
     strategy: str = "risk",
@@ -482,13 +533,15 @@ def workers(
 
     # 2. 自适应并发容量动态计算
     runtime_count = runtime.get("workers")
-    if count is not None and (not isinstance(count, int) or isinstance(count, bool) or count < 0):
-        print("✗ worker count 必须是非负整数")
+    # F-RSI-20261112-077：0 不是合法并发请求（旧代码校验放行 0 后被下方
+    # ``count > 0`` 静默吞掉回退 ceiling——契约与实现不一致）。统一正整数语义。
+    if count is not None and (not isinstance(count, int) or isinstance(count, bool) or count <= 0):
+        print("✗ worker count 必须是正整数")
         return 2
     if runtime_count is not None and (
-        not isinstance(runtime_count, int) or isinstance(runtime_count, bool) or runtime_count < 0
+        not isinstance(runtime_count, int) or isinstance(runtime_count, bool) or runtime_count <= 0
     ):
-        print("✗ runtime workers 必须是非负整数")
+        print("✗ runtime workers 必须是正整数")
         return 2
     requested_limit = (
         count if isinstance(count, int) and count > 0
@@ -587,16 +640,26 @@ def workers(
             "capacity": capacity,
         }, ensure_ascii=False, sort_keys=True))
         return 0
-    assigned = []
-    worker_prefix = _worker_id_prefix(state)
-    worker_ids = set(state.claims)
-    next_worker_index = 1
+    # pi mock 脚枪 fail-closed（OBS3B）：在册宿主以执行模式派发且无显式 provider
+    # 时，此前会经 supervisor worker_runtime 的 ``or "mock"`` 兜底**静默**落 mock。
+    # 这里在 claim 之前收口：仲裁出真实通道则采用（容量规划与任务装配同步感知），
+    # 仲裁无真实通道则显式报错终止——绝不静默落 mock，也绝不产生孤儿租约。
+    provider_before_fail_closed = provider
+    provider, fail_closed_err = _resolve_fail_closed_provider(
+        selected_host, provider, runtime.get("provider"),
+        execute=effective_execute,
+    )
+    if fail_closed_err:
+        print(f"✗ {fail_closed_err}")
+        return 2
+    if provider and provider != provider_before_fail_closed:
+        print(f"  [{selected_host} 通道裁决] 无显式 --provider，fail-closed 选定仲裁最优真实通道: {provider}")
+    # 两阶段派发（F-RSI-20261112-077）：先为**全部**候选任务包解析互斥作用域，
+    # 任何文件型单元解析失败都在**零 claim** 状态下 fail-closed——旧实现
+    # raise 发生在预占循环中间，前面已成功 claim 的租约成为无人执行的孤儿
+    # （占用并发槽位直到 300s 租约过期）。fail-closed 语义不变，孤儿窗口归零。
+    bundle_res_keys: list[list[str]] = []
     for bundle in selected_bundles:
-        if len(assigned) >= limit:
-            break
-        worker_id, next_worker_index = _next_worker_id(
-            worker_prefix, worker_ids, next_worker_index,
-        )
         res_keys = [f"unit:{u}" for u in bundle]
         for u in bundle:
             fp = None
@@ -632,6 +695,19 @@ def workers(
                     ) from failure
             if fp and f"file:{fp}" not in res_keys:
                 res_keys.append(f"file:{fp}")
+        bundle_res_keys.append(res_keys)
+
+    assigned = []
+    worker_prefix = _worker_id_prefix(state)
+    worker_ids = set(state.claims)
+    next_worker_index = 1
+    for bundle_index, bundle in enumerate(selected_bundles):
+        if len(assigned) >= limit:
+            break
+        worker_id, next_worker_index = _next_worker_id(
+            worker_prefix, worker_ids, next_worker_index,
+        )
+        res_keys = bundle_res_keys[bundle_index]
         lease_secs = 300.0
         try:
             from core.supervisor import task_scheduler
@@ -659,16 +735,20 @@ def workers(
     if not assigned:
         print("✗ 没有成功预占可执行单元；请检查租约、资源冲突或目标漂移")
         return 1
-    try:
-        # DOC-140 调度提速：复用它上面已经建好的调度器实例（行 555），
-        # 不再第二次构造——每次构造都要全仓建图 + 影响网络 + git diff；
-        # 并把整批 advance_cycle 包进 batch_history，只落盘一次。
-        with sched.batch_history():
-            for c in assigned:
-                for cu in c.unit_ids:
-                    sched.advance_cycle(selected_unit_id=cu, candidate_units=candidates)
-    except Exception:
-        pass
+    if scheduler is not None:
+        # 守卫（F-RSI-20261112-077）：调度器装配失败时 scheduler=None 且
+        # ``sched`` 未定义——旧代码靠裸 ``except Exception`` 吞 NameError，
+        # 提速路径静默失效不可观测。显式守卫后该分支语义自明。
+        try:
+            # DOC-140 调度提速：复用它上面已经建好的调度器实例（行 555），
+            # 不再第二次构造——每次构造都要全仓建图 + 影响网络 + git diff；
+            # 并把整批 advance_cycle 包进 batch_history，只落盘一次。
+            with sched.batch_history():
+                for c in assigned:
+                    for cu in c.unit_ids:
+                        sched.advance_cycle(selected_unit_id=cu, candidate_units=candidates)
+        except Exception:
+            pass
     try:
         supervisor_state = supervisor_state_path()
         state_display = str(supervisor_state.resolve().relative_to(resolve_project_root().resolve()))
@@ -1061,9 +1141,9 @@ def workers(
     if selected_capacity is not None and (
         not isinstance(selected_capacity, int)
         or isinstance(selected_capacity, bool)
-        or selected_capacity < 0
+        or selected_capacity <= 0
     ):
-        print("✗ max_workers/worker_capacity 必须是非负整数")
+        print("✗ max_workers/worker_capacity 必须是正整数")
         return 2
     # 并发上限 = **多源约束取最小值**（系统资源 / 宿主容量 / provider 配额 / 请求值 /
     # 待办数）。任何单源决定都会越界：机器只扛 2 路时接口给 10 没用，宿主只支持 5

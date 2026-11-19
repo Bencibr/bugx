@@ -1,4 +1,6 @@
 """BugX installable command package."""
 
-__version__ = "0.1.0"
-__build_id__: int = 470
+import os
+
+__version__ = os.environ.get("BUGX_VERSION", "0.1.1")
+__build_id__: int = 8

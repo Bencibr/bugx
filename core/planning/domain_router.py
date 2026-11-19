@@ -115,7 +115,9 @@ class DomainSpecializedRouter:
         if any(kw in lowered for kw in ("android", "apk", "manifest.xml", ".kt", "gradle")):
             return "mobile_android", ("android_probe",)
         if any(kw in lowered for kw in ("ios", ".swift", "info.plist", "macho", "xcode")):
-            return "mobile_ios", ("ios_probe",)
+            # 路由到 probe_registry 真实注册名 ios_binary（ios_binary_probe.py），
+            # 不再产出幽灵名 ios_probe（该名在任何注册表/CLI 中均不存在）。
+            return "mobile_ios", ("ios_binary",)
 
         # C. Web 动态端点与前端页面
         if any(kw in lowered for kw in ("web", "front", "html", "page", "route", "view")):
@@ -131,7 +133,7 @@ class DomainSpecializedRouter:
         if "android" in frameworks or "mobile" in forms:
             return "mobile_android", ("android_probe",)
         if "ios" in frameworks:
-            return "mobile_ios", ("ios_probe",)
+            return "mobile_ios", ("ios_binary",)
         if "web" in forms or "ui" in surfaces:
             return "web", ("web_dynamic_probe",)
         if "embedded" in forms:

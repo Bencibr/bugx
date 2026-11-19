@@ -586,5 +586,62 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if args.strict and report["status"] != "READY" else 0
 
 
+def is_available() -> tuple[bool, str]:
+    """降级契约：机械探活 codebase-memory-mcp 固定版本候选（<5ms，零子进程）。
+
+    只做 PATH 候选枚举与固定版本规格校验，不执行 ``--version`` 或任何 CLI
+    子命令；版本兼容验证仍归 ``inspect()``。环境不满足时返回 False，调用方
+    必须走 ``run_static_degraded``，禁止伪装语义图谱可用。
+    """
+    expected_version = _pinned_cli_version()
+    if expected_version is None:
+        return False, "core/tool_install_targets.py 中的 codebase-memory 固定规格无效"
+    candidates, _ = _binary_candidates(_probe_environment(), None)
+    if not candidates:
+        return False, f"codebase-memory-mcp 未安装（需要固定版本 {expected_version}）"
+    return True, f"发现候选 {candidates[0]}（固定版本 {expected_version}）"
+
+
+def run_static_degraded(root: Path, *, binary: str | None = None) -> dict:
+    """降级契约：CLI 不可用时输出本地静态覆盖事实，绝不伪装语义增强可用。
+
+    输出与成功路径（``inspect()`` 的 READY/DEGRADED 报告）字段级可区分：
+    ``status="degraded"`` + ``degraded=True`` + ``degraded_reason``，并把
+    本轮回退显式钉在 ``symbol_index.py + project_graph.py`` 本地枚举上。
+    """
+    available, availability_detail = is_available()
+    root = Path(root).resolve()
+    root_exists = root.is_dir()
+    degraded_reason = (
+        "codebase_memory_cli_unavailable" if not available else "static_mode_forced"
+    )
+    evidence: dict = {
+        "availability_detail": availability_detail,
+        "root_exists": root_exists,
+    }
+    success = False
+    if root_exists:
+        success = True
+        evidence["source_files"] = _source_count(root)
+        evidence["git_head"] = _git_head(root)
+    return {
+        "schema_version": 1,
+        "success": success,
+        "status": "degraded",
+        "degraded": True,
+        "degraded_reason": degraded_reason,
+        "probe_mode": "static_degraded",
+        "root": str(root),
+        "findings": [],
+        "evidence": evidence,
+        "fallback": "symbol_index.py + project_graph.py（本地全量枚举，不依赖语义图谱）",
+        "install": f"pipx install --force {OPTIONAL_TOOL_PACKAGE_SPECS['codebase-memory']}",
+        "metadata": {
+            "degraded_mode": "local_coverage_facts_only",
+            "semantic_graph_available": False,
+        },
+    }
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
