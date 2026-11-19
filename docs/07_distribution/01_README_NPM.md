@@ -13,8 +13,9 @@ If you use AI coding tools to write production code, BugX is the security audit 
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-334155.svg?style=flat" alt="Node.js"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-334155.svg?style=flat" alt="License: BSL-1.1"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-334155.svg?style=flat" alt="Platform">
-  <a href="https://bugx.dev"><img src="https://img.shields.io/badge/website-bugx.dev-08b7d4.svg?style=flat" alt="Website"></a>
 </p>
+
+🌐 Website · 官网：**https://bugx.dev**
 
 <p align="center">
   <a href="#-english-documentation">English</a> •

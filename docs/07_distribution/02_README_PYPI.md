@@ -13,8 +13,9 @@ If you use Claude Code, Codex, Cline, OpenCode, or ZCode to write production cod
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/pyversions/bugx-cli.svg?style=flat&color=334155&label=Python" alt="Python Versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL--1.1-334155.svg?style=flat" alt="License: BSL-1.1"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-334155.svg?style=flat" alt="Platform">
-  <a href="https://bugx.dev"><img src="https://img.shields.io/badge/website-bugx.dev-08b7d4.svg?style=flat" alt="Website"></a>
 </p>
+
+🌐 Website · 官网：**https://bugx.dev**
 
 <p align="center">
   <a href="#-english-documentation">English</a> •
