@@ -6,7 +6,7 @@
   <img src="core/assets/bugx-hero-en.svg" alt="BugX — effortless audits of AI-written code" width="800">
 </p>
 
-# BugX
+# BugX — AI Code Audit Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
 
 BugX is a code-audit agent that lives inside your AI coding assistant. **When you finish a feature or open a pull request, it runs a full audit and tells you what was checked, what wasn't, and where the bugs are — each one with a command you can run yourself to reproduce it.** It works with Claude Code, Codex, Cline, OpenCode, and ZCode today. More tools are on the way.
 
@@ -193,6 +193,26 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 - **Unattended runs**: follow your host (`bugx autonomous`), run toward a goal (`bugx goal`), or keep a resident daemon (`bugx daemon`).
 - **Diagnostics**: `bugx doctor` / `bugx log` / `bugx stats` for installation, logs, and usage.
 
+## FAQ
+
+**What is BugX?**
+An autonomous code-audit agent that lives inside AI coding assistants: it runs via MCP in Claude Code, Codex, Cline, OpenCode, and ZCode, or as a standalone CLI, tracks audit coverage per unit, and verifies every finding with real executions.
+
+**Which AI coding tools does BugX support?**
+Claude Code, OpenAI Codex, Cline / Roo Code, OpenCode, and ZCode are supported today; DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted.
+
+**How does BugX verify a vulnerability?**
+The same attack input must reproduce the finding twice, and a clean input must produce nothing. All three runs (two positive, one negative control) are recorded with commands, exit codes, and artifact hashes.
+
+**Does BugX send my code to the cloud?**
+The audit itself runs locally. Cloud sync of lessons and experience is an explicit operation (`bugx init --cloud-sync sync` / `bugx cloud`); nothing is uploaded unless you run it.
+
+**Does BugX replace human review?**
+No. It gives you a reviewable ledger — what was checked, what wasn't, and reproducible evidence per finding — so human review starts from facts instead of the model's self-report.
+
+**What languages does BugX audit?**
+Multi-language static and behavioral analysis (Python, JavaScript/TypeScript, Java, Go, Rust, and more via tree-sitter), plus dedicated memory checks for native, Python, JVM, Electron, Android, and Apple targets.
+
 ## Supported AI coding tools
 
 | AI coding tool | Integration | Install |
@@ -228,6 +248,10 @@ The documentation is written in Chinese:
 ## Development
 
 Repository conventions (docs sync, version contract, verification gates) live in [AGENTS.md](AGENTS.md); architecture and internal design live in [docs/02_architecture/](docs/02_architecture/). Before committing, run `python3 scripts/bump_version.py --check`.
+
+## Keywords
+
+ai code audit · ai code review · code review agent · security audit · vulnerability scanner · sast · static analysis · mcp server · mcp security · claude code · openai codex · opencode · cline · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
 
 ## License
 

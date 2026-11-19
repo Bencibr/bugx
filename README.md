@@ -6,9 +6,9 @@
   中文 · <a href="README_EN.md">English</a>
 </p>
 
-# BugX
+# BugX — AI 代码审计 Agent（AI Code Audit Agent）
 
-BugX 是一款装在 AI 编程助手里的代码审计 Agent。**写完功能或提 PR 时让它跑一遍，它会自动完成审计，然后告诉你：查了哪些地方、哪些还没查、哪有漏洞——每个漏洞都附一条你能亲手复现的命令。** 目前已适配宿主：Claude Code、Codex、Cline、OpenCode、ZCode；其余宿主持续适配中。
+BugX 是一款装在 AI 编程助手里的代码审计 Agent。**写完功能或提 PR 时让它跑一遍，它会自动完成审计，然后告诉你：查了哪些地方、哪些还没查、哪有漏洞——每个漏洞都附一条你能亲手复现的命令。** 目前已适配宿主：Claude Code、Codex、Cline、OpenCode、ZCode；其余宿主持续适配中。 静态分析、行为差分、内存检查与 UI 无障碍审计全部本地执行；通过 MCP 接入宿主，审计过程可断点续跑、逐条可复查。
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -190,6 +190,26 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 - **无人值守**：跟着宿主跑（`bugx autonomous`）、带目标长跑（`bugx goal`）、常驻守护（`bugx daemon`）。
 - **诊断**：`bugx doctor` / `bugx log` / `bugx stats` 查安装、日志与消耗。
 
+## 常见问题
+
+**BugX 是什么？**
+一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
+
+**支持哪些 AI 编程工具？**
+Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。
+
+**如何验证一个漏洞？**
+同一段攻击输入必须两次复现该漏洞，一段正常输入必须零触发；三次执行（两正例一负对照）连同命令、退出码与产物哈希全部记录在案。
+
+**我的代码会被上传到云端吗？**
+审计全程本地执行。错题与经验的云端同步是显式操作（`bugx init --cloud-sync sync` / `bugx cloud`），不运行就不上传。
+
+**BugX 能替代人工审查吗？**
+不能。它提供一份可复查的账本——查了什么、没查什么、每条发现的复现证据——让人工审查从事实开始，而不是从模型的自述开始。
+
+**审计支持哪些语言？**
+基于 tree-sitter 的多语言静态与行为分析（Python、JavaScript/TypeScript、Java、Go、Rust 等），外加 native / Python / JVM / Electron / Android / Apple 六类目标的内存专项检查。
+
 ## 支持的 AI 编程宿主
 
 | AI 编程助手 | 接入方式 | 安装命令 |
@@ -224,6 +244,10 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 ## 开发与贡献
 
 仓库开发规范（文档同步、版本契约、验证门禁）见 [AGENTS.md](AGENTS.md)；架构与内部设计见 [docs/02_architecture/](docs/02_architecture/)。提交前请跑 `python3 scripts/bump_version.py --check`。
+
+## 关键词
+
+AI 代码审计 · AI 代码审查 · 代码审查 Agent · 安全审计 · 漏洞扫描 · 静态分析 · MCP 服务 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全
 
 ## 许可
 
