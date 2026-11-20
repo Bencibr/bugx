@@ -28,6 +28,7 @@ BugX 是一款装在 AI 编程助手里的代码审计 Agent。**写完功能或
 - [支持的 AI 编程宿主](#支持的-ai-编程宿主)
 - [数据与安全边界](#数据与安全边界)
 - [文档](#文档)
+- [交流群](#交流群)
 - [开发与贡献](#开发与贡献)
 - [许可](#许可)
 
@@ -240,6 +241,12 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；Dee
 - [UI 审计（probe ui）](docs/01_guides/02_COMMANDS.md#63-probe)：对运行中的 Web UI 做响应式布局、对比度、键盘路径与设计 Token 审计。
 - [AI 参考](docs/03_ai/01_AI_REFERENCE.md)：面向宿主/Agent 的 MCP、生命周期、状态、证据与失败契约。
 - [文档索引](docs/README.md)：架构与文档导航。
+
+## 交流群
+
+加入 Bugx 交流群，反馈问题、交流用法：
+
+![Bugx 交流群](core/assets/bugx-wechat-group.png)
 
 ## 开发与贡献
 
