@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import sysconfig
 import tempfile
@@ -415,12 +416,22 @@ def _asset_candidates() -> list[Path]:
         try:
             resolved = candidate.resolve(strict=True)
             mode = resolved.stat().st_mode
+            # ``st_mode`` permission bits are an authoritative write-safety
+            # signal only on POSIX.  On Windows Python commonly reports a
+            # synthesized directory mode such as ``0o40777``; it does not
+            # expose the directory ACL through this field.  Applying the
+            # POSIX ``0o022`` test there rejects valid npm-installed assets
+            # before the package's own integrity and entry checks can run.
+            posix_mode_safe = (
+                os.name != "posix"
+                or not bool(stat.S_IMODE(mode) & 0o022)
+            )
             safe_files = all(
                 (resolved / name).is_file() and not (resolved / name).is_symlink()
                 for name in ("bugx.md", "launch_bugx.py")
             )
             if resolved.is_dir() and not candidate.is_symlink() \
-                    and not mode & 0o022 and safe_files:
+                    and posix_mode_safe and safe_files:
                 candidates.insert(index, resolved)
                 return True
         except OSError:
@@ -1133,10 +1144,10 @@ def _install_engine(
             and source.resolve() == repository_core.resolve():
         print(
             f"[bugx] 警告：拒绝从项目源码树安装引擎：{source.resolve()}；"
-            "仅显式 force=True 才允许该开发操作。",
+            "仅显式传入 --force 才允许该开发操作。",
             file=sys.stderr,
         )
-        raise CliError("拒绝从项目源码树安装引擎；请确认来源后显式使用 force=True。")
+        raise CliError("拒绝从项目源码树安装引擎；请确认来源后显式使用 --force。")
     if destination is None:
         override = os.environ.get("BUGX_GLOBAL_ENGINE_ROOT")
         raw_destination = (Path(override).expanduser() if override
@@ -1188,16 +1199,16 @@ def _install_engine(
             if installed_build_id is None:
                 raise CliError(
                     "已安装全局引擎缺少 Build ID 标记（可能损坏或来源未知），拒绝静默覆盖；"
-                    "如确需覆盖请显式传入 force=True。"
+                    "如确需覆盖请显式传入 --force。"
                 )
             if source_build_id is None:
                 raise CliError(
-                    "安装源缺少 Build ID 标记，拒绝安装；请检查安装资源或显式传入 force=True。"
+                    "安装源缺少 Build ID 标记，拒绝安装；请检查安装资源或显式传入 --force。"
                 )
             if installed_build_id > source_build_id:
                 raise CliError(
                     f"拒绝降级全局引擎：已安装 build_id={installed_build_id}，"
-                    f"安装源 build_id={source_build_id}；如确需回退请显式传入 force=True。"
+                    f"安装源 build_id={source_build_id}；如确需回退请显式传入 --force。"
                 )
         expected = _engine_file_manifest(source)
         healthy, detail = _engine_integrity_status(source, destination)

@@ -1,0 +1,82 @@
+{
+  "pack_id": "python_web",
+  "schema_version": 1,
+  "description": "Python Web & ORM 冷启动漏洞先验包（FastAPI / Django / Flask / SQLAlchemy / Jinja2 / Pickle）",
+  "pitfalls": [
+    {
+      "pitfall_id": "PY-SQLI-001",
+      "cwe": "CWE-89",
+      "severity": "critical",
+      "languages": ["python"],
+      "frameworks": ["fastapi", "django", "flask", "sqlalchemy"],
+      "surfaces": ["http", "api", "database"],
+      "title": "ORM text()/raw()/extra() 字符串拼接导致 SQL 注入",
+      "anti_pattern_signals": ["text(f\"", "text(\"", ".raw(f\"", ".extra(", "cursor.execute(f\"", "execute(\"SELECT", "%s\" %", ".format("],
+      "false_positive_guards": [
+        "使用绑定参数 text('... :id').bindparams(id=val) 或 cursor.execute(sql, (val,))",
+        "拼接项来自硬编码白名单映射（如 ALLOWED_SORT_COLS[col]）"
+      ],
+      "poc_skeleton": "向查询参数传入 `' OR '1'='1` 或布尔盲注条件，对比合法输入与注入输入的返回行数/结果集差异"
+    },
+    {
+      "pitfall_id": "PY-SSTI-002",
+      "cwe": "CWE-1336",
+      "severity": "critical",
+      "languages": ["python"],
+      "frameworks": ["flask", "fastapi", "django", "jinja2"],
+      "surfaces": ["http", "web", "template"],
+      "title": "Jinja2 Template/render_template_string 直接渲染非受信用户输入（SSTI）",
+      "anti_pattern_signals": ["render_template_string(", "Template(", "from_string(", "Environment("],
+      "false_positive_guards": [
+        "模板字符串为常量，用户输入仅作为上下文变量传入（render_template_string(CONST, name=user_input)）",
+        "使用 SandboxedEnvironment 且严格限制对象属性访问"
+      ],
+      "poc_skeleton": "传入 `{{7*7}}` 验证算术求值被渲染为 `49`；负对照传入纯文本 `hello` 原样输出"
+    },
+    {
+      "pitfall_id": "PY-DESER-003",
+      "cwe": "CWE-502",
+      "severity": "critical",
+      "languages": ["python"],
+      "frameworks": ["fastapi", "django", "flask", "celery"],
+      "surfaces": ["http", "api", "cache", "queue"],
+      "title": "对非受信字节流调用 pickle.loads / yaml.load（不安全反序列化）",
+      "anti_pattern_signals": ["pickle.loads(", "pickle.load(", "yaml.load(", "marshal.loads(", "shelve.open("],
+      "false_positive_guards": [
+        "yaml.safe_load 或显式指定 Loader=yaml.SafeLoader",
+        "输入先经过 HMAC-SHA256 强签名验证（hmac.compare_digest）且密钥未泄露"
+      ],
+      "poc_skeleton": "构造最小 `__reduce__` payload（无害标记对象或环境变量探针），验证反序列化触发任意可调用对象执行"
+    },
+    {
+      "pitfall_id": "PY-AUTHZ-004",
+      "cwe": "CWE-862",
+      "severity": "high",
+      "languages": ["python"],
+      "frameworks": ["fastapi", "django", "flask"],
+      "surfaces": ["http", "api", "auth"],
+      "title": "FastAPI/Django/Flask 路由缺失鉴权依赖或对象归属校验（IDOR）",
+      "anti_pattern_signals": ["@app.get(", "@app.post(", "@router.", "Depends(", "get_object_or_404(", "filter(id="],
+      "false_positive_guards": [
+        "APIRouter 顶层已绑定 dependencies=[Depends(require_auth)] 且查询带 owner_id == current_user.id",
+        "Django 视图继承 LoginRequiredMixin 且 get_queryset 按 request.user 过滤"
+      ],
+      "poc_skeleton": "以普通用户 A 的会话请求属于用户 B 的 resource_id，断言越权读取或修改成功；负对照访问自身资源正常"
+    },
+    {
+      "pitfall_id": "PY-MASSASSIGN-005",
+      "cwe": "CWE-915",
+      "severity": "high",
+      "languages": ["python"],
+      "frameworks": ["fastapi", "django", "sqlalchemy"],
+      "surfaces": ["http", "api", "database"],
+      "title": "请求体未裁剪直接 setattr / model_dump 更新敏感字段（批量赋值）",
+      "anti_pattern_signals": ["setattr(", "model_dump(", ".dict()", "**payload", "fields = '__all__'"],
+      "false_positive_guards": [
+        "使用显式字段白名单 Schema（排除 is_admin / role / balance）",
+        "setattr 前严格校验 key in ALLOWED_UPDATE_FIELDS"
+      ],
+      "poc_skeleton": "向更新接口附加 `is_admin=True` 或 `role='admin'`，验证持久化对象权限字段被意外改写"
+    }
+  ]
+}

@@ -26,6 +26,22 @@ TELEMETRY_SCHEMA_VERSION = 3
 logger = logging.getLogger("bugx.telemetry")
 
 
+def _telemetry_allowed() -> bool:
+    """Use the same user/process gate as remote telemetry.
+
+    Local statistics are still queryable after opt-out, but no new rows are
+    written once the unified telemetry switch is disabled.  A missing gate is
+    treated as disabled here: recording telemetry must never bypass an
+    explicit privacy boundary because an optional import failed.
+    """
+    try:
+        from core.cloud_sync.consent import telemetry_enabled
+
+        return bool(telemetry_enabled())
+    except Exception:  # noqa: BLE001 - privacy gate fails closed
+        return False
+
+
 def _get_db_path(override_path: Path | str | None = None) -> Path:
     if override_path:
         return Path(override_path).expanduser().resolve()
@@ -216,6 +232,8 @@ def record_round_telemetry(round_data: Mapping[str, Any], db_path: Path | str | 
     """写入单轮次细粒度遥测记录，并原子累加当日消耗 (fail-open，不抛出异常打断审计)。"""
     if not isinstance(round_data, Mapping) or not round_data:
         return False
+    if not _telemetry_allowed():
+        return False
     try:
         init_db(db_path)
         session_id = str(round_data.get("session_id") or round_data.get("run_id") or "standalone")
@@ -287,6 +305,8 @@ def record_round_telemetry(round_data: Mapping[str, Any], db_path: Path | str | 
 def record_session_telemetry(session_data: Mapping[str, Any], db_path: Path | str | None = None) -> bool:
     """写入 Session 级最终汇总记录，并原子更新当日汇总 daily_rollup (fail-open)。"""
     if not isinstance(session_data, Mapping) or not session_data:
+        return False
+    if not _telemetry_allowed():
         return False
     try:
         init_db(db_path)

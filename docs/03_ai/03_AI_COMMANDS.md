@@ -1,17 +1,18 @@
 # BugX AI 命令选路与使用手册
 
-> **版本**：0.1.1+build.627 ｜ **更新日期**：2026-11-10
+> **版本**：0.1.2+build.11 ｜ **更新日期**：2026-11-23
 > 本手册按当前仓库 CLI 解析器整理，覆盖 42 个顶层命令及分组 leaf。宿主和全局引擎可能独立升级；当前安装版的安全帮助入口、命令分发源码与本手册共同确定语法。完整参数表见 [02_COMMANDS.md](../../docs/01_guides/02_COMMANDS.md)，生命周期与协议细节见 [01_AI_REFERENCE.md](01_AI_REFERENCE.md)。
 
 ## AI 选命令的固定步骤
 
 1. 把请求归类为：诊断 BugX、启动/恢复项目生命周期、找漏洞、验证测试、治理知识/云同步、生成报告、接入/配置工具。
-2. 先选下表中的命令族。安全地查顶层帮助：`bugx help <顶层命令>` 或 `bugx <顶层命令> --help`。只在已确认该 parser 支持时才查 leaf；例如 `bugx help cloud sync` 可读出同步参数，但 `bugx help lesson init` 不支持，而 `bugx supervisor install --help` 在当前 CLI 会实际执行安装，不能拿它探帮助。单层分发器要查本手册与对应 CLI 分发源码，不得把父级 flags 当成 leaf 参数。
+2. 使用 `bugx help <COMMAND> [ACTION]` 或 `bugx <COMMAND> <ACTION> --help` 查看用法。例如 `bugx help cloud sync`、`bugx help lesson init` 和 `bugx supervisor install --help`。选定命令后核对参数所属层级和业务副作用。
 3. 标记该次调用的副作用：只读、本地写入、执行目标代码、联网、长时间运行、删除/重置、Git commit。只执行用户请求范围内已授权的动作。
 4. 运行后读取退出码和结构化结果；退出码 `2` 在 `engine pre` 中表示等待交互，不能当作普通失败，也不能靠重复执行绕过。
 
-命令帮助、运行时来源和目标路径可能不一致。任何状态或命令不熟时，先用 `which bugx`、`bugx --version`、`bugx --help` 和本手册确认，再按命令族选择只读帮助或查源码；不要引用别的工作区、旧 build 或全局引擎路径的记忆来拼命令。不能假设 `--help` 永远只读：先确认当前解析器把它当帮助选项，而不是传给有副作用的 positional 子命令。
+命令帮助、运行时来源和目标路径可能不一致。任何状态或命令不熟时，先用 `which bugx`、`bugx --version`、`bugx --help` 和本手册确认，再按命令族选择只读帮助或查源码；不要引用别的工作区、旧 build 或全局引擎路径的记忆来拼命令。当前公共安装、Supervisor 与引擎帮助入口在业务分发前返回。
 若 `bugx --help` 自身报错或当前安装中找不到该命令，停止执行该命令；先核对 `which bugx`、`bugx --version` 和 traceback，确认命中的是已安装 CLI 还是源码工作树。此时不能把本手册里的旧语法当作可执行证据。
+CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即为启用，省略即为关闭；不要生成 `--force=True` 或 `force=True` 这类 Python/配置写法。
 
 ## 42 个顶层命令：什么时候用、如何调用
 
@@ -26,7 +27,7 @@
 | `log` | 查命令错误、某次调用链、时序或耗时 | `bugx log --root <ROOT> --errors`；按需使用 `--trace <ID>`、`--timing`。只读。 |
 | `stats` | 查看跨项目时间和 Token 汇总 | `bugx stats --days 30 --json`。`--global` 扩大到全局统计。 |
 | `view` | 安全读取仓库内指定文件的局部切片 | `bugx view --root <ROOT> <PATH> --lines <RANGE>`。按需读取，不把它当作全库检索。 |
-| `project` | 建立或查看代码规模、技术栈画像 | `bugx project --root <ROOT> analyze --json`；`show/list` 查看已有画像，`settings` 修改项目配置，`sync` 会向云端看板发送指标。 |
+| `project` | 建立或查看代码规模、技术栈画像 | `bugx project analyze --root <ROOT> --json`；`show/list` 查看已有画像，`settings` 修改项目配置，`sync` 会向云端看板发送指标。 |
 | `self-audit` | 用户要审查 BugX 自身 CLI/MCP 入口 | `bugx self-audit --root <BUGX_SOURCE>`。目标是 BugX，不等于审计业务项目。 |
 
 ### 初始化、宿主接入与生命周期控制
@@ -44,7 +45,7 @@
 | `engine` | 查询或推进某个项目的 BugX 生命周期 | `bugx engine --root <ROOT> status --json`；再按需要 `pre`。源码开发先用 `BUGX_DEV_MODE=1 bugx engine --root <ROOT> path --name launch_bugx.py` 验证 engine 来源；`pre --dev` 另有自动修复/按轮次提交副作用。`pre` 是启动门禁，不代表已经挖掘；`workers/post` 是生命周期阶段，不是通用 CLI 参数容器。内部帮助和资源用 `bugx engine path --name <NAME>`。 |
 | `supervisor` | 排查/控制本地 Supervisor 状态、Claim、Finding 或恢复流程 | 子命令有 `install`, `status`, `rpc`, `reset-budget`, `recover`, `rebind-target`, `gate`, `repair-fence`, `findings`, `next-round`, `finish`。`recover/rebind/reset-budget/finish` 会改状态，只有诊断确认和授权后使用。 |
 | `plugin` | 查看或管理 BugX 插件包 | 先 `list/status` 查看，再按需 `install/uninstall/zcode`；安装可能访问源并写入本机插件目录。 |
-| `update` | 用户明确要求升级 CLI 或检查新版本 | `bugx update --check`（若当前版本支持；以实时帮助为准）。实际更新会修改全局安装。 |
+| `update` | 用户明确要求升级 CLI 或检查新版本 | 检查：`bugx update --check --root <ROOT>`；更新：`bugx update --root <ROOT> [--channel stable|alpha]`。`--check` 退出码 `0=无更新`、`1=有更新`、`2=检查失败`；实际更新修改 pip/npm 全局安装、全局 engine 和已登记 Host，必须读取 receipt。当前没有 `bugx version --check`。 |
 | `daemon` | 用户要求后台持续挖掘或重连已有守护进程 | `status` 只读；`start/stop/attach` 控制长期进程，必须确认 root 和生命周期。 |
 | `config` | 用户要求修改 BugX 本机隐私/遥测配置 | 先 `bugx config set --help` 看有效键和值；`set` 会改本机配置，不自行降低隐私保护。 |
 
@@ -55,7 +56,7 @@
 | `probe` | 只检查一种明确的静态/动态能力 | 先 `bugx probe --root <ROOT> <KIND> --help`。当前种类含 `efficiency`, `sast`, `mobile`, `ios_binary`, `codebase-memory`, `platform`, `memory`, `pattern`, `differential`, `openwiki`；按探针自己的范围执行。 |
 | `autonomous` | 用户明确要求由指定宿主启动一轮前台无人值守挖掘 | `bugx autonomous --root <ROOT> --host <HOST> --help`。长时间运行；检查轮数、时间、模型、覆盖清单和既有 fix/commit 策略，不能默认扩大到修复/提交。 |
 | `goal` | 用户给出可验收目标，需要长程自治收敛 | `bugx goal --root <ROOT> --host <HOST> '<GOAL>'`。会持续多轮；先确认时限、开放 Finding 处理和坏单元隔离策略。 |
-| `audit` | 用户要项目级审计，且已确认所需审计模式 | `--goal find_bugs|repair_preview` 是隔离副本的原生图任务；`--deep/--format` 是另一条全息审计路径。读返回的真实状态和观察记录；等待原生 Agent 的任务不能报告成审计完成，模板或演练指标不能冒充目标漏洞证据。 |
+| `audit` | 用户要项目级审计，且已确认所需审计模式 | `--goal find_bugs|repair_preview` 是隔离副本的原生图任务；输出格式和目录不会切换执行流程。读返回的真实状态和观察记录；等待原生 Agent 的任务不能报告成审计完成，模板或演练指标不能冒充目标漏洞证据。 |
 | `mining-audit` | 探测可挖掘单元，或审查/加固挖掘计划 | `explore --root <ROOT> --json` 勘测；`audit <PLAN>` 评估计划；`harden <PLAN>` 会写新计划文件。 |
 | `test-generate` | 用户明确要求生成测试或自包含 PoC | `bugx test-generate --root <ROOT> --scope <PATH::SYMBOL> --out <FILE>`。会新建文件；先选定符号、输出路径和测试命令。 |
 | `test-audit` | 判断一份现有测试是否有有效断言和覆盖 | `bugx test-audit --scope <SCOPE> <TEST_FILE> --json`。审查测试质量，不运行目标项目审计。 |
@@ -67,9 +68,9 @@
 
 | 命令 | 什么时候用 | 常见调用与边界 |
 | --- | --- | --- |
-| `cloud` | 查看同步状态、治理冲突或同步云端知识 | 先用 `status --scope <...> --json`；直接同步时显式指定 `sync --scope project|global|all`。当前缺省是 `all`。`onboard on`、`init --cloud-sync sync` 和已持久化 sync 决策后的 `engine pre` 会走 onboarding 默认路径，可能同步 global + project；它们不等价于 `cloud sync --scope project`。 |
+| `cloud` | 查看同步状态、治理冲突或同步云端知识 | 先用 `status --scope <...> --json`；直接同步时显式指定 `sync --scope project|global|all`。未配置时缺省 `project`。`onboard on`、`init --cloud-sync sync` 和已持久化 sync 决策后的 `engine pre` 会走 onboarding 默认路径，可能同步 global + project；它们不等价于 `cloud sync --scope project`。 |
 | `auth` | 管理 BugX 云端登录态 | `status` 只读；`login` 会打开授权流程；`set-key/logout` 修改或清除凭据。禁止打印/保存密钥到报告。 |
-| `telemetry` | 查看、导出或发送脱敏飞轮数据 | `inspect` 本地查看；`export` 生成本地包；`flush/upload` 会出网并清空/发送队列，必须由用户明确要求。 |
+| `telemetry` | 查看、导出或发送脱敏飞轮数据 | `inspect` 本地查看；`export` 生成本地包；`flush/upload` 会在门禁开启时联网并处理队列。未配置时遥测默认开启，普通 CLI 命令每日最多自动记录/发送一次 `installed` 或 `heartbeat`；显式 `flush/upload` 仍需先确认数据面和用户意图。关闭使用 `bugx config set telemetry.data_sharing false` 或当前进程的 `BUGX_TELEMETRY_ENABLED=0`。 |
 | `knowledge` | 查看或治理候选知识、项目/全局知识包 | `status/export` 查看或导出；`approve/import/rollback` 会改知识库。此命令本身不会自动同步云端。 |
 | `lesson` | 管理项目级结构化错题集、Finding 经验和工具经验 | 子命令完整列表在下方；先确认 ledger/root、数据类型和是否会修改/归档。不要把 lesson 当作普通 Markdown 文件。 |
 | `skill` | 查看、校验、导入、回滚或拉取技能包 | `list/status/validate` 查询；`import/rollback` 修改本地包；`pull` 可能联网。先看包 ID、来源和签名契约。 |
@@ -137,7 +138,7 @@
 | --- | --- |
 | `cloud config` | 查/改云端 API 地址或版本检查设置；写配置，不含登录凭据。 |
 | `cloud status` | 查询同步 cursor、队列、失败和冲突；按 `project|global|all` 缩小只读范围。 |
-| `cloud sync` | 立即上传/拉取知识；CLI 允许省略 `--scope`，但 AI 为避免隐式扩大范围应显式写 `--scope project|global|all`。省略时读取配置，配置缺失默认 `all`；`summary` 降低部分详情粒度，但仍是联网传输。 |
+| `cloud sync` | 立即上传/拉取知识；CLI 允许省略 `--scope`，但 AI 为避免隐式扩大范围应显式写 `--scope project|global|all`。省略时读取配置，配置缺失默认 `project`；`summary` 降低部分详情粒度，但仍是联网传输。 |
 | `cloud onboard status` / `on` / `off` | 查看、启用或停用项目云同步。`on` 在当前 CLI 会立即同步 global + project；不要拿它代替项目专用 `cloud sync --scope project`。 |
 | `cloud conflicts list` / `resolve` | 查看冲突或按 local/remote 决议解决；`local` 主要本地处理，`remote` 会联网拉取权威内容，失败时冲突保持 open。 |
 | `cloud dead-letter list` / `purge` | 查询或清理失败同步死信；purge 删除队列项，先检查内容和恢复方案。 |
@@ -148,7 +149,7 @@
 | `auth status` | 查看本地登录态；加 `--verify` 才发网络请求验证。 |
 | `auth login` / `set-key` / `logout` | 登录、写入密钥或清除凭据；绝不在 shell 输出/报告中回显 secret。 |
 | `telemetry inspect` / `export` | 本地检查或导出独立的脱敏飞轮 outbox；`inspect` 读本地审计，`export` 创建加密离线包，不等于 cloud knowledge bundle。 |
-| `telemetry flush` / `upload` | 发送独立遥测队列，默认 batch size=20；成功项从 outbox 清除、失败项保留并递增尝试；涉及网络与数据披露，需要明确授权。 |
+| `telemetry flush` / `upload` | 发送独立遥测队列，默认 batch size=20；成功项从 outbox 清除、失败项保留并递增尝试。门禁未关闭时会联网；关闭时不联网并返回 0 只表示跳过。未配置时遥测默认开启，普通 CLI 命令每日最多自动记录一次安装/心跳；如用户要求不上传，先设置 `telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0`。 |
 | `knowledge status` / `export` | 查看/导出知识库；export 创建本地包。 |
 | `knowledge approve` / `import` / `rollback` | 批准候选、导入知识或回退记录；修改知识库，先核实 bundle/版本/审查人。 |
 | `project analyze` / `refresh` | 分析或刷新项目画像，写入画像资产。 |
@@ -178,8 +179,8 @@
 云端命令的最小 AI 决策契约：
 
 1. 先运行 `bugx cloud status --root <ROOT> --scope all --json`；需要网络证据才运行 `bugx auth status --root <ROOT> --verify --json`。
-2. 用户只说“同步”而没有 scope 时，不能默认缩小范围；当前 `cloud sync` 缺省读取配置，配置缺失时为 `all`。先询问是 `project`、`global` 还是 `all`，并记录 `full|summary` 与 `block|redact|allow`。
-3. 用户说“上传数据”时先分类：knowledge、project profile、telemetry、diagnostic log、lesson feedback 或指定 bundle。没有数据面和授权时返回 `NEEDS_USER_SCOPE`，不执行联网命令。
+2. 用户只说“同步”而没有 scope 时，不能默认缩小范围；当前 `cloud sync` 缺省读取配置，配置缺失时为 `project`。先询问是 `project`、`global` 还是 `all`，并记录 `full|summary` 与 `block|redact|allow`。
+3. 用户说“上传数据”时先分类：knowledge、project profile、telemetry、diagnostic log、lesson feedback 或指定 bundle。没有数据面和授权时对显式上传返回 `NEEDS_USER_SCOPE`，不执行联网命令；遥测默认开启是产品门禁事实，不代表 AI 获得了替用户扩大其他数据面的授权。用户要求关闭遥测时，先设置 `telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0`。
 4. `cloud export` 先本地检查，`cloud upload` 才出网；上传必须保存输入 bundle SHA-256、mode、snapshot_id/version 和上传后的 status。`project sync` 必须单独检查 `status=ok/project_id/synced=true`。
 5. `telemetry flush/upload`、`log-report`、非 dry-run `feedback` 都是独立网络动作；不能用 knowledge sync 的成功证明它们成功。
 6. `data_sharing_revoked`、open conflict、认证/TLS/权限失败、`ack_pending=true` 或 snapshot 收敛失败时停止并报告 `BLOCKED`/`RECOVERY_REQUIRED`。只有明确 cursor/baseline 失配才建议 `--calibrate`；不要用 purge、reset 或重复 upload 掩盖不确定状态。
@@ -304,7 +305,7 @@
 
 - 通用规则：先读 question/action 的 label、description、detail，再对照当前源码/CLI；内部 `action` 名不是可直接运行的命令或参数。运行命令前确认其 scope 与用户选择的 scope 完全一致。
 - 当前引擎在 `question_id=cloud_sync` 的“立即登录并同步”选项上曾输出 `value=sync`, `action=cloud_sync_all`，但可见说明写“同步本项目”；`engine pre` 随后会调用 onboarding 的默认 `sync_layers`，实际 push/pull global + project。若用户仅授权当前项目同步，这个 action 与范围不一致，必须停下确认，不能用 `cloud sync --scope project` 成功后就假定后续 `pre` 不会再同步全局层。
-- 用户明确批准**项目范围直接同步**且现有账本有效时：`bugx cloud sync --root <ROOT> --scope project`。省略 `--scope` 当前默认 `all`；`cloud sync --scope project` 的成功不证明后续 `engine pre` 会保持 project-only。
+- 用户明确批准**项目范围直接同步**且现有账本有效时：`bugx cloud sync --root <ROOT> --scope project`。省略 `--scope` 且无持久化范围时，默认 `project`；`cloud sync --scope project` 的成功不证明后续 `engine pre` 会保持 project-only。
 - `project_identity_missing` 选择 `create_project_identity`：`bugx cloud projects add --root <ROOT>` 会联网登记并写 `<ROOT>/.bugx/cloud-project.json`；不会提交文件。只有用户明确选“创建并提交”时才 stage/commit 此单文件，并复核 cached file list 恰好只有 `.bugx/cloud-project.json`。
 - layout 有效但全新的项目账本文件、SQLite DB 和 `knowledge/manifest.json` 都不存在时：`bugx lesson init --root <ROOT> --json` 创建账本，再 `bugx lesson validate --root <ROOT> --json` 验证。marker 已存在但 DB 缺失时不要执行 init/rebuild。
 - 启动返回 `install_supervisor_mcp`：只有用户选“安装”后才执行 `bugx install --root <ROOT> --agent <HOST> --allow-missing --non-interactive`。该命令修改宿主配置并要求按门禁提示重启；`bugx supervisor install` 是不同操作，不能代替。

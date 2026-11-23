@@ -47,6 +47,13 @@ class _CloudSyncExplicitAction(argparse.Action):
         setattr(namespace, self.dest, values)
         setattr(namespace, "cloud_sync_explicit", True)
 
+
+class _UniqueRootAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error("重复指定 --root，请保留一个项目路径。")
+        setattr(namespace, self.dest, values)
+
 # 将各领域子模块的符号（含公共工具与测试挂载点）全量导出到顶层 cli 命名空间
 for _mod in (
     common, plugin, lifecycle, agent, doctor, knowledge, cloud, system, stats,
@@ -117,6 +124,62 @@ _INTENT_SYNONYMS: dict[str, str] = {
 class _BugXArgumentParser(argparse.ArgumentParser):
     """带 AI 意图理解与智能模糊纠错的增强参数解析器。"""
 
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _is_switch(action: argparse.Action | None) -> bool:
+        return isinstance(action, (
+            argparse._StoreTrueAction, argparse._StoreFalseAction,
+            argparse.BooleanOptionalAction,
+        ))
+
+    def _switch_error(self, option: str, value: str, action: argparse.Action) -> typing.NoReturn:
+        negative = isinstance(action, argparse._StoreFalseAction) or (
+            isinstance(action, argparse.BooleanOptionalAction) and option.startswith("--no-")
+        )
+        if (value.casefold() == "true") != negative:
+            guidance = f"直接使用 {option}。"
+        elif isinstance(action, argparse.BooleanOptionalAction):
+            opposite = option.removeprefix("--no-") if negative else option.removeprefix("--")
+            prefix = "--" if negative else "--no-"
+            guidance = f"改用 {prefix}{opposite}。"
+        else:
+            guidance = f"省略 {option}，使用命令默认值。"
+        super().error(f"布尔开关 {option} 不接受值。{guidance}")
+
+    def parse_args(self, args=None, namespace=None):
+        parsed, extras = self.parse_known_args(args, namespace)
+        current = self
+        active_options = dict(current._option_string_actions)
+        while True:
+            group = next((a for a in current._actions if isinstance(a, argparse._SubParsersAction)), None)
+            if group is None:
+                break
+            child = group.choices.get(getattr(parsed, group.dest, None))
+            if child is None:
+                break
+            current = child
+            active_options.update(current._option_string_actions)
+        for token in extras:
+            match = re.fullmatch(r"([A-Za-z][\w-]*)=(true|false)", token, re.IGNORECASE)
+            if match:
+                option = "--" + match[1]
+                action = active_options.get(option)
+                if self._is_switch(action):
+                    self._switch_error(option, match[2], action)
+        if extras:
+            self.error("unrecognized arguments: " + " ".join(extras))
+        parent_root = vars(parsed).pop("_parent_root", None)
+        if parent_root is not None:
+            if getattr(parsed, "root", None) is not None:
+                self.error("重复指定 --root，请保留一个项目路径。")
+            parsed.root = parent_root
+        elif getattr(parsed, "command", None) in {"project", "report"} and not hasattr(parsed, "root"):
+            parsed.root = Path.cwd() if parsed.command == "project" else None
+        return parsed
+
     def error(self, message: str) -> typing.NoReturn:
         match = re.search(r"argument command: invalid choice: '([^']+)'", message)
         if match:
@@ -142,6 +205,17 @@ class _BugXArgumentParser(argparse.ArgumentParser):
                 err_output.append("  查看所有可用命令: bugx --help")
             print("\n".join(err_output), file=sys.stderr)
             sys.exit(2)
+
+        explicit_bool = re.fullmatch(
+            r"argument (\S+): ignored explicit argument ['\"](true|false)['\"]",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if explicit_bool:
+            option = explicit_bool[1].split("/", 1)[0]
+            action = self._option_string_actions.get(option)
+            if self._is_switch(action):
+                self._switch_error(option, explicit_bool[2], action)
 
         match_arg = re.search(r"unrecognized arguments:\s*(.+)", message)
         if match_arg:
@@ -305,6 +379,7 @@ def build_parser() -> argparse.ArgumentParser:
     reset.add_argument("--force", action="store_true", help="强制重置（忽略活跃状态检查；执行前依然创建外部备份）")
     reset.add_argument(
         "--no-backup", "--skip-backup", action="store_true", dest="no_backup",
+        default=argparse.SUPPRESS,
         help="跳过执行前自动创建的外部备份归档",
     )
     reset.add_argument("--json", action="store_true")
@@ -337,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     uninstall.add_argument("--yes", action="store_true", help="确认不可逆数据清理")
     uninstall.add_argument(
         "--no-backup", "--skip-backup", action="store_true", dest="no_backup",
+        default=argparse.SUPPRESS,
         help="跳过执行前自动创建的外部备份归档",
     )
     uninstall.add_argument("--json", action="store_true")
@@ -692,7 +768,7 @@ def build_parser() -> argparse.ArgumentParser:
         "engine", help="从全局引擎运行生命周期命令（项目不再提供 .bugx/core 入口）",
     )
     engine.add_argument(
-        "--root", type=Path, default=None,
+        "--root", type=Path, default=None, action=_UniqueRootAction,
         help="项目根目录；缺省时依次读 BUGX_PROJECT_ROOT / 宿主工作区环境变量，最后才用 cwd",
     )
     engine.add_argument(
@@ -787,7 +863,7 @@ def build_parser() -> argparse.ArgumentParser:
         "sync", help="立即执行云端同步；未登录时自动打开授权页",
     ))
     p_sync.add_argument("--scope", dest="sync_scope", choices=("project", "global", "all"), default=None,
-                        help="显式授权同步范围；缺省读 cloud-config.json sync_scope_default（默认 all）")
+                        help="同步范围；省略时读云端配置，未配置时仅同步当前项目")
     p_sync.add_argument("--detail-mode", choices=("full", "summary"), default=None,
                         help="私有同步详情粒度；缺省读 cloud-config.json sync_detail_mode（默认 full），summary 仅上传摘要/计数/状态")
     p_sync.add_argument("--calibrate", action="store_true",
@@ -1032,14 +1108,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sup.add_argument(
         "supervisor_command",
-        choices=(
-            "install", "status", "rpc",
-            # 带外动作白名单由 commands.system 单一真源派生（恢复 + 数据修复）：
-            # 此处不再复制枚举，避免「帮助列出但 dispatch 拒绝」的静默漂移。
-            *system.SUPERVISOR_PASSTHROUGH_ACTIONS,
-        ),
+        choices=system.SUPERVISOR_COMMANDS,
     )
-    sup.add_argument("--root", type=Path, default=Path.cwd())
+    sup.add_argument("--root", type=Path, default=None, action=_UniqueRootAction)
     sup.add_argument("supervisor_args", nargs=argparse.REMAINDER, default=[])
     sup.set_defaults(handler=command_supervisor)
 
@@ -1206,55 +1277,63 @@ def build_parser() -> argparse.ArgumentParser:
     project_sub = project_parser.add_subparsers(dest="project_action")
 
     p_analyze = project_sub.add_parser("analyze", help="全景扫描并分析当前或指定工程的代码体量与画像")
-    p_analyze.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
-    p_analyze.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_analyze.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
+    p_analyze.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_analyze.set_defaults(handler=command_project)
 
     p_show = project_sub.add_parser("show", help="查看已缓存的项目画像与度量")
-    p_show.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
-    p_show.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_show.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
+    p_show.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_show.set_defaults(handler=command_project)
 
     p_sync = project_sub.add_parser("sync", help="将项目画像与代码指标同步至云端看板")
-    p_sync.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
-    p_sync.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_sync.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
+    p_sync.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_sync.set_defaults(handler=command_project)
 
     p_list = project_sub.add_parser("list", help="查看全局所有受管工程列表 (~/.bugx/projects.json)")
-    p_list.add_argument("--root", type=Path, default=Path.cwd(), help="当前工作区根目录")
-    p_list.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_list.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
+    p_list.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_list.set_defaults(handler=command_project)
 
     p_refresh = project_sub.add_parser("refresh", help="全量扫描并刷新全局受管工程列表 (~/.bugx/projects.json)")
-    p_refresh.add_argument("--root", type=Path, default=Path.cwd(), help="当前工作区根目录")
-    p_refresh.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_refresh.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
+    p_refresh.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_refresh.set_defaults(handler=command_project)
 
     p_rebind = project_sub.add_parser(
         "rebind",
         help="诊断或迁移 .bugx 的项目身份（项目目录搬移/改名后使用）",
     )
-    p_rebind.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
+    p_rebind.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
     p_rebind.add_argument(
         "--migrate", action="store_true",
         help="把盘上 project_id 重写为当前路径指纹并保留 project_uid（确认是搬移而非误用他人布局）",
     )
-    p_rebind.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_rebind.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_rebind.set_defaults(handler=command_project)
 
     p_settings = project_sub.add_parser("settings", help="查看或修改项目的门禁配置、挖掘情报、MCP 与 Skill")
     p_settings.add_argument("target", nargs="?", default=None, help="目标工程路径或工程 Hash（默认当前工作区）")
-    p_settings.add_argument("--root", type=Path, default=Path.cwd(), help="当前工作区根目录")
+    p_settings.add_argument("--root", type=Path, default=argparse.SUPPRESS, action=_UniqueRootAction,
+                       help="项目根目录（默认当前目录）")
     p_settings.add_argument("--set-cloud-sync", choices=["on", "off"], default=None, help="设置是否开启云端同步")
     p_settings.add_argument("--set-review", choices=["auto", "interactive", "off"], default=None, help="设置审查执行模式")
     p_settings.add_argument("--set-polling", choices=["auto", "manual", "off"], default=None, help="设置漏洞轮询策略")
     p_settings.add_argument("--set-auto-fix", choices=["on", "off", "confirm"], default=None, help="设置是否自动修改代码")
     p_settings.add_argument("--set-commit", choices=["round", "task", "off"], default=None, help="设置代码自动提交策略")
-    p_settings.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
+    p_settings.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以结构化 JSON 输出")
     p_settings.set_defaults(handler=command_project)
 
     project_parser.set_defaults(project_action="analyze", handler=command_project)
-    project_parser.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
+    project_parser.add_argument("--root", dest="_parent_root", metavar="ROOT", type=Path,
+                                action=_UniqueRootAction, help="项目根目录（默认当前目录）")
     project_parser.add_argument("--json", action="store_true", help="以结构化 JSON 输出")
 
     # ── view：安全查看源文件切片与视窗（DOC-225，具越界自愈与沙箱隔离）──
@@ -1398,34 +1477,35 @@ def build_parser() -> argparse.ArgumentParser:
         "eval=--eval-dir 下的引擎自测收据；auto=优先项目运行态、不可用时退回收据"
     )
 
-    def _add_report_source_args(p: Any) -> None:
-        p.add_argument("--source", choices=("project", "eval", "auto"), default="project",
-                       help=report_source_help)
-        p.add_argument("--root", type=Path, help="项目根目录 (默认当前工作目录)")
-        p.add_argument("--eval-dir", type=Path, help="审计收据目录 (默认 verification/evals/oss)")
-        p.add_argument("--out", type=Path, help="报告输出目录 (默认与 eval-dir 相同)")
-        p.add_argument("--format", choices=("html", "md", "pdf", "both"), default="both", help="文件格式 (默认 both)")
-        p.add_argument("--title", help="自定义报告主标题")
-        p.add_argument("--json", action="store_true", help="以 JSON 输出报告元数据与生成清单")
+    def _add_report_source_args(p: Any, *, nested: bool = False) -> None:
+        def add(name: str, *, default: Any = None, **kwargs: Any) -> None:
+            p.add_argument(name, default=argparse.SUPPRESS if nested else default, **kwargs)
+
+        add("--source", choices=("project", "eval", "auto"), default="project", help=report_source_help)
+        add("--root", metavar="ROOT", dest="root" if nested else "_parent_root",
+            type=Path, action=_UniqueRootAction, help="项目根目录 (默认当前工作目录)")
+        add("--eval-dir", type=Path, help="审计收据目录 (默认 verification/evals/oss)")
+        add("--out", type=Path, help="报告输出目录 (默认与 eval-dir 相同)")
+        add("--format", choices=("html", "md", "pdf", "both"), default="both", help="文件格式 (默认 both)")
+        add("--title", help="自定义报告主标题")
+        add("--json", action="store_true", default=False, help="以 JSON 输出报告元数据与生成清单")
 
     for sub_name in ("formal", "visual", "both"):
         p = rep_sub.add_parser(sub_name, help=f"生成 {sub_name} 格式安全报告")
-        _add_report_source_args(p)
+        _add_report_source_args(p, nested=True)
         p.set_defaults(handler=command_report)
 
     serve_parser = rep_sub.add_parser("serve", help="启动双轨报告本地实时 Web 预览服务")
     serve_parser.add_argument("--host", default="127.0.0.1", help="服务监听地址 (默认 127.0.0.1)")
     serve_parser.add_argument("--port", type=int, default=8080, help="服务监听端口 (默认 8080)")
-    _add_report_source_args(serve_parser)
+    _add_report_source_args(serve_parser, nested=True)
     serve_parser.add_argument("--once", action="store_true", help="单次请求后退出 (测试模式)")
     serve_parser.set_defaults(handler=command_report)
 
     _add_report_source_args(rep_parser)
     rep_parser.set_defaults(handler=command_report)
 
-    completion.set_defaults(
-        completion_commands=tuple(sorted(subparsers.choices)),
-    )
+    completion.set_defaults(completion_tree=system.completion_tree(parser))
 
     return parser
 
@@ -1460,15 +1540,40 @@ def _route_engine_help_tokens(tokens: list[str], engine_index: int) -> list[str]
     return rewritten
 
 
+def _maybe_report_installation(command: str) -> None:
+    """Best-effort daily install/heartbeat reporting for normal CLI commands.
+
+    Privacy/configuration commands are intentionally excluded so a user can
+    disable telemetry without the control command itself causing another
+    outbound request.  The reporter has its own gate and never propagates a
+    network or local-state error into the requested CLI command.
+    """
+    if command in {"completion", "config", "cloud", "auth", "telemetry", "update", "stats", "view", "log"}:
+        return
+    try:
+        from core.cloud_sync.flywheel_client import maybe_report_installation
+
+        maybe_report_installation()
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     from . import common as _common_ns
     _common_ns._ACTIVE_TRACE_ID = None  # placeholder replaced below
 
     raw_tokens = list(sys.argv[1:] if argv is None else argv)
+    parser = build_parser()
     first_cmd = None
     first_cmd_index = 0
+    skip_value = False
     for index, token in enumerate(raw_tokens):
+        if skip_value:
+            skip_value = False
+            continue
         if token.startswith("-"):
+            action = parser._option_string_actions.get(token)
+            skip_value = action is not None and action.nargs != 0
             continue
         first_cmd = token
         first_cmd_index = index
@@ -1513,7 +1618,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-    parser = build_parser()
     parse_tokens = argv
     if first_cmd == "engine":
         routed = _route_engine_help_tokens(raw_tokens, first_cmd_index)
@@ -1526,7 +1630,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "help":
         return command_help(parser, args)
-    root = Path(getattr(args, "root", None) or Path.cwd()).resolve()
+    try:
+        if args.command == "engine":
+            system.normalize_engine_target(args)
+            if system.forwarded_help(args.engine_args):
+                return system.command_engine(args)
+            args.root = resolve_project_root(args.root)
+        if args.command == "supervisor":
+            if system.forwarded_help(args.supervisor_args):
+                return system.supervisor_help(args.supervisor_command)
+            system.normalize_supervisor_target(args)
+    except CliError as exc:
+        parser.error(str(exc))
+    root = Path(getattr(args, "root", None) or Path.cwd()).expanduser().resolve()
+    if getattr(args, "root", None) is not None:
+        args.root = root
     defer_logging = _defer_command_logging_until_authorized(args)
     logger = None if defer_logging else _configure_logging(
         root, getattr(args, "command", "unknown"), args.log_level,
@@ -1550,13 +1668,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if (args.command != "completion" and not read_only_version_check
                 and not installation_only_diagnosis):
-            # Centralize the installation-resource gate so command handlers
-            # cannot swallow a missing asset error and accidentally skip the
-            # one-shot CLI recovery path.
-            # Installation-only doctor is the diagnostic escape hatch: it
-            # reports broken assets itself and must remain runnable when the
-            # central resource gate cannot import the engine.
+            # Installation-only doctor remains available when assets are broken.
             _ensure_core_importable()
+        _maybe_report_installation(args.command)
         if args.command == "probe":
             probe_args = getattr(args, "probe_args", [])
             result = int(command_probe(args, probe_args))
@@ -1571,31 +1685,13 @@ def main(argv: list[str] | None = None) -> int:
                                       exit_code=result)
         return result
     except MissingAgentAssetError as exc:
-        if (argv is None and exc.repairable and not read_only_version_check
-                and os.environ.get(_ASSET_REPAIR_ATTEMPT_ENV) != "1"):
-            try:
-                detail = repair_cli_agent_assets(channel="stable", root=root)
-                print(f"[bugx] {detail}；正在重启原命令以加载新安装...", file=sys.stderr)
-                restart_cli_after_asset_repair()
-            except Exception as repair_exc:  # noqa: BLE001
-                if logger is not None and args.command != "reset":
-                    logging_module.log_event(
-                        logger, "asset_repair_failed", str(repair_exc), level=40,
-                        command=args.command, failure_kind=type(repair_exc).__name__,
-                    )
-                print(f"[bugx] ✗ {exc}", file=sys.stderr)
-                print(f"[bugx] ✗ 安全自愈未完成：{repair_exc}", file=sys.stderr)
-                print(
-                    "  可在发布服务恢复后重试，或先安装经过校验的 bugx-cli wheel。",
-                    file=sys.stderr,
-                )
-                return 2
-
         if logger is not None and args.command != "reset":
             logging_module.log_event(logger, "command_failed", str(exc),
                                       level=40, command=args.command,
                                       failure_kind="agent_assets_missing")
         print(f"[bugx] ✗ {exc}", file=sys.stderr)
+        if exc.repairable:
+            print("  可显式运行 bugx update --repair-assets 修复安装资源。", file=sys.stderr)
         advice = _generate_ai_exception_advice(exc, getattr(args, "command", None))
         if advice:
             print(f"  💡 AI 解决建议: {advice}", file=sys.stderr)
@@ -1603,7 +1699,7 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as exc:
         from .infra.ai_advisor import RuntimeSelfHealInterceptor
         interceptor = RuntimeSelfHealInterceptor(root)
-        if interceptor.can_heal(exc, command=args.command):
+        if not defer_logging and interceptor.can_heal(exc, command=args.command):
             print(f"[bugx] ⚠️  检测到命令 '{args.command}' 执行中断: {exc}", file=sys.stderr)
             heal_ok, heal_detail = interceptor.try_heal(exc, command=args.command)
             if heal_ok:

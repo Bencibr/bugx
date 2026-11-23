@@ -129,19 +129,12 @@ def command_project(args: argparse.Namespace) -> int:
                 cached = None
 
         if cached is None:
-            # 就地自愈：画像未持久化时自动执行首次全景分析并持久化，开箱即用直接展示
-            try:
-                print(f"[bugx project] 首次运行，正在自动分析并生成项目画像...", file=sys.stderr)
-                cached = project_profile.detect_project_profile(root)
-                cached = project_profile.save_project_profile(
-                    ledger_path, cached, producer_version=__version__,
-                )
-            except Exception as exc:
-                if as_json:
-                    print(json.dumps({"status": "not_found", "message": f"未找到本地画像且自动生成失败: {exc}"}, ensure_ascii=False, indent=2))
-                else:
-                    print(f"[bugx project] ✗ 自动生成项目画像失败: {exc}")
-                return 1
+            message = "当前项目没有可读取的缓存画像。请先运行 bugx project analyze。"
+            if as_json:
+                print(json.dumps({"status": "not_found", "message": message}, ensure_ascii=False))
+            else:
+                print(f"[bugx project] ✗ {message}", file=sys.stderr)
+            return 1
 
         profile = cached
 

@@ -1,6 +1,6 @@
 # BugX 仓库模块归类、命名规约与目录索引治理规范 (Module Taxonomy & Governance Spec)
 
-> **版本契约**: 0.1.1 | **守卫机制**: `scripts/verify_directory_indices.py`
+> **版本契约**: 0.1.2 | **守卫机制**: `scripts/verify_directory_indices.py`
 > **适用范围**: `core/` 核心引擎以及全仓各层级工程资产；历史测试分类章节仅保留为迁移记录。
 
 > [!IMPORTANT]

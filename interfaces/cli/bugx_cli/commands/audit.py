@@ -618,15 +618,16 @@ def _command_audit_penetration(args: argparse.Namespace) -> int:
 
 
 def command_audit(args: argparse.Namespace) -> int:
-    """bugx audit 统一调度入口：根据参数自适应分发到原生图编排或全息攻防渗透流水线。"""
-    is_penetration = bool(
-        getattr(args, "deep", False)
-        or getattr(args, "out", None)
+    """Select the existing deep route only when explicitly requested."""
+    if getattr(args, "deep", False):
+        return _command_audit_penetration(args)
+    if (
+        getattr(args, "out", None)
         or getattr(args, "format", "all") != "all"
         or getattr(args, "concurrency", 6) != 6
         or getattr(args, "min_kill_rate", 0.85) != 0.85
         or getattr(args, "open_browser", False)
-    )
-    if is_penetration:
-        return _command_audit_penetration(args)
+    ):
+        print("[bugx audit] 当前模式不接受这些选项。请查阅 bugx audit --help。", file=sys.stderr)
+        return 2
     return _command_audit_graph(args)

@@ -5,7 +5,6 @@
   - detect_project_profile：知己阶段画像（项目类别 + 语言清单，按文件探测）。
   - build_environment_info：本机环境（os/arch/python/host/machine-id）。
   - collect_run_summary：从生命周期产物读取汇总字段，构造 run_id。
-  - decide_share：--share / --no-share / 交互询问。
   - share_run：收集 → 判定 → 经 ReportClient 匿名 POST /api/v1/agent/runs。
 
 产品边界：当前版本只允许私有多设备云同步，不允许公共运行报告发布。
@@ -68,13 +67,6 @@ def build_environment_info() -> dict[str, Any]:
         "python": platform.python_version() or "",
     }
     return info
-
-
-def decide_share(flag: str | None) -> bool | None:
-    """决定是否分享：--share=True / --no-share=False / 未指定=None（交由调用方询问）。"""
-    if flag is None:
-        return None
-    return flag.strip().lower() in {"1", "yes", "true", "y", "share", "on"}
 
 
 def _read_json(path: Path) -> dict | None:

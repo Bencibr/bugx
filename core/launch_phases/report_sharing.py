@@ -170,8 +170,8 @@ def replay_share_pending(*, force: bool = False) -> None:
 
     ``submit`` 是自动重放授权；``local`` 的 share_pending 是**事后**通道——
     旧实现对 ``local`` 硬短路，导致队列永不补偿（2026-11-09 复盘 4.3-2）。
-    现在 ``--replay-share-pending`` 显式授权（``force=True``）即可在 ``local``
-    下重放；``none`` 仍是硬禁止（本轮不参与共享），只有显式把策略改为
+    现在使用 ``--replay-share-pending`` 显式授权即可在 ``local`` 下重放；
+    ``none`` 仍是硬禁止（本轮不参与共享），只有显式把策略改为
     ``local``/``submit`` 才能清账。
     """
     report_policy = _runtime_report_policy({})
@@ -312,7 +312,7 @@ def _maybe_enqueue_flywheel(runtime: dict, lifecycle: dict) -> None:
         pass
 
 
-def maybe_share_lifecycle(runtime: dict, lifecycle: dict, share: str | None) -> str:
+def maybe_share_lifecycle(runtime: dict, lifecycle: dict) -> str:
     """按已持久化 ``report_policy`` 处理封存报告，不再通过旧 flag 交互。
 
     DOC-236 C6：若 L1 已采集并持久化 `report_policy`，则**按它执行且不再交互**
@@ -320,10 +320,6 @@ def maybe_share_lifecycle(runtime: dict, lifecycle: dict, share: str | None) -> 
     `submit` 直接无交互提交（私有）。
     """
     report_policy = _runtime_report_policy(runtime)
-    if share is not None:
-        raise RuntimeError(
-            "旧的 share/--no-share 参数已移除；请在 L1 使用 report_policy=none|local|submit"
-        )
     if report_policy == "none":
         print("  （report_policy=none：本轮不参与结论共享与知识飞轮）")
         return "completed"

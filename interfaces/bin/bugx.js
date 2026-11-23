@@ -58,16 +58,16 @@ function resolvePython() {
 //   直接读 metadata.txt 应 <50ms，耗时账目 W-001）
 {
   const argv = process.argv.slice(2);
-  if (argv.some((a) => a === '--version' || a === '-V')) {
+  if (argv.length === 1 && argv[0] === '--version') {
     try {
       const meta = readFileSync(join(pkgRoot, 'core', 'metadata.txt'), 'utf8');
-      const ver = (meta.match(/^bugx_version:\s*"([^"]+)"/m) || [])[1] || '0.1.0';
+      const ver = (meta.match(/^bugx_version:\s*"([^"]+)"/m) || [])[1];
       const bid = (meta.match(/^build_id:\s*(\d+)/m) || [])[1];
-      console.log(`bugx ${ver}${bid ? `+build.${bid}` : ''}`);
-    } catch {
-      console.log('bugx 0.1.0');
-    }
-    process.exit(0);
+      if (ver && bid) {
+        console.log(`bugx ${ver}+build.${bid}`);
+        process.exit(0);
+      }
+    } catch { /* let the Python entry point report its authoritative version */ }
   }
 }
 

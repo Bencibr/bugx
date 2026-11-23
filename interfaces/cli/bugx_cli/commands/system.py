@@ -38,19 +38,6 @@ from ..infra.security import _assert_no_symlink_components
 from .cloud import _supervisor_deploy, _supervisor_status
 
 
-_COMPLETION_CHILDREN = {
-    "auth": ("login", "status", "set-key", "logout"),
-    "cloud": (
-        "config", "status", "log-report", "feedback", "sync", "export",
-        "upload", "conflicts", "projects", "devices", "onboard",
-    ),
-    "completion": ("bash", "zsh", "fish"),
-    "hosts": ("--json", "--root"),
-    "install": ("--agent", "--allow-missing", "--force", "--json", "--non-interactive", "--root"),
-    "autonomous": ("--agent-timeout", "--host", "--json", "--max-turns", "--max-wall-time", "--root"),
-    "skill": ("list", "status", "validate", "rollback"),
-    "update": ("--allow-downgrade", "--channel", "--check", "--force", "--repair-assets", "--root"),
-}
 
 _ASSET_REPAIR_ATTEMPT_ENV = "BUGX_ASSET_REPAIR_ATTEMPTED"
 # Stable package recovery is a separate trust path from the user's configurable
@@ -63,78 +50,86 @@ _MAX_PYPI_METADATA_BYTES = 4 * 1024 * 1024
 _MAX_PYPI_WHEEL_BYTES = 128 * 1024 * 1024
 
 
+def completion_tree(parser: argparse.ArgumentParser) -> dict[str, tuple[str, ...]]:
+    """Derive nested commands, enum selectors and options from the CLI parser."""
+    tree: dict[str, tuple[str, ...]] = {}
+
+    def collect(current: argparse.ArgumentParser, route: str) -> None:
+        words: set[str] = set()
+        for action in current._actions:
+            if action.help == argparse.SUPPRESS:
+                continue
+            if isinstance(action, argparse._SubParsersAction):
+                words.update(action.choices)
+                for name, child in action.choices.items():
+                    collect(child, f"{route}/{name}")
+            elif action.option_strings:
+                words.update(action.option_strings)
+            elif action.choices:
+                words.update(str(choice) for choice in action.choices)
+        tree[route] = tuple(sorted(words))
+
+    collect(parser, "")
+    return tree
+
+
 def command_completion(args: argparse.Namespace) -> int:
-    """Print a small, dependency-free shell completion script."""
-    commands = tuple(getattr(args, "completion_commands", ()))
-    if not commands:
-        commands = (
-            "auth", "autonomous", "cloud", "completion", "daemon", "doctor", "dsh", "help", "hosts",
-            "init", "install", "knowledge", "lesson", "log", "logic-analysis",
-            "mcp", "mcp-runtime", "mining-audit", "patch-forge", "plugin", "probe",
-            "project", "reset", "self-audit", "skill", "stats", "supervisor", "test-audit",
-            "test-generate", "test-verify", "uninstall", "update",
-        )
-    words = " ".join(commands)
-    children = {name: " ".join(values) for name, values in _COMPLETION_CHILDREN.items()}
+    """Print shell completions for the same commands and options as help."""
+    tree = args.completion_tree
     shell = args.shell
-    if shell == "bash":
-        print(f'''_bugx_complete() {{
-  local cur="${{COMP_WORDS[COMP_CWORD]}}"
-  local cmd="${{COMP_WORDS[1]:-}}"
-  local words="{words}"
-  if [[ "$COMP_CWORD" -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "$words" -- "$cur") )
-    return
-  fi
-  case "$cmd" in
-    auth) words="{children['auth']}" ;;
-    cloud) words="{children['cloud']}" ;;
-    completion) words="{children['completion']}" ;;
-    hosts) words="{children['hosts']}" ;;
-    install) words="{children['install']}" ;;
-    autonomous) words="{children['autonomous']}" ;;
-    skill) words="{children['skill']}" ;;
-    update) words="{children['update']}" ;;
-    *) return ;;
+    routes = "\n".join(f"    '{route}') candidates='{' '.join(words)}' ;;" for route, words in tree.items())
+    transitions = "|".join(f"'{route}'" for route in tree if route)
+    if shell in {"bash", "zsh"}:
+        if shell == "bash":
+            init = 'local -a tokens=("${COMP_WORDS[@]}")'
+            limit = "COMP_CWORD"
+            emit = 'COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )'
+            register = "complete -F _bugx_complete bugx"
+            start = 1
+        else:
+            init = 'local -a tokens=("${words[@]}")'
+            limit = "CURRENT"
+            emit = 'compadd -- $=candidates'
+            register = "compdef _bugx_complete bugx"
+            start = 2
+        print(f"""_bugx_complete() {{
+  {init}
+  local i route='' candidates='' cur
+  for ((i={start}; i<{limit}; i++)); do
+    case "$route/${{tokens[i]}}" in
+      {transitions}) route="$route/${{tokens[i]}}" ;;
+    esac
+  done
+  cur="${{tokens[i]}}"
+  case "$route" in
+{routes}
   esac
-  COMPREPLY=( $(compgen -W "$words" -- "$cur") )
+  {emit}
 }}
-complete -F _bugx_complete bugx''')
-    elif shell == "zsh":
-        command_items = " ".join(f"'{item}'" for item in commands)
-        print(f'''#compdef bugx
-_bugx() {{
-  local -a commands
-  commands=({command_items})
-  _arguments '1:command:->command' '*::arg:->args'
-  case $state in
-    command) _describe 'command' commands ;;
-    args)
-      case $words[2] in
-        auth) _describe 'auth action' ({children['auth'].replace(' ', ' ')}) ;;
-        cloud) _describe 'cloud command' ({children['cloud']}) ;;
-        completion) _describe 'shell' ({children['completion']}) ;;
-        hosts) _describe 'option' ({children['hosts']}) ;;
-        install) _describe 'option' ({children['install']}) ;;
-        autonomous) _describe 'option' ({children['autonomous']}) ;;
-        skill) _describe 'skill action' ({children['skill']}) ;;
-        update) _describe 'option' ({children['update']}) ;;
-      esac
-    ;;
-  esac
-}}
-_bugx''')
+{register}""")
     elif shell == "fish":
-        print(f'''complete -c bugx -f -n '__fish_use_subcommand' -a '{words}'
-complete -c bugx -f -n '__fish_seen_subcommand_from auth' -a '{children['auth']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from cloud' -a '{children['cloud']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from completion' -a '{children['completion']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from hosts' -a '{children['hosts']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from install' -a '{children['install']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from autonomous' -a '{children['autonomous']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from skill' -a '{children['skill']}'
-complete -c bugx -f -n '__fish_seen_subcommand_from update' -a '{children['update']}' ''')
-    else:  # argparse choices make this unreachable; keep the handler safe for embedding.
+        print("""function __bugx_at
+    set -l route ''
+    set -l tokens (commandline -opc)
+    for token in $tokens[2..-1]
+        switch "$route/$token" """)
+        fish_routes = " ".join(f"'{route}'" for route in tree if route)
+        print(f"            case {fish_routes}")
+        print("""                set route "$route/$token"
+        end
+    end
+    test "$route/" = "$argv[1]"
+end""")
+        for route, words in tree.items():
+            for word in words:
+                if word.startswith("--"):
+                    flag = f"-l '{word[2:]}'"
+                elif word.startswith("-"):
+                    flag = f"-s '{word[1:]}'"
+                else:
+                    flag = f"-a '{word}'"
+                print(f"complete -c bugx -f -n '__bugx_at {route + '/'}' {flag}")
+    else:
         raise CliError(f"不支持的 shell: {shell}")
     return 0
 
@@ -160,6 +155,38 @@ def _update_channel(args: argparse.Namespace) -> str:
         return "stable"
 
 
+def _update_installation_kind() -> tuple[str, str]:
+    """Return (client_kind, artifact_kind) for the running installation.
+
+    The npm wrapper deliberately owns its Python path and bundled assets, so a
+    pip wheel installation is not a valid npm update. Source and editable
+    installs are reported explicitly and must not be overwritten by update.
+    """
+    if os.environ.get("BUGX_CLI_SOURCE", "").strip().lower() == "npm":
+        return "npm", "npm-tarball"
+    try:
+        distribution = importlib.metadata.distribution("bugx-cli")
+    except importlib.metadata.PackageNotFoundError:
+        return "source", "python-wheel"
+    try:
+        direct_url_text = distribution.read_text("direct_url.json")
+        if direct_url_text:
+            direct_url = json.loads(direct_url_text)
+            if isinstance(direct_url, dict):
+                dir_info = direct_url.get("dir_info")
+                if isinstance(dir_info, dict) and dir_info.get("editable") is True:
+                    return "editable", "python-wheel"
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "unknown", "python-wheel"
+    module_path = Path(__file__).resolve()
+    try:
+        if (module_path.parents[4] / ".git").exists():
+            return "source", "python-wheel"
+    except IndexError:
+        pass
+    return "pip", "python-wheel"
+
+
 def command_version_check(args: argparse.Namespace) -> int:
     """bugx update --check：向服务端查询最新版本，提示更新。
 
@@ -172,10 +199,6 @@ def command_version_check(args: argparse.Namespace) -> int:
         # 仅供内部复用；公共入口是 bugx update --check。
         print(f"BugX CLI v{__version__}")
         return 0
-    if os.environ.get("BUGX_DISABLE_VERSION_CHECK", "").lower() in {"1", "true", "yes"}:
-        print("[update] 版本检查已由 BUGX_DISABLE_VERSION_CHECK 禁用")
-        return 0
-
     try:
         _ensure_core_importable()
         from core.cloud_sync.cloud_client import CloudClient
@@ -183,10 +206,16 @@ def command_version_check(args: argparse.Namespace) -> int:
         print(f"[update] 依赖加载失败: {exc}")
         return 2
 
+    client_kind, artifact_kind = _update_installation_kind()
     client = CloudClient()
     channel = _update_channel(args)
     try:
-        result = client.check_version(current_version=__version__, channel=channel)
+        result = client.check_version(
+            current_version=__version__,
+            channel=channel,
+            client_kind=client_kind,
+            artifact_kind=artifact_kind,
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"[update] 版本检查失败: {exc}")
         _print_version_tls_hint(exc)
@@ -234,8 +263,14 @@ def command_version_check(args: argparse.Namespace) -> int:
                        or (min_version is not None and current_version < min_version))
 
     if getattr(args, "json", False):
-        print(json.dumps(info, ensure_ascii=False, indent=2))
-        return 0
+        payload = dict(info)
+        payload["status"] = (
+            "UPDATE_REQUIRED" if update_required
+            else "UPDATE_AVAILABLE" if update_available
+            else "UP_TO_DATE"
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1 if update_available or update_required else 0
 
     print(f"当前版本: {__version__}")
     if latest:
@@ -533,8 +568,8 @@ def _download_pypi_stable_wheel(
         response.close()
 
 
-def _prepare_cli_package(path: Path) -> Path:
-    """Give a downloaded wheel/sdist the extension pip uses to identify it."""
+def _prepare_cli_package(path: Path, *, expected_version: str | None = None) -> Path:
+    """Validate a downloaded Python package and give it a pip-safe suffix."""
     try:
         if zipfile.is_zipfile(path):
             with zipfile.ZipFile(path) as archive:
@@ -555,6 +590,14 @@ def _prepare_cli_package(path: Path) -> Path:
                 version = str(metadata.get("Version") or "").strip()
                 if not name or not version:
                     raise CliError(_i18n_exc("system.wheel_name_version_missing", "wheel 包缺少 Name/Version 元数据"))
+                normalized_name = re.sub(r"[-_.]+", "-", name).lower()
+                if expected_version is not None and (
+                    normalized_name != "bugx-cli" or version != expected_version
+                ):
+                    raise CliError(
+                        f"wheel 身份不匹配：期望 bugx-cli {expected_version}，"
+                        f"收到 {normalized_name or '未知包'} {version or '未知版本'}"
+                    )
                 tags: list[str] = []
                 if wheel_names:
                     for line in archive.read(wheel_names[0]).decode(
@@ -586,6 +629,38 @@ def _prepare_cli_package(path: Path) -> Path:
                 )), None)
                 if root is None:
                     raise CliError(_i18n_exc("system.sdist_missing_top_dir", "源码包缺少合法的顶层项目目录"))
+                if expected_version is not None:
+                    metadata_members = [
+                        member for member in archive.getmembers()
+                        if member.isfile()
+                        and PurePosixPath(member.name).name == "PKG-INFO"
+                        and member.size <= 1024 * 1024
+                    ]
+                    if not metadata_members:
+                        raise CliError("源码包缺少 PKG-INFO 元数据")
+                    metadata_file = archive.extractfile(metadata_members[0])
+                    if metadata_file is None:
+                        raise CliError("无法读取源码包 PKG-INFO 元数据")
+                    metadata = Parser().parsestr(
+                        metadata_file.read().decode("utf-8", errors="strict")
+                    )
+                    package_name = re.sub(
+                        r"[-_.]+", "-", str(metadata.get("Name") or "")
+                    ).lower()
+                    package_version = str(metadata.get("Version") or "").strip()
+                    if package_name != "bugx-cli" or package_version != expected_version:
+                        raise CliError(
+                            f"源码包身份不匹配：期望 bugx-cli {expected_version}，"
+                            f"收到 {package_name or '未知包'} {package_version or '未知版本'}"
+                        )
+                    expected_root = re.sub(
+                        r"[-_.+]+", "-", f"bugx-cli-{expected_version}"
+                    ).lower()
+                    actual_root = re.sub(r"[-_.]+", "-", root).lower()
+                    if actual_root != expected_root:
+                        raise CliError(
+                            f"源码包身份不匹配：期望 {expected_root}，实际 {actual_root}"
+                        )
                 target = path.with_name(f"{root}.tar.gz")
         else:
             raise CliError(_i18n_exc("system.unrecognized_package_archive", "下载内容不是可识别的 wheel 或源码包"))
@@ -602,6 +677,62 @@ def _installed_cli_distribution_version() -> str | None:
         return importlib.metadata.version("bugx-cli")
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def _prepare_npm_package(path: Path, *, expected_version: str) -> Path:
+    """Validate an npm tarball without extracting or executing its scripts."""
+    if path.suffix.lower() != ".tgz":
+        raise CliError("npm 自动更新只接受 .tgz 制品")
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            member = archive.getmember("package/package.json")
+            if not member.isfile() or member.size > 256 * 1024:
+                raise CliError("npm 制品缺少安全的 package/package.json")
+            raw = archive.extractfile(member)
+            if raw is None:
+                raise CliError("无法读取 npm package.json")
+            payload = json.loads(raw.read().decode("utf-8", errors="strict"))
+    except (OSError, UnicodeError, json.JSONDecodeError, tarfile.TarError, KeyError) as exc:
+        raise CliError(f"无法识别 npm 制品：{exc}") from exc
+    if not isinstance(payload, dict) or payload.get("name") != "bugx-cli":
+        raise CliError("npm 制品 package.name 必须是 bugx-cli")
+    actual_version = str(payload.get("version") or "").strip()
+    if not actual_version or actual_version != expected_version:
+        raise CliError(
+            f"npm 制品版本不匹配：期望 {expected_version}，实际 {actual_version or '未知'}"
+        )
+    return path
+
+
+def _write_update_receipt(payload: dict[str, object]) -> Path | None:
+    """Persist a bounded, non-secret update receipt outside project sources."""
+    try:
+        from core.report_engine.report_client import atomic_write_nofollow
+
+        root = Path.home() / ".bugx" / "update" / "receipts"
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        operation_id = str(payload.get("operation_id") or f"upd-{time.time_ns()}")
+        destination = root / f"{operation_id}.json"
+        atomic_write_nofollow(
+            destination,
+            (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8"),
+            mode=0o600,
+        )
+        return destination
+    except (OSError, ValueError, TypeError, ImportError):
+        return None
+
+
+def _receipt_project_identity(root: Path) -> dict[str, str]:
+    """Return a stable project identity without persisting its absolute path."""
+    try:
+        normalized = str(root.resolve())
+    except (OSError, RuntimeError, ValueError):
+        normalized = str(root)
+    fingerprint = hashlib.sha256(
+        normalized.encode("utf-8", "surrogatepass")
+    ).hexdigest()[:16]
+    return {"project_root_fingerprint": f"sha256:{fingerprint}"}
 
 
 def _trusted_repair_cloud_client():
@@ -1552,13 +1683,18 @@ def command_update(args: argparse.Namespace) -> int:
     1. GET /api/v1/agent/version 获取最新版本元数据
     2. 如果已是最新 → 提示并退出
     3. 下载 CLI 包到临时目录
-    4. SHA-256 校验
-    5. pip install --upgrade <下载的包路径>
+    4. SHA-256 校验并确认制品身份
+    5. 由当前安装类型所属的 pip 或 npm 安装器安装
     6. bugx install --agent <已登记宿主> --root . --force --non-interactive（刷新宿主入口）
     7. bugx doctor --installation-only 验证
     """
     root = getattr(args, "root", Path.cwd()).resolve()
     started = time.monotonic()
+    started_epoch = time.time()
+    operation_id = f"upd-{time.time_ns()}"
+    client_kind, artifact_kind = _update_installation_kind()
+    switched = False
+    last_receipt: Path | None = None
 
     if getattr(args, "repair_assets", False):
         if getattr(args, "check", False):
@@ -1588,9 +1724,27 @@ def command_update(args: argparse.Namespace) -> int:
             restart_cli_after_asset_repair()
 
     def record_failure(message: str, *, phase: str, **fields: object) -> None:
+        nonlocal last_receipt
+        final_state = "RECOVERY_REQUIRED" if switched else "ABORTED"
+        receipt_payload = {
+            "schema_version": 1,
+            "operation_id": operation_id,
+            "started_at_epoch": started_epoch,
+            "finished_at_epoch": time.time(),
+            "current_version": __version__,
+            "client_kind": client_kind,
+            "artifact_kind": artifact_kind,
+            "phase": phase,
+            "final_state": final_state,
+            "message": str(message)[:1000],
+            **_receipt_project_identity(root),
+            **{str(key): value for key, value in fields.items()},
+        }
+        last_receipt = _write_update_receipt(receipt_payload)
         _log_update_event(
             root, "update_check_failed", message,
             phase=phase, duration_ms=round((time.monotonic() - started) * 1000, 1),
+            operation_id=operation_id, final_state=final_state, receipt_path=str(last_receipt or ""),
             **fields,
         )
 
@@ -1609,12 +1763,26 @@ def command_update(args: argparse.Namespace) -> int:
     if getattr(args, "check", False):
         return command_version_check(args)
 
+    if client_kind in {"source", "editable", "unknown"}:
+        message = (
+            f"当前 CLI 安装方式为 {client_kind}，拒绝自动覆盖源码或 editable 环境；"
+            "请使用源码同步、构建 wheel 或宿主专用安装流程更新"
+        )
+        record_failure(message, phase="preflight", failure_kind="unsupported_install_mode")
+        print(f"[update] {message}")
+        return 2
+
     client = CloudClient()
 
     # 1. 版本检查（支持指定发布通道）
     channel = _update_channel(args)
     try:
-        result = client.check_version(current_version=__version__, channel=channel)
+        result = client.check_version(
+            current_version=__version__,
+            channel=channel,
+            client_kind=client_kind,
+            artifact_kind=artifact_kind,
+        )
     except Exception as exc:  # noqa: BLE001
         record_failure(str(exc), phase="version_check", failure_kind="exception")
         print(f"[update] 版本检查失败: {exc}")
@@ -1642,6 +1810,34 @@ def command_update(args: argparse.Namespace) -> int:
     min_client = str(info.get("min_client_version") or "").strip()
     checksum = str(info.get("checksum_sha256") or "").strip().lower()
     notes = str(info.get("release_notes") or "")
+    release_id = str(info.get("release_id") or "").strip()
+    remote_channel = str(info.get("channel") or "").strip()
+    remote_artifact_kind = str(info.get("artifact_kind") or "").strip()
+    artifact_version = str(info.get("artifact_version") or latest).strip()
+    if remote_channel and remote_channel != channel:
+        record_failure(
+            "服务端返回了错误发布通道",
+            phase="version_validation",
+            failure_kind="channel_mismatch",
+            requested_channel=channel,
+            remote_channel=remote_channel,
+        )
+        print(
+            f"[update] 服务端通道不一致：请求 {channel}，收到 {remote_channel}"
+        )
+        return 2
+    if remote_artifact_kind and remote_artifact_kind != artifact_kind:
+        record_failure(
+            "服务端返回了错误制品类型",
+            phase="version_validation",
+            failure_kind="artifact_kind_mismatch",
+            expected_artifact_kind=artifact_kind,
+            remote_artifact_kind=remote_artifact_kind,
+        )
+        print(
+            f"[update] 服务端制品类型不一致：期望 {artifact_kind}，收到 {remote_artifact_kind}"
+        )
+        return 2
     update_available = info.get("update_available") is True
     update_required = info.get("update_required") is True
     rollback_required = (info.get("rollback_required") is True
@@ -1698,6 +1894,15 @@ def command_update(args: argparse.Namespace) -> int:
                        failure_kind="missing_checksum", latest_version=latest)
         print("[update] 服务端未提供有效 SHA-256 校验值，拒绝安装未校验的升级包")
         return 2
+    if not release_id:
+        record_failure(
+            "服务端未提供 release_id，拒绝未绑定发布身份的升级包",
+            phase="package_validation",
+            failure_kind="missing_release_id",
+            latest_version=latest,
+        )
+        print("[update] 服务端未提供 release_id，拒绝安装未绑定发布身份的升级包")
+        return 2
 
     print(f"[update] 当前版本: {__version__}")
     print(f"[update] 目标版本: {latest}")
@@ -1708,10 +1913,16 @@ def command_update(args: argparse.Namespace) -> int:
     # /agent/download；服务端的 302 由下载器跟随，摘要校验始终在本地完成。
     tmpdir = Path(tempfile.mkdtemp(prefix="bugx-update-"))
     try:
-        dest = tmpdir / f"bugx-{latest}.package"
+        suffix = ".tgz" if artifact_kind == "npm-tarball" else ".package"
+        dest = tmpdir / f"bugx-{artifact_version}{suffix}"
         print(f"[update] 正在下载 CLI 包...")
         ok, msg = client.download_package(
-            dest, expected_sha256=checksum, expected_version=latest,
+            dest,
+            expected_sha256=checksum,
+            expected_version=latest,
+            release_id=release_id,
+            channel=channel,
+            artifact_kind=artifact_kind,
         )
         if not ok:
             record_failure(msg, phase="package_download", failure_kind="download")
@@ -1719,54 +1930,113 @@ def command_update(args: argparse.Namespace) -> int:
             return 1
         print(f"[update] {msg}")
         try:
-            package_target = str(_prepare_cli_package(dest))
+            if artifact_kind == "npm-tarball":
+                package_target = str(
+                    _prepare_npm_package(dest, expected_version=artifact_version)
+                )
+            else:
+                package_target = str(
+                    _prepare_cli_package(dest, expected_version=artifact_version)
+                )
         except (CliError, OSError) as exc:
             record_failure(str(exc), phase="package_validation", failure_kind="package_format")
             print(f"[update] {exc}")
             return 1
 
-        # 4. pip install --upgrade
-        print(f"[update] 执行 pip install --upgrade {package_target}...")
-        pip_cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
-                   "--no-input", package_target]
-        if is_rollback:
-            # 回退到更低版本：pip --upgrade 不会降级，改用 --force-reinstall
-            pip_cmd = [sys.executable, "-m", "pip", "install",
-                       "--force-reinstall", "--no-input", package_target]
+        # 4. Install through the package manager that owns the running CLI.
+        if client_kind == "npm":
+            npm = shutil.which("npm")
+            if not npm:
+                record_failure(
+                    "当前 npm CLI 找不到 npm 可执行文件",
+                    phase="package_install",
+                    failure_kind="npm_missing",
+                )
+                print("[update] 当前 npm CLI 找不到 npm 可执行文件")
+                return 2
+            install_cmd = [
+                npm, "install", "--global", "--no-audit", "--no-fund",
+                package_target,
+            ]
+            print(f"[update] 执行 npm install --global {package_target}...")
+        else:
+            install_cmd = [sys.executable, "-m", "pip", "install", "--upgrade",
+                           "--no-input", "--disable-pip-version-check", package_target]
+            if is_rollback:
+                # 回退到更低版本：pip --upgrade 不会降级，改用 --force-reinstall
+                install_cmd = [sys.executable, "-m", "pip", "install",
+                               "--force-reinstall", "--no-input",
+                               "--disable-pip-version-check", package_target]
+            print(f"[update] 执行 pip install --upgrade {package_target}...")
         try:
-            proc = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(install_cmd, capture_output=True, text=True, timeout=180)
         except subprocess.TimeoutExpired:
-            record_failure("pip install 超时（120s）", phase="package_install", failure_kind="timeout")
-            print("[update] pip install 超时（120s）")
+            record_failure(
+                f"{client_kind} install 超时（180s）",
+                phase="package_install",
+                failure_kind="timeout",
+            )
+            print(f"[update] {client_kind} install 超时（180s）")
             return 1
         except OSError as exc:
             record_failure(str(exc), phase="package_install", failure_kind="exec")
-            print(f"[update] pip install 执行失败: {exc}")
+            print(f"[update] {client_kind} install 执行失败: {exc}")
             return 1
 
         if proc.returncode != 0:
             record_failure(
-                f"pip install exit {proc.returncode}", phase="package_install",
+                f"{client_kind} install exit {proc.returncode}", phase="package_install",
                 failure_kind="nonzero_exit", exit_code=proc.returncode,
             )
-            print(f"[update] pip install 失败 (exit {proc.returncode})")
+            print(f"[update] {client_kind} install 失败 (exit {proc.returncode})")
             if proc.stderr:
                 print(proc.stderr[-500:])
             return 1
 
-        installed_version = _installed_cli_distribution_version()
-        if installed_version != latest:
-            record_failure(
-                "安装后版本校验失败", phase="package_install",
-                failure_kind="version_mismatch", expected_version=latest,
-                installed_version=installed_version,
+        if client_kind == "npm":
+            bugx_bin = shutil.which("bugx")
+            if not bugx_bin:
+                record_failure(
+                    "npm 安装成功但找不到 bugx wrapper",
+                    phase="package_install",
+                    failure_kind="wrapper_missing",
+                )
+                print("[update] npm 安装成功但找不到 bugx wrapper")
+                return 1
+            version_proc = subprocess.run(
+                [bugx_bin, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
-            print(
-                f"[update] 安装后版本校验失败：期望 {latest}，"
-                f"实际 {installed_version or '未知'}"
-            )
-            return 1
-        print(f"[update] pip install 成功，已安装版本 {installed_version}")
+            if version_proc.returncode != 0 or latest not in (version_proc.stdout or ""):
+                actual = (version_proc.stdout or version_proc.stderr or "").strip()[-300:]
+                record_failure(
+                    "npm 安装后版本校验失败",
+                    phase="package_install",
+                    failure_kind="version_mismatch",
+                    expected_version=latest,
+                    observed_version=actual,
+                )
+                print(f"[update] npm 安装后版本校验失败：期望 {latest}，实际 {actual or '未知'}")
+                return 1
+            installed_version = latest
+            print(f"[update] npm install 成功，已验证 bugx --version ({latest})")
+        else:
+            installed_version = _installed_cli_distribution_version()
+            if installed_version != latest:
+                record_failure(
+                    "安装后版本校验失败", phase="package_install",
+                    failure_kind="version_mismatch", expected_version=latest,
+                    installed_version=installed_version,
+                )
+                print(
+                    f"[update] 安装后版本校验失败：期望 {latest}，"
+                    f"实际 {installed_version or '未知'}"
+                )
+                return 1
+            print(f"[update] pip install 成功，已安装版本 {installed_version}")
+        switched = True
 
         # 更新全局运行时引擎与宿主登记独立；没有 hosts.json 也必须刷新并验证。
         try:
@@ -1846,7 +2116,34 @@ def command_update(args: argparse.Namespace) -> int:
             return 1
         print("[update] 安装验证通过")
 
+        # 成功也必须留下与本次发布身份绑定的收据；模型文本、进程退出码
+        # 和宿主文件刷新都不能替代这个最终状态证据。
+        last_receipt = _write_update_receipt({
+            "schema_version": 1,
+            "operation_id": operation_id,
+            "started_at_epoch": started_epoch,
+            "finished_at_epoch": time.time(),
+            "current_version": __version__,
+            "installed_version": latest,
+            "client_kind": client_kind,
+            "artifact_kind": artifact_kind,
+            "release_id": release_id,
+            "channel": channel,
+            "phase": "complete",
+            "final_state": "COMPLETE",
+            **_receipt_project_identity(root),
+        })
+        _log_update_event(
+            root, "update_completed", "CLI update completed",
+            phase="complete", duration_ms=round((time.monotonic() - started) * 1000, 1),
+            operation_id=operation_id, final_state="COMPLETE",
+            receipt_path=str(last_receipt or ""), release_id=release_id,
+            target_version=latest,
+        )
+
         print(f"\n✓ BugX 已更新到 {latest}")
+        if last_receipt:
+            print(f"[update] 收据: {last_receipt}")
         print("请重新运行 bugx 命令以使用新版本。")
         return 0
     finally:
@@ -1884,6 +2181,74 @@ SUPERVISOR_PASSTHROUGH_ACTIONS = (
     + SUPERVISOR_REPAIR_ACTIONS
     + SUPERVISOR_DECISION_ACTIONS
 )
+SUPERVISOR_COMMANDS = ("install", "status", "rpc", *SUPERVISOR_PASSTHROUGH_ACTIONS)
+
+
+def forwarded_help(tokens: list[str]) -> bool:
+    """Recognize help in a forwarded command's option segment."""
+    for token in tokens:
+        if token == "--":
+            return False
+        if token in {"-h", "--help"}:
+            return True
+    return bool(tokens and (tokens[0] == "help" or tokens[1:] == ["help"]))
+
+
+def _forwarded_root(root: Path | None, tokens: list[str]) -> tuple[Path | None, list[str]]:
+    """Resolve one wrapper-owned root before any logging or dispatch."""
+    remaining: list[str] = []
+    tokens = list(tokens)
+    if tokens[:1] == ["--"]:
+        tokens.pop(0)
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            remaining.extend(tokens[index:])
+            break
+        if token == "--root" or token.startswith("--root="):
+            if root is not None:
+                raise CliError("重复指定 --root，请保留一个项目路径。")
+            value = token.partition("=")[2]
+            if token == "--root":
+                index += 1
+                value = tokens[index] if index < len(tokens) else ""
+                if value.startswith("-"):
+                    value = ""
+            if not value:
+                raise CliError("--root 缺少项目路径。")
+            root = Path(value)
+        else:
+            remaining.append(token)
+        index += 1
+    return root, remaining
+
+
+def normalize_engine_target(args: argparse.Namespace) -> None:
+    args.root, args.engine_args = _forwarded_root(args.root, args.engine_args)
+
+
+def normalize_supervisor_target(args: argparse.Namespace) -> None:
+    args.root, args.supervisor_args = _forwarded_root(args.root, args.supervisor_args)
+    if args.supervisor_command in {"install", "status"} and args.supervisor_args:
+        raise CliError(f"supervisor {args.supervisor_command} 只接受 --root；使用 --help 查看用法。")
+
+
+def supervisor_help(action: str) -> int:
+    if action in {"install", "status"}:
+        parser = argparse.ArgumentParser(
+            prog=f"bugx supervisor {action}",
+            description="写入 OpenCode 的 Supervisor MCP 配置。" if action == "install"
+            else "查看 Supervisor 运行态和宿主配置。",
+        )
+        parser.add_argument("--root", metavar="ROOT", help="项目根目录（默认当前目录）")
+        parser.print_help()
+        return 0
+    root = Path.cwd()
+    return subprocess.call(
+        [sys.executable, str(_script(root, Path("supervisor") / "cli.py")), action, "--help"],
+        cwd=root, env=_python_environment(),
+    )
 
 
 def _supervisor_recovery_action(root: Path, action: str, forwarded: list[str]) -> int:
@@ -1917,39 +2282,15 @@ def _supervisor_recovery_action(root: Path, action: str, forwarded: list[str]) -
 def command_supervisor(args: argparse.Namespace) -> int:
     """canonical supervisor MCP：install（部署/接线）/ status（部署状态）/ rpc（协议回退通道）。"""
     forwarded = list(getattr(args, "supervisor_args", []) or [])
-    # ``supervisor_args`` uses argparse.REMAINDER so rpc options can be passed
-    # through. That also captures ``--root`` when it appears after the action
-    # (for example ``supervisor status --root <project>``). Honor that root for
-    # all actions while leaving rpc's argv intact.
-    root = args.root
-    index = 0
-    while index < len(forwarded):
-        item = forwarded[index]
-        if item == "--root":
-            if index + 1 >= len(forwarded) or not forwarded[index + 1]:
-                print("[supervisor] --root 缺少路径", file=sys.stderr)
-                return 2
-            root = Path(forwarded[index + 1])
-            index += 2
-            continue
-        if item.startswith("--root="):
-            value = item.partition("=")[2]
-            if not value:
-                print("[supervisor] --root 缺少路径", file=sys.stderr)
-                return 2
-            root = Path(value)
-        index += 1
-    root = root.expanduser().resolve()
     act = args.supervisor_command
+    if forwarded_help(forwarded):
+        return supervisor_help(act)
+    normalize_supervisor_target(args)
+    forwarded = args.supervisor_args
+    root = (args.root or Path.cwd()).expanduser().resolve()
     if act == "rpc":
         # PE-20261005-003 集成：worker 协议 CLI 回退通道，一问一答直连引擎
-        has_forwarded_root = any(
-            item == "--root" or item.startswith("--root=")
-            for item in forwarded
-        )
-        if not has_forwarded_root:
-            forwarded = ["--root", str(root), *forwarded]
-        return _run_script(root, Path("supervisor") / "cli.py", ["rpc", *forwarded])
+        return _run_script(root, Path("supervisor") / "cli.py", ["rpc", "--root", str(root), *forwarded])
     if act == "install":
         return _supervisor_deploy(root)
     if act == "status":
@@ -1984,7 +2325,13 @@ def command_engine(args: argparse.Namespace) -> int:
     the engine so the same command works from Windows, Linux and macOS even
     when the global engine and project live on different volumes.
     """
-    root = resolve_project_root(args.root).resolve()
+    normalize_engine_target(args)
+    forwarded = args.engine_args or ["status"]
+    help_requested = forwarded_help(forwarded)
+    if help_requested and (forwarded[0] == "path" or forwarded == ["help", "path"]):
+        print("用法：bugx engine --root <项目> path --name <引擎文件>")
+        return 0
+    root = Path.cwd() if help_requested else resolve_project_root(args.root).resolve()
     if not root.is_dir():
         # 宿主最容易犯的错是把 `--root` 指到拼错的路径 / 还没 clone 的目录。
         # 静默让 subprocess 以 cwd 缺失抛 FileNotFoundError 只会产出一条
@@ -1993,11 +2340,6 @@ def command_engine(args: argparse.Namespace) -> int:
             f"项目根目录不存在或不是目录：{root}；"
             "请用 `--root` 指向已初始化的项目目录（或先在该目录执行 `bugx init`）。"
         )
-    forwarded = list(getattr(args, "engine_args", []) or [])
-    if forwarded and forwarded[0] == "--":
-        forwarded = forwarded[1:]
-    if not forwarded:
-        forwarded = ["status"]
     if forwarded[0] == "path":
         if len(forwarded) != 3 or forwarded[1] not in {"--name", "-n"}:
             raise CliError("用法：bugx engine --root <项目> path --name <引擎文件>")
@@ -2434,13 +2776,18 @@ def _parser_for_command_path(parser: argparse.ArgumentParser,
                              command_path: list[str]) -> argparse.ArgumentParser:
     """Return the argparse parser for a top-level or nested command path."""
     current = parser
-    for command in command_path:
+    for index, command in enumerate(command_path):
         subparsers = next(
             (action for action in current._actions
              if isinstance(action, argparse._SubParsersAction)),
             None,
         )
         if subparsers is None or command not in subparsers.choices:
+            if subparsers is None and index + 1 == len(command_path) and any(
+                not action.option_strings and action.choices and command in action.choices
+                for action in current._actions
+            ):
+                return current
             path = " ".join(command_path)
             raise CliError(_i18n_exc("system.unknown_help_topic", f"未知的帮助主题：{path}", path=path))
         current = subparsers.choices[command]
@@ -2451,6 +2798,14 @@ def command_help(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
     """Print root or command-specific help without entering command dispatch."""
     command_path = list(getattr(args, "help_command", []))
     try:
+        if command_path[:1] == ["engine"]:
+            if len(command_path) > 2:
+                parser.error("用法：bugx help engine [COMMAND]")
+            if command_path[1:] == ["path"]:
+                return command_engine(argparse.Namespace(root=None, engine_args=["path", "--help"]))
+            return command_engine(argparse.Namespace(root=None, engine_args=["help", *command_path[1:]]))
+        if len(command_path) == 2 and command_path[0] == "supervisor" and command_path[1] in SUPERVISOR_COMMANDS:
+            return supervisor_help(command_path[1])
         target = _parser_for_command_path(parser, command_path)
     except CliError as exc:
         parser.error(str(exc))

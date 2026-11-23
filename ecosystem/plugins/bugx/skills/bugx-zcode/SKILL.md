@@ -36,7 +36,7 @@ description: BugX 漏洞挖掘引擎在 ZCode 宿主下的专属使用手册—�
 # 2. 获取引擎（二选一）
 pip install bugx_agent           # 官方 wheel
 # 或从源码仓库本地构建（维护者口径，不走 Jenkins 门禁）：
-cd /path/to/bugx && python3 -m build --no-isolation --wheel --outdir dist . \
+cd /path/to/bug-hunter && python3 -m build --no-isolation --wheel --outdir dist . \
   && python3 -m pip install --force-reinstall dist/bugx_agent-*.whl
 
 # 3. 绑定项目 + 装宿主 agent（ZCode 走用户级）
@@ -350,7 +350,7 @@ bugx reset --scope project --root <项目> --yes
 ## 六、修复重放（升级 CLI 覆盖热修复时）
 
 `bugx update` / `pip install` 官方 wheel 会覆盖运行副本。重放：
-1. `cd /path/to/bugx && python3 -m build --no-isolation --wheel --outdir dist .`
+1. `cd /path/to/bug-hunter && python3 -m build --no-isolation --wheel --outdir dist .`
 2. `pip install --force-reinstall dist/bugx_agent-*.whl && bugx install --root <项目> --agent zcode`
 3. `bugx doctor` 全绿（完整性清单自动随包）；详见记忆文件
    `bugx-engine-patches-2026-11`（16+ 项修复逐条清单）。

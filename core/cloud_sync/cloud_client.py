@@ -1083,7 +1083,15 @@ class CloudClient:
 
     # ---- 版本检查与 CLI 包下载（Phase 2 自动更新）----
 
-    def check_version(self, current_version: str = "", channel: str = "") -> ReportResult:
+    def check_version(
+        self,
+        current_version: str = "",
+        channel: str = "",
+        *,
+        client_kind: str = "pip",
+        artifact_kind: str = "python-wheel",
+        release_id: str = "",
+    ) -> ReportResult:
         """GET /api/v1/agent/version — 查询最新版本元数据。
 
         当传入 current_version 时，服务端额外返回 update_available 和
@@ -1095,6 +1103,12 @@ class CloudClient:
             params["current"] = current_version
         if channel and channel.strip():
             params["channel"] = channel.strip()
+        if client_kind and client_kind.strip():
+            params["client_kind"] = client_kind.strip()
+        if artifact_kind and artifact_kind.strip():
+            params["artifact_kind"] = artifact_kind.strip()
+        if release_id and release_id.strip():
+            params["release_id"] = release_id.strip()
         return self._request("GET", VERSION_CHECK_PATH, None,
                              auth=False, retry_auth=False, params=params or None)
 
@@ -1113,8 +1127,16 @@ class CloudClient:
             return host in {"127.0.0.1", "::1", "localhost"}
         return False
 
-    def download_package(self, dest: Path, *, expected_sha256: str = "",
-                         expected_version: str = "") -> tuple[bool, str]:
+    def download_package(
+        self,
+        dest: Path,
+        *,
+        expected_sha256: str = "",
+        expected_version: str = "",
+        release_id: str = "",
+        channel: str = "",
+        artifact_kind: str = "python-wheel",
+    ) -> tuple[bool, str]:
         """GET /api/v1/agent/download — 下载 CLI 包到指定路径。
 
         返回 (success, message)。下载后做 SHA-256 校验（必须提供）。
@@ -1124,7 +1146,7 @@ class CloudClient:
 
         dest: 目标文件路径（含文件名）。
         expected_sha256: 下载后校验哈希（必填，缺失即拒绝下载）。
-        expected_version: 仅用于日志/提示，不影响逻辑。
+        release_id/channel/artifact_kind: 锁定服务端返回的具体制品。
         """
         expected_sha256 = str(expected_sha256 or "").strip().lower()
         if not expected_sha256:
@@ -1132,10 +1154,23 @@ class CloudClient:
         if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
             return False, "下载失败: expected_sha256 必须是 64 位 SHA-256 hex"
 
+        params: dict[str, str] = {}
+        if channel and channel.strip():
+            params["channel"] = channel.strip()
+        if artifact_kind and artifact_kind.strip():
+            params["artifact_kind"] = artifact_kind.strip()
+        if release_id and release_id.strip():
+            params["release_id"] = release_id.strip()
         url = self.base + DOWNLOAD_PATH
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
         # 跟随重定向（版本检查端点可能配置了外部 PyPI 镜像地址）
         opener = _build_redirect_opener(self.base)
-        headers = {"Accept": "application/octet-stream", **client_headers()}
+        headers = {
+            "Accept": "application/octet-stream",
+            "X-BugX-Artifact-Kind": artifact_kind,
+            **client_headers(),
+        }
         req = urllib.request.Request(url, headers=headers)
         try:
             resp = opener.open(req, timeout=self.timeout)
@@ -1151,6 +1186,22 @@ class CloudClient:
                         f"下载失败: 最终 URL 非 HTTPS，拒绝下载: {final_url}"
                     )
                 headers = getattr(resp, "headers", None)
+                if headers is not None:
+                    remote_release_id = str(headers.get("X-BugX-Release-ID") or "").strip()
+                    remote_version = str(headers.get("X-BugX-Version") or "").strip()
+                    remote_checksum = str(headers.get("X-Checksum-SHA256") or "").strip().lower()
+                    if remote_release_id and release_id and remote_release_id != release_id:
+                        return False, (
+                            "下载失败: 服务端 release_id 与版本检查结果不一致"
+                        )
+                    if remote_version and expected_version and remote_version != expected_version:
+                        return False, (
+                            "下载失败: 服务端版本与版本检查结果不一致"
+                        )
+                    if remote_checksum and remote_checksum != expected_sha256:
+                        return False, (
+                            "下载失败: 服务端响应校验值与版本元数据不一致"
+                        )
                 content_length = None
                 if headers is not None:
                     raw_length = headers.get("Content-Length")

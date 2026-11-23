@@ -548,7 +548,7 @@ BUGX_AESTHETIC_VISUAL_DELIVERY_REPORT.html|md|pdf
 |---|---|---|---|---|
 | 知识同步 | `bugx cloud sync` | V2 知识记录：全局/项目的 pattern、incident、tool experience、consumption、tombstone 等；项目层还会过滤基线 seed 等本地初始化内容 | 是：baseline pull → push → post-push pull | 否；显式 `cloud sync` 才执行，但 `onboard on`、`init --cloud-sync sync` 或已持久化的启动策略可能在 `pre` 中触发 onboarding 同步 |
 | 项目画像同步 | `bugx project sync` | 紧凑的项目画像和代码规模指标；完整画像仍保存在本地 | 否，单向 POST | 否，必须显式调用 |
-| 飞轮遥测 | `bugx telemetry flush` / `upload` | 独立遥测 outbox 中的脱敏事件/指标；严格隐私模式会进一步收缩字段 | 否，发送成功后删除已发送队列项 | 不等于知识同步；是否入队由 `telemetry.data_sharing` 控制 |
+| 飞轮遥测 | 普通 CLI 命令会每日最多自动记录一次安装/心跳；`bugx telemetry flush` / `upload` 可显式排空队列 | 独立遥测 outbox 中的脱敏事件/指标，以及作用域化安装元数据；严格隐私模式会进一步收缩字段 | 否，发送成功后删除已发送队列项；失败项保留 | 默认开启；`telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0` 阻止本地入队和远程上传；不等于知识同步 |
 | 诊断日志报告 | `bugx cloud log-report` | 当前项目诊断日志尾部，默认最多 256 KB，`--tail-kb` 实际限制在 1..1024 KB；请求还带 device、client version、kind | 否 | 否，命令默认不上报 |
 | Lesson 反馈 | `bugx cloud feedback` | 本地 lesson feedback 的 `lesson_id/outcome` 条目，单次最多 100 条，可附 `run_id/project` 上下文 | 否 | 否；`--dry-run` 不联网 |
 
@@ -573,7 +573,7 @@ bugx cloud onboard status --root <ROOT> --json
 - `cloud config` 读取或修改云端 Base URL、路由缓存和版本检查；修改配置是本地写入，不是网络连通性证明。
 - `cloud onboard status` 读取项目级自动同步状态。`on` 会立即按当前实现同步 global + project；它不是 project-only 开关。`off` 只切换本地 onboarding 状态。
 
-同意状态可以是允许、拒绝或未决定。没有用户明确授权时，不要设置 `--accept-data-sharing` 或 `BUGX_ACCEPT_DATA_SHARING=1`。`telemetry.data_sharing=false` 是硬拒绝：会清空本地飞轮 outbox，并阻断知识同步的 push/pull；`cloud sync --scope project` 不能绕过这个状态。
+知识同步仍需要按 scope、detail mode 和 sensitive policy 单独判断；`telemetry.data_sharing` 同时是遥测门禁和“显式撤销后禁止知识同步”的硬闸门。遥测在未配置时默认开启；用户若不希望普通命令产生安装/心跳或飞轮上传，应先执行 `bugx config set telemetry.data_sharing false`，或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`。`BUGX_ACCEPT_DATA_SHARING=1` 只用于初始化流程的预同意，不应被 AI 擅自设置。显式 `false` 会清空本地飞轮 outbox，并阻断知识同步的 push/pull；`cloud sync --scope project` 不能绕过这个状态。
 
 范围必须显式记录：
 
@@ -687,9 +687,21 @@ bugx telemetry upload --batch-size 20
 
 `inspect` 只读本地出网审计；`export` 生成加密离线包，密码来自 `--passphrase`、`BUGX_TELEMETRY_PASSPHRASE` 或交互输入，不能写入 shell history/日志；`flush/upload` 才会向 telemetry endpoint 发送，成功发送的队列项会被清除，失败项保留并增加重试次数。默认批量大小是 20。
 
-`flush/upload` 的 CLI handler 在没有抛出异常时可能返回 0，即使本次 `sent` 为 0 或仍有剩余队列；最终判断必须看本地 outbox/audit 和 `inspect` 的 sent/remaining/circuit 状态，不能把 0 当成“云端已接收全部事件”。
+当前产品契约是“默认开启、可关闭”。没有 `telemetry.data_sharing=false` 且没有进程级关闭变量时，遥测门禁默认为开启；普通 CLI 命令会每天最多尝试一次安装/心跳事件：首次为 `installed`，之后为 `heartbeat`。事件进入同一个飞轮 outbox，并在可用时 opportunistically flush；网络失败只会保留队列，不阻断用户当前命令。安装统计只发送服务端作用域化的 `installation_id`、匿名 `device_id`、客户端版本/渠道/制品类型和平台，不发送用户名、主机名、项目绝对路径、凭据或安装密钥。服务端以 installation ID 去重，事件收据仍保留在遥测事件表中。
 
-遥测 payload 会经过脱敏；`BUGX_PRIVACY_STRICT=1`/strict privacy 会进一步只保留 schema、event type、quality tier、metrics 和 privacy 等字段。但“脱敏”不等于用户已同意，也不等于知识同步完成。`config set telemetry.data_sharing false` 会清空当前飞轮 outbox，并阻止正常生产者继续入队；源码中的 CLI `telemetry flush/upload` handler 会以 `data_sharing=True` 刷新现有 outbox，因此这个命令本身不是 consent 校验器。用户未明确授权时，AI/用户必须自行停止，不得把命令可执行或退出 0 当成允许上传。
+关闭遥测和所有由该门禁控制的本地统计/远程飞轮上传：
+
+```sh
+bugx config set telemetry.data_sharing false
+# 仅当前进程关闭（优先级高于配置；非法值也按关闭处理）
+BUGX_TELEMETRY_ENABLED=0 bugx telemetry flush
+```
+
+`config set ... false` 会清空当前飞轮 outbox，并同时让知识同步的 push/pull 进入撤销态；`true` 可重新启用。进程变量 `BUGX_TELEMETRY_ENABLED=0|1` 只覆盖当前进程的未撤销状态；持久化 `false` 是硬关闭，不能用 `BUGX_TELEMETRY_ENABLED=1` 绕过。`0` 或非法值时 `flush/upload` 不联网并打印“遥测已关闭”，普通命令也不入队。关闭后如果仍看到旧的本地审计行，不代表发生了新上传。
+
+`flush/upload` 的 handler 在没有抛出异常时可能返回 0，即使本次 `sent` 为 0 或仍有剩余队列；关闭时返回 0 只表示“按门禁安全跳过”，不是上传成功。启用时最终判断必须同时看输出中的 `本次推送`/`Outbox 剩余`、`~/.bugx/telemetry/egress_audit.log` 的 HTTP 状态和服务端安装统计；不能把 0、模型文本、配置文件写入或安装 ID 出现在 payload 中当成“服务端已收到”。
+
+遥测 payload 会经过脱敏；`BUGX_PRIVACY_STRICT=1`/strict privacy 会进一步只保留 schema、event type、quality tier、metrics 和受控安装上下文。但“脱敏”不等于知识同步完成。`~/.bugx/telemetry/installation-state.json` 只保存本地发送节流状态（权限 0600），用于避免每日重复安装心跳；它不是服务端收据。真实服务端接收仍以 HTTP 2xx、出网审计和服务端事件/安装统计为准。
 
 ### 12.6 诊断日志和 Lesson 反馈上传
 

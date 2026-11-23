@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import difflib
 import hashlib
@@ -455,6 +456,66 @@ _KNOWN_CMDS = frozenset({
     "coverage",
 })
 
+# The manual dispatchers use these argument shapes before opening a project.
+# Other actions delegate argument parsing to their owning module.
+_MANUAL_OPTIONS = {
+    "abort": ((), ("reason",)),
+    "bootstrap-coverage": (("confirm", "fresh-coverage"), ()),
+    "heartbeat": ((), ()),
+    "pause": ((), ()),
+    "polling": ((), ()),
+    "prompt": ((), ("stage",)),
+    "resume": ((), ()),
+    "workers": (
+        ("execute", "dry-run", "brief"),
+        ("count", "strategy", "provider", "model", "executable", "host",
+         "subagent-type", "max-workers", "stagger-seconds"),
+    ),
+}
+_STARTUP_OPTIONS = (
+    ("allow-serial", "approve-strategy", "autonomous", "bootstrap-coverage",
+     "ignore-global-budget", "json", "refresh-probes", "replay-share-pending"),
+    ("cloud-sync", "commit-policy", "fix-mode", "host", "lesson-category", "lesson-query",
+     "life-kind", "max-round-wall-seconds", "polling", "profile", "report-policy",
+     "review-mode", "serial-reason", "session-recovery", "startup-action",
+     "startup-interaction", "strategy-plan", "tooling-choice"),
+)
+
+
+def _manual_action_parser(command: str) -> argparse.ArgumentParser | None:
+    parser = argparse.ArgumentParser(prog=f"bugx engine {command}", allow_abbrev=False)
+    if command == "post":
+        parser.epilog = "结论共享由启动时设置的 --report-policy 控制。"
+        modes = parser.add_mutually_exclusive_group()
+        modes.add_argument("--dry-run", action="store_true", help="只评估结算快照")
+        modes.add_argument("--final", action="store_true", help="最终结算")
+        parser.add_argument("--allow-incomplete", action="store_true")
+        parser.add_argument("--allow-serial", action="store_true")
+    elif command in {"status", "control"}:
+        if command == "control":
+            parser.add_argument("action", nargs="?", default="status",
+                                choices=("pause", "resume", "abort", "status"))
+            parser.add_argument("--reason")
+        parser.add_argument("--json", action="store_true")
+    else:
+        if command in {"pre", "audit"}:
+            switches, values = _STARTUP_OPTIONS
+            # [BEGIN DEV_ONLY: DEV_MODE_CLI_VALIDATION]
+            parser.add_argument("--dev", action="store_true")
+            # [END DEV_ONLY: DEV_MODE_CLI_VALIDATION]
+        elif command in _MANUAL_OPTIONS:
+            switches, values = _MANUAL_OPTIONS[command]
+        else:
+            return None
+        for name in switches:
+            parser.add_argument(f"--{name}", action="store_true")
+        number_types = {"count": int, "max-workers": int, "stagger-seconds": float} if command == "workers" else {}
+        for name in values:
+            parser.add_argument(f"--{name}", type=number_types.get(name, str))
+        if command == "polling":
+            parser.add_argument("policy", nargs="?", choices=("status", "auto", "manual"))
+    return parser
+
 
 def _reject_legacy_share_policy(argv: list[str]) -> int | None:
     """Reject the removed pre flag before any project/runtime side effect."""
@@ -480,8 +541,47 @@ def main(argv: list[str]) -> int:
     if legacy_share_policy is not None:
         return legacy_share_policy
     command = values[1] if len(values) > 1 else "status"
-    if command != "post" or "--dry-run" in values[2:]:
-        return _main_impl(values)
+    tail = values[2:]
+    if command in {"help", "--help", "-h"}:
+        if len(tail) > 1 or (tail and tail[0] not in _KNOWN_CMDS):
+            print("[launch_bugx] 未知帮助主题。", file=sys.stderr)
+            return 2
+        if tail and tail[0] not in {"help", "--help", "-h"}:
+            return main([values[0], tail[0], "--help"])
+        return _print_help()
+    if tail == ["help"]:
+        tail = ["--help"]
+        values[2:] = tail
+    options = None
+    if command in {"pre", "audit"} and "--allow-degraded" in tail and not {"-h", "--help"}.intersection(tail):
+        print("[launch_bugx] --allow-degraded 已移除。请修复缺失的安装或配置。", file=sys.stderr)
+        return 2
+    parser = _manual_action_parser(command)
+    if parser is not None:
+        if command in {"pre", "audit"} and {"-h", "--help"}.intersection(tail):
+            return _print_help()
+        removed_share = any(t.split("=", 1)[0] in {"--share", "--no-share"} for t in tail)
+        if command == "post" and removed_share and not {"-h", "--help"}.intersection(tail):
+            print("[launch_bugx] post 的共享选项已移除。请使用启动时的 --report-policy。", file=sys.stderr)
+            return 2
+        try:
+            options = parser.parse_args(tail)
+        except SystemExit as exc:
+            return int(exc.code)
+        if command == "control":
+            if options.reason is not None and options.action != "abort":
+                print("[launch_bugx] --reason 仅用于 control abort。", file=sys.stderr)
+                return 2
+            if options.json and options.action != "status":
+                print("[launch_bugx] --json 仅用于 control status。", file=sys.stderr)
+                return 2
+        if command == "post" and options.dry_run:
+            if options.allow_incomplete or options.allow_serial:
+                print("[launch_bugx] --dry-run 不接受结算授权选项。", file=sys.stderr)
+                return 2
+            return _post_dry_run_cli()
+    if command != "post":
+        return _main_impl(values, _options=options)
     from core.launch_phases.post_observability import (
         attempt_scope, current_attempt, log_attempt_finished,
         record_unhandled_exception,
@@ -489,7 +589,7 @@ def main(argv: list[str]) -> int:
     with attempt_scope("dispatcher") as attempt:
         try:
             result = _main_impl(
-                values, _post_attempt_token=attempt.attempt_token,
+                values, _post_attempt_token=attempt.attempt_token, _options=options,
             )
         except BaseException as exc:
             exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
@@ -511,6 +611,7 @@ def main(argv: list[str]) -> int:
 
 def _main_impl(
     argv: list[str], *, _post_attempt_token: object | None = None,
+    _options: argparse.Namespace | None = None,
 ) -> int:
     if argv and (argv[0] in _KNOWN_CMDS or argv[0].startswith("-")):
         argv = ["launch_bugx.py"] + list(argv)
@@ -519,7 +620,7 @@ def _main_impl(
     if legacy_share_policy is not None:
         return legacy_share_policy
     _HELP_TOKENS = {"help", "--help", "-h"}
-    if cmd in _HELP_TOKENS or any(token in _HELP_TOKENS for token in argv[2:]):
+    if cmd in _HELP_TOKENS or any(token in {"--help", "-h"} for token in argv[2:]):
         # 帮助契约要求三种写法都只读：`pre help` / `pre -h` 若不在这里截住，
         # 会落进真实 pre 相位并写启动态，违反文档承诺。
         return _print_help()
@@ -530,21 +631,13 @@ def _main_impl(
             from core.runtime import project_init
 
             if project_init.is_uninitialized_project(resolve_project_root()):
-                return status(as_json="--json" in argv[2:])
+                return status(as_json=_options.json)
         except (OSError, ValueError, RuntimeError) as exc:
-            if "--json" in argv[2:]:
+            if _options.json:
                 print(json.dumps({"status": "BLOCKED", "reason": str(exc)}, ensure_ascii=False))
             else:
                 print(f"[launch_bugx] ✗ 项目状态检查失败：{exc}")
             return 1
-    if cmd in {"pre", "audit"} and "--allow-degraded" in argv[2:]:
-        # DOC-236 C1（A4）：降级放行已废除。守卫必须位于**所有** pre/audit 出口
-        # 之前——放在尾部 dispatch 会被前置硬门禁（交互/版本/云/策略门禁）提前
-        # 返回绕过，从而变成"静默忽略"而不是"显式拒绝"。
-        print("[launch_bugx] ✗ --allow-degraded 已废除（DOC-236 C1 不允许降级）："
-              "请先自愈安装/配置；确无自动安装器的专有工具，"
-              "在 .bugx/config.json 的 tooling_exemptions 中显式豁免。")
-        return 1
     # DOC-236 C5：只做轻量布局/config/fingerprint 准备；宿主、交互、Git、
     # 版本与云门禁全部通过后才进入完整画像/探针/coverage pipeline。
     # DOC-174 的 pending ticket 只做一次廉价恢复，不重新启动昂贵初始化。
@@ -587,8 +680,6 @@ def _main_impl(
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
             print(f"[launch_bugx] ✗ 项目初始化/续做失败：{exc}")
             return 1
-    if cmd == "post" and "--dry-run" in argv[2:]:
-        return _post_dry_run_cli()
     logger = None
     if cmd == "post":
         # Set up diagnostics before layout/version/runtime-path gates can reject.
@@ -824,8 +915,6 @@ def _main_impl(
     try:
         result: int
         if cmd == "post":
-            _share = "share" if "--share" in argv[2:] else (
-                "no-share" if "--no-share" in argv[2:] else None)
             post_started = time.monotonic()
             phase_status = "failed"
             try:
@@ -837,9 +926,9 @@ def _main_impl(
                 ) as tracker:
                     try:
                         result = post(
-                            final="--final" in argv[2:], share=_share,
-                            allow_incomplete="--allow-incomplete" in argv[2:],
-                            allow_serial="--allow-serial" in argv[2:],
+                            final=_options.final,
+                            allow_incomplete=_options.allow_incomplete,
+                            allow_serial=_options.allow_serial,
                             _post_attempt_token=_post_attempt_token,
                         )
                         phase_status = "ok" if result == 0 else "failed"
@@ -874,7 +963,7 @@ def _main_impl(
                         duration_seconds=round(phase_duration, 3),
                     )
         elif cmd == "status":
-            result = status(as_json="--json" in argv[2:])
+            result = status(as_json=_options.json)
         elif cmd == "polling":
             value = argv[2] if len(argv) > 2 else None
             result = polling(value)
@@ -892,7 +981,6 @@ def _main_impl(
                 fresh_coverage="--fresh-coverage" in argv[2:],
             )
         elif cmd in {"pre", "audit"}:
-            # `--allow-degraded` 已在 `_main_impl` 入口统一拒绝（A4），此处不再重复判定。
             pre_args = argv[2:]
             is_dev = dev_mode_requested
             strategy_plan_val = None
@@ -941,15 +1029,15 @@ def _main_impl(
                     host=_option_value(pre_args, "--host"),
                 )
         elif cmd == "control":
-            sub = argv[2] if len(argv) > 2 else "status"
+            sub = _options.action
             if sub == "pause":
                 result = pause()
             elif sub == "resume":
                 result = resume()
             elif sub == "abort":
-                result = abort(_option_value(argv[3:], "--reason"))
+                result = abort(_options.reason)
             else:
-                result = status(as_json="--json" in argv[2:])
+                result = status(as_json=_options.json)
         elif cmd == "findings-confirm":
             from core.launch_phases import finding_confirm_phase
             result = finding_confirm_phase.main(argv[2:])

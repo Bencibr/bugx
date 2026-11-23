@@ -299,7 +299,7 @@ def _refresh_acceptance_receipt_after_rebind() -> None:
 
 
 def post(
-    final: bool = False, share: str | None = None, *, allow_incomplete: bool = False,
+    final: bool = False, *, allow_incomplete: bool = False,
     allow_serial: bool = False, dry_run: bool = False,
     _post_attempt_token: object | None = None,
 ) -> int:
@@ -330,7 +330,7 @@ def post(
         _begin_post_gate("runtime_load")
         try:
             result = _post_impl(
-                final=final, share=share,
+                final=final,
                 allow_incomplete=allow_incomplete,
                 allow_serial=allow_serial,
             )
@@ -431,7 +431,7 @@ def _recovery_closeout_exemption_violation(
 
 
 def _post_impl(
-    final: bool = False, share: str | None = None, *, allow_incomplete: bool = False,
+    final: bool = False, *, allow_incomplete: bool = False,
     allow_serial: bool = False,
 ) -> int:
     # DES-06：``run_module_coverage`` 已下沉到共享层；``_round_result`` /
@@ -1044,7 +1044,7 @@ def _post_impl(
         runtime = close_session(runtime.get("round_id") or runtime.get("lifecycle_id"), reason="completed")
         _finish_post_gate("ok")
         outcome = "INCOMPLETE" if (final and allow_incomplete) else "COMPLETE"
-        share_state = maybe_share_lifecycle(runtime, lifecycle, share)
+        share_state = maybe_share_lifecycle(runtime, lifecycle)
         refresh_startup_todo(
             "report",
             reason="Round 报告已封存，正在处理结论共享",
@@ -1173,7 +1173,7 @@ def _post_impl(
                 runtime.get("round_id") or runtime.get("lifecycle_id"),
                 reason="completed" if is_complete else "blocked",
             )
-            share_state = maybe_share_lifecycle(runtime, lifecycle, share)
+            share_state = maybe_share_lifecycle(runtime, lifecycle)
             if is_complete:
                 share_phase = "share-pending" if share_state == "pending" else "share-completed"
             else:

@@ -12,8 +12,9 @@
 | `bugx-avatar-512.png` | 512x512 PNG | 插件扩展商店（VS Code, JetBrains, Chrome）图标 |
 | `bugx-avatar-tight.svg` | 纯矢量 SVG (紧凑边框) | 报告内嵌、终端徽标、轻量级 Web 图标 |
 | `bugx-avatar.svg` | 纯矢量 SVG (标准呼吸留白) | 官方网页导航栏、暗色/亮色自适应图元 |
-| `bugx-hero-cn.png` | 中文横幅高清 PNG | 中文 README、技术博客、社交媒体分享 Banner |
-| `bugx-hero-en.png` | 英文横幅高清 PNG | 英文 README、国际开源社区分享 Banner |
+| `bugx-hero-zh.svg` | 中文横幅矢量 SVG | 中文 README、技术文档与官方站点 Banner |
+| `bugx-hero-en.svg` | 英文横幅矢量 SVG | 英文 README、国际开源社区分享 Banner |
+| `bugx-social-preview.svg` | 社交媒体预览矢量 SVG | OpenGraph 与社交媒体分享图元 |
 | `project-layout.md` | 项目物理布局模板 | 项目初始化由 `bugx init` 复制至 `.bugx/README.md` 的运行数据说明 |
 
 ---

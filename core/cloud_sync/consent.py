@@ -1,13 +1,14 @@
-"""cloud_sync/consent.py - 云端数据共享同意的唯一真源（L2 F1 修复）。
+"""cloud_sync/consent.py - 云端数据共享与遥测开关的唯一真源。
 
 语义（三态，禁止双轨实现）：
 
 - ``True``  —— 用户显式同意共享；云端 push/pull 仍需项目 onboarding 完成。
 - ``False`` —— 用户显式撤销；任何云端 egress（push 或 pull）一律拒绝，
   且不得写项目侧状态（撤销是用户级决定，不改写 ``.bugx/cloud-onboard.json``）。
-- ``None``  —— 用户尚未表态；沿用既有 onboarding 状态判定，保持旧行为不变。
+- ``None``  —— 用户尚未表态；云同步仍按既有 onboarding 状态判定，
+  遥测则按产品默认值开启。
 
-历史缺陷（F1）：``bugx cloud telemetry-config telemetry.data_sharing false`` 只清空
+历史缺陷（F1）：``bugx config set telemetry.data_sharing false`` 只清空
 飞轮 outbox 并写 ``~/.bugx/cloud-config.json``，但 ``sync_layers`` / ``auto_sync``
 只看 ``.bugx/cloud-onboard.json`` 的 ``state == "done"``，于是「已撤销共享」的项目
 仍会继续上传 ledger/report。修复方式是把撤销做成读取期硬闸门（本模块），而不是
@@ -20,8 +21,12 @@ import os
 from pathlib import Path
 
 CONFIG_ENV = "BUGX_CLOUD_CONFIG"
+TELEMETRY_ENABLED_ENV = "BUGX_TELEMETRY_ENABLED"
+DEFAULT_TELEMETRY_ENABLED = True
 REVOKED_ERROR = "data_sharing_revoked"
 REVOKED_DETAIL = "用户已撤销 telemetry.data_sharing，云端同步被拒绝"
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 class CloudConsentRevoked(RuntimeError):
@@ -67,6 +72,31 @@ def sharing_revoked() -> bool:
 def sharing_allowed() -> bool:
     """仅「显式 true」算同意。"""
     return data_sharing_flag() is True
+
+
+def telemetry_enabled() -> bool:
+    """返回统一遥测门禁状态。
+
+    ``telemetry.data_sharing`` 是用户持久化开关，缺失时按产品契约默认开启。
+    ``BUGX_TELEMETRY_ENABLED`` 是未撤销状态下的进程级覆盖；持久化 ``False``
+    优先级最高，非法值按关闭处理，避免把不明确的环境配置误当成允许出网。
+    所有本地统计、飞轮入队、飞轮 flush 和安装心跳都必须调用这个函数，禁止在
+    调用方自行解释三态值。
+    """
+    # 用户显式持久化的 false 是硬撤销，不能通过环境变量 true 绕过。
+    # 环境变量仍可在未撤销时关闭当前进程，或在没有持久化决定时临时开启。
+    stored = data_sharing_flag()
+    if stored is False:
+        return False
+    raw = os.environ.get(TELEMETRY_ENABLED_ENV)
+    if raw is not None:
+        normalized = raw.strip().lower()
+        if normalized in _TRUE_VALUES:
+            return True
+        if normalized in _FALSE_VALUES:
+            return False
+        return False
+    return DEFAULT_TELEMETRY_ENABLED if stored is None else stored
 
 
 def revoked_summary(scopes: set[str] | list[str] | None) -> dict:

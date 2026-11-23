@@ -196,6 +196,15 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 **BugX 是什么？**
 一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
 
+**什么是 Vibe Coding（氛围编程）安全审计？**
+Vibe Coding 借助大模型自然语言交互大幅提高了代码产出速度，但也带来了大量未经充分验证的隐蔽漏洞。BugX 专为 Vibe Coding 与 PR 自动审查设计，写完代码无需离开 AI 工具，一句话即可启动覆盖率驱动的攻防审计与真实复现，守住代码安全底线。
+
+**BugX 如何做到“零误报”（Zero False Positives）？**
+BugX 确立了严格的“真实 PoC 复现与负对照”法则：所有漏洞必须在独立沙箱中通过 3 次真实执行验证（同一攻击输入两次复现危害，一段正常输入零触发）。无法提供确定性复现命令与产物哈希的猜测一律驳回，杜绝传统 SAST 工具的报警疲劳。
+
+**BugX 的独立盲审自纠错机制是如何运作的？**
+在 0.1.2 中，BugX 引入了独立盲审验证协议（Blind Verification Protocol）。验证员智能体在隔离沙箱环境中基于最小信息差复现缺陷，彻底消除初审模型的认知偏见与幻觉自洽；同时配合 AST 语法树负对照与最多 3 次报错自纠错，确保 PoC 质量。
+
 **支持哪些 AI 编程工具？**
 Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。
 
@@ -254,7 +263,7 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；Dee
 
 ## 关键词
 
-AI 代码审计 · AI 代码审查 · 代码审查 Agent · 安全审计 · 漏洞扫描 · 静态分析 · MCP 服务 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全
+自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
 
 ## 许可
 

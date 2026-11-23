@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note for Users**: Granular internal commit notes from previous alpha/patch development cycles are kept in internal development records.
 
+## [0.1.2] - 2026-11-23
+
+### 独立盲审自纠错闭环 (P0)
+- 新增独立盲审验证协议（`core/prompts/stages/stage_verify.md`），验证员在隔离沙箱环境中基于最小信息差复现缺陷，彻底消除首发模型的认知偏见与幻觉自洽。
+- 扩充 8 类精确诊断标签（`VerificationDiagnostic`），引入 4KB 严格脱敏截断、AST 负对照语法树校验与源码 SHA-256 指纹比对，确保 PoC 验证期间被测代码零篡改。
+- 实现有界自纠错循环，支持最多 3 次报错自纠错重试，集成验证死锁自旋熔断与预算耗尽保护。
+
+### 冷启动漏洞先验包与负样本误报账本 (P1)
+- 内置 6 大技术栈（Python / Go / JavaScript / Java / 鉴权边界 / 输入输出）25 组高危反模式机读先验包，支持 Reciprocal Rank Fusion (RRF) 检索融合与字符预算上限控制。
+- 引入负样本误报账本（FP Ledger），验证实跑证伪的假阳性案例自动沉淀入库并绑定源文件 SHA-256；文件变更后自动失效，杜绝历史误报重复骚扰的同时防止掩盖新漏洞。
+
+### Recon 轻量语义侦察叠加层 (P2)
+- 自动提炼隐式路由映射、鉴权边界划分与关键业务不变量；双通道自适应（优先 LLM 语义概括，离线无网时自动降级至 AST 纯静态启发式分析）。
+- 物理级真实锚点核验：所有提取的路由与函数必须对应磁盘真实存在的物理符号，虚构实体丢弃率 100%。
+
+### 提示词策略引擎 (Prompt Policy)
+- 针对安全漏洞扫描时大模型平台（如 OpenAI Codex 等）触发的风控拦截问题，构建配置驱动的提示词策略引擎（`standard`、`defensive_qa`、`strict_compliance` Profile）。
+- 支持响应式拦截探测与防御性表达自适应重试，代码围栏与 CWE 编号 100% 物理保留。
+
+### CLI 命令契约与 SEO 增强
+- `bugx update` 精准匹配安装来源（pip / npm wrapper）进行差异更新；统一全系统 CLI 布尔开关参数规范。
+- 注入实测高价值安全与审计关键词（`vibe-coding`, `pr-review`, `zero-false-positive`, `poc-generator`, `mcp-security`）。
+- 静态引擎完整性清单 `core/engine-integrity.json` 重新计算并对齐。
+
 ## [0.1.1] - 2026-11-19
 
 ### 宿主矩阵：zcode 全轴闭合

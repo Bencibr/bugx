@@ -198,6 +198,15 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 **What is BugX?**
 An autonomous code-audit agent that lives inside AI coding assistants: it runs via MCP in Claude Code, Codex, Cline, OpenCode, and ZCode, or as a standalone CLI, tracks audit coverage per unit, and verifies every finding with real executions.
 
+**What is Vibe Coding security and PR review automation?**
+Vibe coding leverages LLMs to produce large volumes of code quickly, but models tend to cut corners and sound confident even when gaps remain. BugX is built specifically for vibe coding workflows and automated PR reviews: trigger deterministic, coverage-driven audits and real PoC reproductions directly within your AI assistant before merging.
+
+**How does BugX guarantee Zero False Positives?**
+BugX enforces the 3-Run Reproduction Rule: every candidate vulnerability must be proven by executing the attack input twice to reproduce the defect, followed by a clean input that triggers zero defects. Any finding without concrete commands, exit codes, and artifact hashes is rejected.
+
+**How does the independent blind verification protocol work?**
+In 0.1.2, BugX introduces an independent blind verification protocol (`stage_verify.md`). A dedicated verifier agent reproduces issues in an isolated sandbox with minimal prompt leakage, AST negative controls, and bounded self-correction loops, eliminating confirmation bias.
+
 **Which AI coding tools does BugX support?**
 Claude Code, OpenAI Codex, Cline / Roo Code, OpenCode, and ZCode are supported today; DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted.
 
@@ -251,7 +260,7 @@ Repository conventions (docs sync, version contract, verification gates) live in
 
 ## Keywords
 
-ai code audit · ai code review · code review agent · security audit · vulnerability scanner · sast · static analysis · mcp server · mcp security · claude code · openai codex · opencode · cline · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
+vibe coding · vibe coding security · pr review · pull request review · zero false positive · poc generator · mcp security · automated code audit · ai code audit · automated code review · code review agent · ai agent · security audit · vulnerability scanner · vulnerability mining · sast · static analysis · mcp server · claude code · openai codex · opencode · cline · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
 
 ## License
 

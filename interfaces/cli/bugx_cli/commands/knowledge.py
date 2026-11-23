@@ -446,18 +446,17 @@ def _cloud_project_slug(root: Path, requested: str | None = None) -> str:
 
 
 def _cloud_sync_command(args: argparse.Namespace, client: Any, root: Path,
-                        get_device_id, *, default_scope: str = "all") -> int:
+                        get_device_id, *, scope: str) -> int:
     """执行一次确定性的云端同步，不把同步流程交给宿主 AI 编排。
 
     ``cloud sync`` 和 ``cloud onboard on`` 共用这条路径，保证登录、设备登记、
-    401 重授权、项目绑定、scope 收敛以及 onboarding 状态落地完全一致。显式
-    同步默认覆盖 global + project；调用方仍可用 ``--scope`` 缩小范围。
+    401 重授权、项目绑定、scope 收敛以及 onboarding 状态落地完全一致。
+    调用方在进入流程前必须确定同步范围。
     """
     from .agent import _CliProgress
 
     progress = _CliProgress(args)
     progress.update(0, "准备云端同步")
-    scope = getattr(args, "sync_scope", None) or default_scope
     onboard_project = scope in {"project", "all"}
     onboarding = None
     if onboard_project:

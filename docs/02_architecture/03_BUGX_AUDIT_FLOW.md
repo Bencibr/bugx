@@ -1,14 +1,34 @@
 # BugX 审计流程
 
-> **版本**: 0.1.1+build.627 | **更新日期**: 2026-11-19 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
+> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
 > 本文是 BugX 全生命周期审计时序、状态流转与门禁判定依据。面向人类工程师与系统架构师。
-> **当前基线**：0.1.1 / Build 627　|　**更新日期**: 2026-11-19　|　**读者**：使用 BugX 的项目维护者
+> **当前基线**：0.1.2 / Build 11　|　**更新日期**: 2026-11-23　|　**读者**：使用 BugX 的项目维护者
 
 本文按首次接入、启动预飞、审查执行和结果处理，说明一轮 BugX 审计如何走完。安装细节见 [01_USER_GUIDE.md](../../docs/01_guides/01_USER_GUIDE.md)，系统分层见 [01_ARCHITECTURE.md](01_ARCHITECTURE.md)，宿主命令契约见 [01_AI_REFERENCE.md](../../docs/03_ai/01_AI_REFERENCE.md)。
 
+## 版本检查不是审计完成证据（2026-11-21）
+
+启动阶段的远程版本提示属于非阻断的 preflight 辅助信息；显式 `bugx update --check`
+只验证当前 CLI 与服务端发布元数据，`bugx update` 则是独立的安装事务。它们不创建
+`pre → claim → worker-start → heartbeat/tool_call → checkpoint → coverage/Finding → post`
+生命周期证据，也不替代 ACP/MCP 宿主验收。
+
+更新事务必须按以下证据判定：
+
+| 阶段 | 必须观察的事实 | 缺失时的状态 |
+|---|---|---|
+| 发布选择 | `channel`、`artifact_kind`、`release_id`、合法版本和 SHA-256 一致 | `BLOCKED` / `UNVERIFIED` |
+| 下载校验 | 下载响应身份、摘要和包内 pip/npm 身份一致 | `ABORTED` |
+| 安装后 | 包管理器实际版本、全局 engine integrity、已登记宿主刷新和 doctor receipt | `RECOVERY_REQUIRED` |
+| 最终结算 | 用户级 receipt 的 `final_state=COMPLETE` | 未完成，不能继续宣称成功 |
+
+更新失败后，宿主应先读取 `~/.bugx/update/receipts/<operation_id>.json`，再运行
+`bugx doctor --installation-only`；当 receipt 为 `RECOVERY_REQUIRED`、身份不匹配或
+没有新的结构化证据时必须停止，不能重复安装或用模型自然语言覆盖不确定状态。
+
 ## CLI 安装资源缺失恢复时序
 
-真实控制台入口发现默认 wheel 载荷缺失或损坏时，只修当前 Python distribution，不借用源码树；显式
+普通命令发现默认 wheel 载荷缺失或损坏时报错。显式执行 `bugx update --repair-assets` 时，只修当前 Python distribution；显式
 资源覆盖、开发模式和项目生命周期门禁不进入此流程。恢复顺序如下：
 
 ```mermaid
@@ -21,7 +41,7 @@ sequenceDiagram
     participant A as BugX stable API
     participant Y as 官方 PyPI
 
-    U->>C: 执行原 CLI 命令或 bugx update --repair-assets
+    U->>C: 显式执行 bugx update --repair-assets
     C->>C: MissingAgentAssetError → 获取修复锁
     C->>L: 直接读取当前非 editable distribution 的原始 RECORD 文本并校验 core 条目
     C->>G: 检查全局引擎自校验和 Build ID

@@ -5,11 +5,54 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bugx-cli"
 dynamic = ["version"]
-description = "Host-neutral adversarial white-box and black-box auditing agent"
+description = "Host-neutral adversarial white-box and black-box auditing agent and automated code review engine"
 readme = "docs/07_distribution/02_README_PYPI.md"
 requires-python = ">=3.11"
 license = "BUSL-1.1"
+keywords = [
+  "agent",
+  "ai-agent",
+  "ai-code-audit",
+  "automated-code-audit",
+  "code-audit",
+  "code-review",
+  "code-review-agent",
+  "automated-code-review",
+  "vibe-coding",
+  "vibe-coding-security",
+  "pr-review",
+  "pull-request-review",
+  "zero-false-positive",
+  "poc-generator",
+  "security-audit",
+  "vulnerability-scanner",
+  "vulnerability-mining",
+  "sast",
+  "static-analysis",
+  "mcp",
+  "mcp-server",
+  "mcp-security",
+  "claude-code",
+  "openai-codex",
+  "opencode",
+  "zcode",
+  "devsecops",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://bugx.dev"
+Source = "https://github.com/Bencibr/bugx"
 
 [project.optional-dependencies]
 tui = ["pexpect==4.9.0"]

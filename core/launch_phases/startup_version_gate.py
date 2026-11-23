@@ -241,7 +241,7 @@ def version_marker(path: Path) -> str | None:
         return None
     value = match.group(1)
     if value == "${BUGX_VERSION}":
-        value = os.environ.get("BUGX_VERSION", "0.1.1")
+        value = os.environ.get("BUGX_VERSION", "0.1.2")
     return value
 
 def startup_release_version(value: object) -> tuple[int, int, int] | None:
@@ -732,9 +732,13 @@ def startup_remote_version_check(*, stream=None) -> None:
             cli_ver = cloud_client.__version__
         if cli_ver == "unknown":
             cli_ver = ""
+        client_kind = "npm" if os.environ.get("BUGX_CLI_SOURCE", "").strip().lower() == "npm" else "pip"
+        artifact_kind = "npm-tarball" if client_kind == "npm" else "python-wheel"
         result = client.check_version(
             current_version=cli_ver,
             channel=client_metadata.release_channel(),
+            client_kind=client_kind,
+            artifact_kind=artifact_kind,
         )
         if not result.ok:
             _record_remote_version_result(

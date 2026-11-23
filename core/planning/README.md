@@ -1,6 +1,6 @@
 # BugX Planning & Slicing Engine (能力规划、领域路由、代码切片与仲裁流水线)
 
-> **版本契约**: `0.1.1` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
+> **版本契约**: `0.1.2` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
@@ -22,6 +22,7 @@ core/planning/
 ├── 2. 源码探测、切片与提示词脚手架 (Slicing & Prompt Harness)
 │   ├── source_inspector.py      # 轻量级源码结构化探测与上下文精准切片提取器
 │   ├── prompt_harness.py        # 动态组合审计目标、代码切片与规则的 Prompt 2.0 组装器
+│   ├── prompt_policy_engine.py  # 声明式可配置提示词策略引擎（按模型路由、风控动态降级、代码块保护）
 │   ├── dynamic_flow_analyzer.py # 跨函数污点传递与动态数据流追踪器
 │   └── impact_pruner.py         # 结合 Git Diff 与依赖图的精准剪枝引擎
 │

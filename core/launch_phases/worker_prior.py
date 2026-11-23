@@ -742,6 +742,121 @@ def unit_execution_seconds(supervisor: Any) -> dict[str, float] | None:
 
 
 
+def build_coldstart_pitfall_guidance(
+    root: Path,
+    profile: dict[str, Any] | None = None,
+    *,
+    target_files: list[str] | tuple[str, ...] = (),
+    char_budget: int = KNOWLEDGE_GUIDANCE_CHAR_BUDGET,
+    limit: int = 5,
+    host: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    policy: str | None = None,
+    last_error: str | None = None,
+) -> dict[str, Any]:
+    """Assemble dual-track cold-start pitfalls + active source-hash-bound FP guards (P1 / T-005)."""
+    from core.retrieval import pitfall_packs
+    from core.ledger import fp_ledger
+    from core.planning import prompt_policy_engine
+
+    resolved_root = Path(root).resolve()
+    resolved_policy = prompt_policy_engine.resolve_policy(
+        host=host,
+        provider=provider,
+        model=model,
+        last_error=last_error,
+        explicit_policy=policy,
+        root=resolved_root,
+    )
+    code_chunks: list[str] = []
+    active_guards: list[dict[str, Any]] = []
+    first_file = ""
+
+    for raw_rel in target_files:
+        if not isinstance(raw_rel, str) or not raw_rel.strip():
+            continue
+        rel = raw_rel.replace("\\", "/").strip()
+        if not first_file:
+            first_file = rel
+        candidate = Path(rel)
+        if not candidate.is_absolute() and ".." not in candidate.parts:
+            try:
+                abs_path = (resolved_root / candidate).resolve()
+                abs_path.relative_to(resolved_root)
+                if abs_path.is_file() and not abs_path.is_symlink():
+                    code_chunks.append(abs_path.read_text(encoding="utf-8", errors="replace")[:16384])
+            except (OSError, ValueError):
+                pass
+        active_guards.extend(fp_ledger.match_false_positive_guards(resolved_root, file_path=rel))
+
+    # Deduplicate active guards by fp_id
+    seen_fp: set[str] = set()
+    dedup_guards: list[dict[str, Any]] = []
+    for g in active_guards:
+        gid = str(g.get("fp_id") or "")
+        if gid and gid not in seen_fp:
+            seen_fp.add(gid)
+            dedup_guards.append(g)
+
+    pitfalls = pitfall_packs.match_pitfalls(
+        profile,
+        code_text="\n".join(code_chunks),
+        file_path=first_file,
+        limit=limit,
+    )
+
+    guard_budget = min(600, max(0, char_budget // 3)) if dedup_guards else 0
+    pitfall_budget = max(0, char_budget - guard_budget)
+    pitfall_text = pitfall_packs.render_pitfall_guidance(pitfalls, char_budget=pitfall_budget)
+    guard_text = fp_ledger.render_fp_guard_guidance(dedup_guards, char_budget=guard_budget)
+    parts = [p for p in (pitfall_text, guard_text) if p]
+    raw_guidance = "\n\n".join(parts)
+    if raw_guidance:
+        guidance_text = prompt_policy_engine.apply_policy(
+            raw_guidance,
+            resolved_policy,
+            include_preamble=False,
+            include_safe_repro=True,
+        )[:char_budget]
+    else:
+        guidance_text = ""
+
+    return {
+        "pitfalls": pitfalls,
+        "active_fp_guards": dedup_guards,
+        "policy_profile": resolved_policy.name,
+        "guidance_text": guidance_text,
+    }
+
+
+def build_semantic_recon_guidance(
+    root: Path,
+    *,
+    target_files: list[str] | tuple[str, ...] = (),
+    char_budget: int = 900,
+) -> dict[str, Any]:
+    """Load anchored semantic recon overlay and render target-filtered guidance (P2 / T-006)."""
+    from core.launch_phases import semantic_recon
+
+    overlay = semantic_recon.load_semantic_overlay(Path(root).resolve(), allow_stale=False)
+    text = semantic_recon.render_semantic_overlay_guidance(
+        overlay, target_files=target_files, char_budget=char_budget,
+    )
+    wanted = {f.replace("\\", "/").strip() for f in target_files if isinstance(f, str) and f.strip()}
+    def _filt(key: str) -> list[dict[str, Any]]:
+        items = overlay.get(key) or []
+        return [i for i in items if not wanted or str(i.get("file") or "") in wanted]
+
+    return {
+        "implicit_routes": _filt("implicit_routes"),
+        "auth_boundaries": _filt("auth_boundaries"),
+        "business_invariants": _filt("business_invariants"),
+        "stale_files": overlay.get("stale_files") or [],
+        "guidance_text": text,
+    }
+
+
 _worker_host_plugin = worker_host_plugin
 _worker_host_profile = worker_host_profile
 _order_jobs_longest_first = order_jobs_longest_first

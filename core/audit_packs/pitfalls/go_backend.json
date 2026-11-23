@@ -1,0 +1,66 @@
+{
+  "pack_id": "go_backend",
+  "schema_version": 1,
+  "description": "Go 后端冷启动漏洞先验包（net/http / Gin / GORM / 并发竞态）",
+  "pitfalls": [
+    {
+      "pitfall_id": "GO-SQLI-001",
+      "cwe": "CWE-89",
+      "severity": "critical",
+      "languages": ["go"],
+      "frameworks": ["gin", "gorm", "net/http", "echo"],
+      "surfaces": ["http", "api", "database"],
+      "title": "GORM Where/Order/Raw 使用 fmt.Sprintf 拼接用户输入",
+      "anti_pattern_signals": ["fmt.Sprintf(", ".Where(", ".Raw(", ".Order(", "db.Query("],
+      "false_positive_guards": [
+        "使用占位符参数 db.Where('name = ?', input)",
+        "Order 列名经 map 白名单映射后再拼接"
+      ],
+      "poc_skeleton": "传入带 SQL 语法边界符的参数（如 `id; DROP` 或 `1 OR 1=1`），验证生成 SQL 改变查询语义"
+    },
+    {
+      "pitfall_id": "GO-PATH-002",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "languages": ["go"],
+      "frameworks": ["gin", "net/http", "echo"],
+      "surfaces": ["http", "file", "api"],
+      "title": "filepath.Join 拼接用户路径未校验前缀边界（路径穿越）",
+      "anti_pattern_signals": ["filepath.Join(", "os.ReadFile(", "c.File(", "http.ServeFile("],
+      "false_positive_guards": [
+        "使用 filepath.Rel 后验证结果不以 '..' 开头且非绝对路径，或使用 os.Root (Go 1.24+)",
+        "仅允许匹配 ^[a-zA-Z0-9_-]+$ 的单段文件名"
+      ],
+      "poc_skeleton": "传入 `../../etc/passwd` 或同前缀目录逃逸 `../base_secret/a`，验证突破 baseDir 约束"
+    },
+    {
+      "pitfall_id": "GO-RACE-003",
+      "cwe": "CWE-362",
+      "severity": "high",
+      "languages": ["go"],
+      "frameworks": ["gin", "net/http", "grpc"],
+      "surfaces": ["concurrency", "api", "state"],
+      "title": "无锁并发读写共享 map 或检查-后-使用（TOCTOU）竞态",
+      "anti_pattern_signals": ["go func(", "make(map[", "sync.Mutex", "balance", "quota"],
+      "false_positive_guards": [
+        "共享状态全程受 sync.Mutex / sync.RWMutex 或 sync.Map / channel 单写者保护",
+        "余额/配额扣减在数据库事务中使用原子条件更新 WHERE balance >= ?"
+      ],
+      "poc_skeleton": "使用 `go test -race` 并发触发多个 goroutine 访问同一处理器，观测 data race 或超扣"
+    },
+    {
+      "pitfall_id": "GO-TEMPLATE-004",
+      "cwe": "CWE-79",
+      "severity": "medium",
+      "languages": ["go"],
+      "frameworks": ["gin", "net/http"],
+      "surfaces": ["web", "http", "template"],
+      "title": "使用 text/template 渲染 HTML 或将非受信输入强转为 template.HTML",
+      "anti_pattern_signals": ["text/template", "template.HTML(", "template.JS(", "template.URL("],
+      "false_positive_guards": [
+        "使用 html/template 且未对用户输入做 template.HTML 类型强转"
+      ],
+      "poc_skeleton": "向模板变量注入 `<script>1</script>`，验证输出 HTML 未被自动实体转义"
+    }
+  ]
+}

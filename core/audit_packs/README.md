@@ -14,6 +14,7 @@ flowchart TD
     AP --> NA["native-audit/<br/>C/C++/Rust 系统级与底层原生审计"]
     AP --> DA["desktop-audit/<br/>桌面应用与跨进程通信审计"]
     AP --> DATA["data-audit/<br/>数据库与数据合规完整性审计"]
+    AP --> PF["pitfalls/<br/>按技术栈挂载的冷启动漏洞先验包 (JSON)"]
 ```
 
 ---
@@ -27,6 +28,7 @@ flowchart TD
 | `native-audit` | C / C++ / Rust / Go 系统级服务、驱动、高性能组件 | 白盒静态分析 (`10-static-white-box`)、内存与并发竞争 (`20-memory-concurrency`)、黑盒模糊测试 (`30-behavior-black-box`)、回归测试 (`80-evidence-regression`) |
 | `desktop-audit` | Electron / Tauri / macOS Cocoa / Windows 原生桌面应用 | 进程通信模型 (`10-process-model`)、打包签名与分发完整性 (`20-package-integrity`)、UI 行为与剪贴板权限 (`30-ui-behavior`) |
 | `data-audit` | SQL/NoSQL 数据库模型、数据流水线、合规性脱敏 | 数据表与 Schema 盘点 (`10-schema-inventory`)、查询优化与注入漏洞 (`20-query-and-integrity`)、回溯验证 (`80-evidence-regression`) |
+| `pitfalls/` | 按技术栈按需挂载的冷启动漏洞先验包（`python_web` / `js_ts_web` / `go_backend` / `java_spring` / `auth_crypto` / `file_ssrf_cmd`） | 机读 CWE、反模式信号、误报排除护栏与最小 PoC 骨架（由 `core/retrieval/pitfall_packs.py` 检索注入） |
 | `platform-testing.md` | 桌面端与移动端测试核心规则 | 跨平台多目标（Electron/Android/iOS/Flutter/Web）审计前置、平台预检通道与验证矩阵 |
 | `memory-testing.md` | 应用软件内存审计核心规约 | 针对内存泄漏、持续增长、OOM、越界访问、Use-After-Free 的针对性工作负载与证据规则 |
 

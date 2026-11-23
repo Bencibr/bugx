@@ -13,7 +13,7 @@ from pathlib import Path
 
 VERSION_ENV = "BUGX_VERSION"
 VERSION_TOKEN = "${BUGX_VERSION}"
-_DEFAULT_VERSION = "0.1.1"
+_DEFAULT_VERSION = "0.1.2"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 

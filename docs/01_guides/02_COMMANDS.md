@@ -13,9 +13,10 @@ last-verified: 2026-11-10
 ## 1. 阅读规则
 
 - <value> 表示必填值，[value] 表示可选值。
+- 布尔选项是开关，不接收 `=true` 或 `=false`：启用直接写 `--force`、`--json`、`--dry-run` 等选项，关闭时删掉该选项；反向开关按名称直接使用，例如 `--no-adaptive-wall-time` 表示关闭。`--force=True` 和 `force=True` 都不是 CLI 语法。
 - “可重复”表示 parser 使用重复选项；除非命令另有说明，不要把逗号分隔字符串当成重复参数。
 - [R] 只读或查询为主；[W] 会写本地状态或配置；[N] 可能访问网络；[D] 具有删除、覆盖、停止或不可逆风险；[P] 生成报告或 artifact。一个命令可以同时带多个标签。
-- 帮助文本不能替代本参考的副作用说明。某些 handler 的 --help 路径和安装/修复逻辑共享代码，使用前先确认目标和源码契约。
+- `bugx help <COMMAND> [ACTION]` 与 `--help` 在业务动作前返回。布尔开关只接受完整的选项名或帮助中列出的别名。
 - 命令失败时保留 stdout、stderr、JSON、.bugx/logs/bugx.jsonl 和实际退出码；不要用重复重试覆盖第一份证据。
 
 ## 2. 顶层命令清单
@@ -136,6 +137,7 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
                   [--locale LOCALE] [--json]
 
 --agent 可重复；当前安装/检测值为 chatgpt、claude、cline、codex、dsh、funide、opencode、pi、qoder、trea、workbuddy、zcode。不指定 --agent 时不要假设会配置所有 Host。--allow-missing 允许缺失可选资产时继续，但不改变 Host 的 ready/ACP 状态。
+安装事务会先解析选中的 Host，再快照共享 `.bugx` 和这些 Host 声明的写入面。未选中的宿主符号链接或 Windows 重解析点不参与本次事务。用户目录安装 DSH 时可用 `--root <项目目录>` 明确指定项目根。
 
 ### 4.6 reset [W][D]
 
@@ -340,7 +342,7 @@ skill_action 为 list、status、validate、rollback、import、pull；--skill �
 
     bugx engine [--root ROOT] [engine_args ...]
 
---root 必须是已存在的项目目录；engine_args 原样传给全局 engine。没有 engine_args 时默认为 status。CLI 设置项目 root、全局 engine root 和 CLI 版本环境，再运行全局 engine；项目级 .bugx/core 不是当前可执行入口。
+`--root` 必须是已存在的项目目录，可放在动作前或动作后，只能指定一次。CLI 先解析项目目录，再把其余参数交给全局引擎。未指定动作时默认 `status`。
 
 当前 engine 命令集合：
 
@@ -370,7 +372,6 @@ help、--help、-h 会在进入真实 phase 前截断，按只读帮助处理。
 | --startup-action | `start\|restart\|later` | 处理 MCP_SESSION_STALE 的最终启动动作 |
 | --strategy-plan | `approve\|reject\|custom` | 回传策略门禁决策（宿主单选回传通道）；`--approve-strategy` 等价 approve |
 | --tooling-choice | `<tool=choice>` 可重复 | 回传工具门禁处置（如 `platform=skip`）；也可经 `BUGX_TOOLING_CHOICES` 回传 |
-| --report- VALUE 系（--report-policy 除外） | 见 --help | 其余 report 前缀选项按 --help 现值 |
 | --host | `<name>`（缺省读 runtime 或物理探查） | 显式绑定本次 Session 宿主 |
 | --max-round-wall-seconds | 正的有限秒数 | 覆盖本轮 Supervisor 墙钟预算 |
 | --autonomous | 旗标 | 已校验自治策略：跳过策略提问但不跳过硬门禁 |
@@ -434,9 +435,8 @@ local；宿主入口 build 与引擎不一致时报
 
 ### 7.3 post
 
-    bugx engine --root . post [--final] [--share|--no-share]
-                             [--allow-incomplete] [--allow-serial]
-                             [--dry-run]
+    bugx engine --root . post [--final] [--allow-incomplete] [--allow-serial]
+    bugx engine --root . post --dry-run
 
 **何时用**：worker/judge 完成后结算本轮；结束当前 Round 用 `post --final`。
 **结果**：外部基线核对 → 证据/覆盖校验 → 计命结算 → 生成 Round 报告
@@ -446,9 +446,10 @@ local；宿主入口 build 与引擎不一致时报
 |---|---|---|
 | --final | 旗标 | 最终结算并封存当前 Round（终态 COMPLETE/INCOMPLETE/ABORTED） |
 | --allow-incomplete | 旗标 | 覆盖不完整时以 INCOMPLETE 诚实封存（**不能**改写为 COMPLETE；业务链路未覆盖时用） |
-| --share / --no-share | 旗标 | 生命周期结果分享意图（受 report_policy 约束） |
 | --dry-run | 旗标 | 冻结 snapshot 只读预览（评估将做什么，不落盘） |
 | --allow-serial | 旗标 | 串行授权相关 |
+
+共享策略由启动时的 `--report-policy` 决定。已移除的共享选项、未知选项和预览与结算选项混用时，都会在读取或变更生命周期前拒绝。
 
 排障：仍有 open Finding 时 post 拒绝 COMPLETE（auto 模式）——按提示
 `pre --fix-mode log-only` 重开新会话再收口；「必须紧接对应的活动
@@ -547,7 +548,7 @@ status 在未初始化项目上可以执行有限的只读检查；其他动作�
 - export 的 scope 默认 project，detail mode 默认 full，--output 必填，写本地 bundle。
 - upload 的 --mode 默认 merge，local_authoritative 会改变冲突权威方向；这是显式网络动作。两种 mode 都可能采用服务端 snapshot 并更新本地同步基线，必须核对 `snapshot_id`、`snapshot_version` 和上传后的 `cloud status`。
 - sync 每个 scope 的实现顺序是 baseline pull → push → post-push pull；`summary` 只降低部分记录详情，不等于敏感数据清除。敏感策略由 `cloud.sensitive_policy` 控制，允许值为 `block|redact|allow`；配置缺失时缺省为 `redact`（安全默认，F-025）——原样出网必须显式设置 `allow`。
-- `cloud sync` 未指定 `--scope` 时使用 `cloud.sync_scope_default`，缺省为 `all`；`onboard on` 和启动 onboarding 可能直接同步 global + project，不能把它们当 project-only。
+- `cloud sync` 未指定 `--scope` 时使用 `cloud.sync_scope_default`，未配置时只同步当前项目。无效配置会终止同步。`onboard on` 和启动 onboarding 仍有独立的同步范围。
 - 失败时先看 `cloud status --scope ... --json`、`cloud conflicts list`、`cloud dead-letter list`。`ack_pending` 表示本地可能已提交而 ACK 未完成，不要直接 reset 或盲目重复 upload；`--calibrate` 只用于明确的可恢复 cursor/baseline 失配。
 
 ### 8.4 cloud conflicts、dead-letter、projects、devices、onboard
@@ -585,7 +586,16 @@ auth_action 必须是 login、status、set-key 或 logout。--api-key 只用于 
     bugx telemetry flush [--batch-size N]
     bugx telemetry upload [--batch-size N]
 
-flush/upload 的 --batch-size 默认 20；export 写本地产物，flush/upload 可能网络传输。telemetry 使用独立飞轮 outbox，不是 cloud knowledge 的五类 V2 record；成功发送的队列项会被清除，失败项保留并增加尝试次数。`inspect` 只看本地出网审计，`export` 生成加密离线包。passphrase 仅作为参数或受控环境传递，不能记录到日志。
+flush/upload 的 --batch-size 默认 20；export 写本地产物，flush/upload 可能网络传输。telemetry 使用独立飞轮 outbox，不是 cloud knowledge 的五类 V2 record；成功发送的队列项会被清除，失败项保留并增加尝试次数。未配置时遥测门禁默认开启，普通 CLI 命令每天最多自动入队一次 `installed`/`heartbeat` 安装事件并尽力 flush；安装事件只包含服务端作用域化安装 ID、匿名设备 ID、版本/渠道/制品类型和平台，不包含用户名、主机名、项目路径或凭据。`inspect` 只看本地出网审计，`export` 生成加密离线包。passphrase 仅作为参数或受控环境传递，不能记录到日志。
+
+关闭入口：
+
+```sh
+bugx config set telemetry.data_sharing false
+BUGX_TELEMETRY_ENABLED=0 bugx telemetry flush  # 只影响当前进程
+```
+
+`telemetry.data_sharing=false` 会清空飞轮 outbox、停止本地遥测写入，并让知识同步 push/pull 进入撤销态；持久化的 `false` 是硬关闭，不能用 `BUGX_TELEMETRY_ENABLED=1` 绕过。`BUGX_TELEMETRY_ENABLED=0` 或非法值在当前进程关闭遥测；关闭时 `flush/upload` 不联网并返回 0（表示安全跳过，不表示上传成功）。启用时要以输出的 `sent/remaining`、`~/.bugx/telemetry/egress_audit.log` 和服务端安装统计判断结果，不能只看退出码。
 
 ### 8.7 config set
 
@@ -652,7 +662,7 @@ supervisor_action 为：
 
 install、status、rpc、reset-budget、recover、rebind-target、gate、repair-fence、findings、next-round、finish。
 
-`install` 和 `status` 不需要额外参数。`rpc` 的实际参数为：
+`install` 和 `status` 只接受 `--root`。查看动作帮助可用 `bugx help supervisor install` 或 `bugx supervisor install --help`。`rpc` 的实际参数为：
 
     bugx supervisor rpc --root ROOT [--role {host,worker}]
                          [--tool TOOL --args JSON]
@@ -689,7 +699,24 @@ plugin_action 为 list、status、install、uninstall、zcode。--remove、--for
                 [--repair-assets] [--allow-downgrade]
                 [--channel|-c {stable,alpha,''}]
 
---channel 默认空字符串，表示 stable；--check 是检查路径，实际 update/repair 可能写全局安装。--allow-downgrade 需明确版本风险。
+`--channel` 默认空字符串，服务端按 `stable` 解析；`alpha` 必须显式选择。`--check` 只查询版本，不下载或安装；检查退出码为 `0=无更新`、`1=有更新或必须更新`、`2=网络/元数据失败`。`bugx --version` 只查看本地版本，不是 `bugx version --check`（当前 parser 没有这个公共命令）。
+
+实际 `bugx update` 的前置条件和副作用：
+
+- 当前 CLI 必须是受 pip 或 npm 管理的安装；源码 checkout、editable 或无法识别来源会 fail-closed，不自动覆盖源码。
+- 服务端必须返回合法的 `release_id`、`artifact_kind`、版本、SHA-256 和可用制品。旧的、只有 `SystemSetting` 而没有 `release_id` 的发布信息可以被读取，但实际安装会停止。
+- pip 安装使用当前 Python 的 `python -m pip`；npm wrapper 使用 `npm install --global`。下载包先写入临时目录，npm tarball 还会检查 `package/package.json` 的 `name=bugx-cli` 和版本。
+- 更新会联网下载，修改用户级全局 CLI；随后刷新 `~/.bugx/core`、已登记 Host 入口，并对指定 `--root` 执行 `doctor --installation-only`。它不执行目标项目审计代码，但可能刷新宿主配置。
+- `--force` 允许同版本重装；`--allow-downgrade` 只允许服务端明确返回低版本时安装，不能把它当作失败回滚；`--repair-assets` 是缺失安装资源恢复路径，不等价于版本更新。
+
+成功判定必须同时满足：安装器成功、安装后版本与服务端版本一致、全局引擎 integrity 通过、Host 刷新成功（如有已登记 Host）、installation-only doctor 成功，并且 `~/.bugx/update/receipts/<operation_id>.json` 的 `final_state` 为 `COMPLETE`。只有 CLI 返回 0、pip/npm 输出成功、或服务端返回有更新，都不能单独证明完整更新成功。
+
+失败恢复：
+
+1. 保存命令退出码、stderr、`bugx --version`、`bugx doctor --root <ROOT> --installation-only --json` 和最新 update receipt。
+2. receipt 为 `ABORTED` 时，安装尚未确认切换完成；修正网络、权限、通道或制品问题后只重试一次。
+3. receipt 为 `RECOVERY_REQUIRED` 时，说明 pip/npm 已可能切换，但引擎、Host 或 doctor 尚未闭环；停止重复更新，先按 receipt 的 `phase` 修复，再运行 `bugx install --root <ROOT> --force --non-interactive` 或 doctor 报出的窄修复。
+4. 没有 receipt、版本来源不明、目标 root 不一致、或准备删除/重置全局安装时，必须停止并报告 `BLOCKED`/`UNVERIFIED`，不得用 `--force` 掩盖。
 
 ### 10.3 patch-forge
 
@@ -743,6 +770,8 @@ plugin_action 为 list、status、install、uninstall、zcode。--remove、--for
 
 裸 project 默认执行 analyze；`project sync` 不是 `cloud sync` 的别名，它只上传紧凑项目画像/代码指标，并写项目云绑定；成功 JSON 应包含 `status=ok`、`project_id`、`synced=true`。`rebind --migrate` 迁移项目身份/状态；settings 的每个 --set-* 选项写项目设置。--root 默认按命令解析到当前项目。
 
+`project show` 只读取缓存。没有可用缓存时返回 `not_found`，可单独运行 `project analyze` 生成。项目选项可写在动作前后，重复指定 `--root` 会报错。
+
 ### 11.2 view
 
     bugx view PATH [--lines|-L RANGE] [--no-numbers|-N]
@@ -795,6 +824,7 @@ verify 的 max-mutants 默认 30、timeout 默认 2.0 秒；mutate 也默认 max
 - --scope 可重复；--deep 开启一次性深度流程。
 - concurrency 默认 6；format 默认 all；min-kill-rate 默认 0.85。
 - --open-browser 可能启动本地浏览器；--out 写报告。
+- 输出格式、输出目录和并发等选项不会切换模式。当前模式不支持的非默认设置会在工作流开始前拒绝。
 - graph 模式返回 ready/awaiting_native_agent 仍可能只是等待原生 Agent。
 
 ### 12.2 interaction
@@ -835,6 +865,8 @@ export 的 parser 默认值为：--cve CVE-2026-9001、--package target-package�
     bugx report serve [common options] [--host HOST] [--port PORT] [--once]
 
 report 裸命令接受 common report args；subcommand 为 formal、visual、both 或 serve。serve 的 host 默认 127.0.0.1、port 默认 8080；--once 只处理一次请求。source=project 读取项目 Supervisor state；source=eval 读取 eval receipt；source=auto 的回退受项目阻塞和 eval 存在条件限制。
+
+报告公共选项可写在动作前后。子命令缺省值不会覆盖显式选项，重复指定 `--root` 会报错。
 
 ## 13. 已移除或不再接受的入口
 

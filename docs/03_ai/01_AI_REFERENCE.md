@@ -37,7 +37,32 @@ last-verified: 2026-11-17
 
 生命周期目录的权威产物包括 events.jsonl、conclusion.json、report.md、integrity.json。不要把完整 artifact、credential、wire log 或未脱敏源码放入模型上下文或云端 payload。
 
-### 1.2 Host capability sets
+### 1.2 CLI 版本检查与更新契约
+
+公共入口只有：
+
+```text
+bugx --version
+bugx update --check --root <ROOT>
+bugx update --root <ROOT> [--channel stable|alpha] [--allow-downgrade]
+```
+
+不要生成 `bugx version --check`。`--check` 是只读联网检查：退出码 `0` 表示当前无需更新，`1` 表示有更新/必须更新，`2` 表示网络、服务端元数据或安装来源检查失败。`bugx update` 具有全局写入副作用：它识别当前 pip/npm 安装来源，按服务端返回的 `channel + artifact_kind + release_id + checksum_sha256` 下载制品，随后刷新全局 engine、已登记 Host 和目标 root 的 installation-only doctor。
+
+AI 必须按以下证据门判断：
+
+```text
+version response with update_available -> 只说明存在候选更新
+release_id/checksum/artifact missing   -> STOP, report BLOCKED or UNVERIFIED
+source/editable installation           -> STOP, do not overwrite source
+pip/npm installer exit 0               -> 仍未完成，继续读取 installed version
+engine/host/doctor failure after install -> RECOVERY_REQUIRED
+receipt final_state=COMPLETE + doctor success -> update COMPLETE
+```
+
+更新收据位于用户级 `~/.bugx/update/receipts/<operation_id>.json`，成功状态必须为 `COMPLETE`；安装器之后任一阶段失败时状态为 `RECOVERY_REQUIRED`。没有真实 receipt、版本核对、引擎 integrity 和 doctor 结果时，不得把 CLI 返回 0、模型文本、Task 打印、服务端配置写入或工具列表当作更新完成。启动阶段的版本检查是后台提示，`BUGX_DISABLE_VERSION_CHECK=1` 或 cloud-config 的 `disable_version_check=true` 只禁用启动提示，不禁用显式命令。
+
+### 1.3 Host capability sets
 
     install_adapters =
       chatgpt, claude, cline, codex, dsh, funide,
@@ -95,7 +120,7 @@ autonomous host 选取不是独立事实表：baseline 五宿主来自 `AUTONOMO
   profile 预算优先于用户全局 `BUGX_WORKER_TIMEOUT`（宿主事实比全局 env 更具体）。
   语义与 cline `base_override` 一致（退避、钳制、exploit 保底同公式）。
 
-### 1.3 Optional code-index MCP
+### 1.4 Optional code-index MCP
 
 项目需要结构化代码导航时使用已锁定的 `codindex` server：
 
@@ -107,7 +132,7 @@ autonomous host 选取不是独立事实表：baseline 五宿主来自 `AUTONOMO
 `npx` 或未固定版本的包命令；缺少 lock runtime 时返回 BLOCKED/UNVERIFIED，不把配置存在
 误报为服务已加载。
 
-### 1.4 ACP probe status vocabulary
+### 1.5 ACP probe status vocabulary
 
 `scripts/smoke/smoke_host_acp.py` 的宿主探活只有四个机读状态；词值是下游
 （adversarial_matrix_verify / layer_ceiling_probe）按值比对的契约，禁止改名或新增同义词：
@@ -137,7 +162,7 @@ PyYAML 缺失）抛 `_UserScopeParseUnavailable`，调用方如实降级 UNVERIF
 不得把工具缺口当成「未配置」的结构性假阴性。dsh 的用户级 YAML patch 含 bugx
 host/worker 双通道条目 ⇒ `mcp_configured=True`，同样经该事实源判定。
 
-### 1.5 Provider availability facts
+### 1.6 Provider availability facts
 
 宿主通道可用性事实共享提取：`core/host_runtime/provider_facts.py`（依赖图叶子，仅标准库，
 可被上下游同时导入）。受控事实库路径：
@@ -175,6 +200,14 @@ host/worker 双通道条目 ⇒ `mcp_configured=True`，同样经该事实源判
     bugx engine --root <project> post ...
 
 顶层 bugx pre、bugx status、bugx workers、bugx post 等旧入口不执行，会返回迁移错误。bugx engine 不带 engine args 时默认为 status。engine CLI 为全局 engine 进程设置 project root、global engine root 和 CLI version 环境。
+
+CLI 的布尔选项统一按开关解析：`--force`、`--json`、`--execute` 等选项直接出现即为
+启用，省略即为关闭，不生成 `--force=True`、`--json=False` 或 `force=True`。MCP/内部
+Python API 的布尔字段仍按各自协议传递，不能把协议字段拼接到 CLI 参数后。
+
+帮助可通过 `bugx help <COMMAND> [ACTION]` 查询。显式项目根在业务分发前解析，重复的
+`--root` 会拒绝。引擎先校验结算参数，快照预览不创建 CLI 日志，报告共享策略由启动时
+的 `--report-policy` 决定。安装载荷缺失时通过显式的 `bugx update --repair-assets` 恢复。
 
 帮助调用 help、--help、-h 必须只读。pre/audit 明确拒绝 --allow-degraded；不要通过该参数请求静默降级。
 
@@ -670,16 +703,18 @@ AI 不得猜测 data sharing consent、report policy、tooling choice、repair s
 
 | path | entry | payload | scope/default | network/local effect | completion evidence |
 |---|---|---|---|---|---|
-| knowledge sync | `bugx cloud sync` | V2 knowledge records（patterns/incidents/tool experience/consumption/tombstones；project 层有本地过滤） | `project|global|all`；显式 `--scope` 优先，省略时读 `cloud.sync_scope_default`，缺省 `all` | 双向；每层 `pull baseline → push → pull`，写 SyncStore/outbox/inbox/conflict/dead-letter | 每层 summary + `cloud status --json` cursor/error/queue/conflict 收敛；0/`ok` 不足够 |
+| knowledge sync | `bugx cloud sync` | V2 knowledge records（patterns/incidents/tool experience/consumption/tombstones；project 层有本地过滤） | `project|global|all`；显式 `--scope` 优先，省略时读 `cloud.sync_scope_default`，未配置默认为 `project` | 双向；每层 `pull baseline → push → pull`，写 SyncStore/outbox/inbox/conflict/dead-letter | 每层 summary + `cloud status --json` cursor/error/queue/conflict 收敛；0/`ok` 不足够 |
 | project profile | `bugx project sync` | `wire_project_profile(profile)` 的紧凑项目画像/代码指标 | 当前 root；无 knowledge scope | 单向网络，登记/写 `<ROOT>/.bugx/cloud-project.json`；完整 profile 留本地 | JSON `status=ok`, `project_id`, `synced=true`, remote result |
-| telemetry | `bugx telemetry flush|upload` | 独立飞轮 outbox 的脱敏事件/metrics；strict 会缩减字段 | 用户级 outbox；batch default 20 | 单向；成功发送项从 outbox 清除，失败保留/递增 attempts | `telemetry inspect --latest --json`、egress audit、flush 输出与退出码 |
+| telemetry | 普通 CLI 命令每日最多自动记录一次安装/心跳；`bugx telemetry flush|upload` 显式排空队列 | 独立飞轮 outbox 的脱敏事件/metrics；安装事件只带作用域化 installation ID、匿名 device ID、版本/渠道/制品类型/平台；strict 会缩减字段 | 用户级 outbox；batch default 20；未配置时门禁默认开启 | 单向；成功发送项从 outbox 清除，失败保留/递增 attempts；`telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0` 时本地/远程均停 | 启用时看 `telemetry inspect --latest --json`、egress audit、flush 的 `sent/remaining` 和服务端安装统计；关闭时 `flush` 不联网且返回 0 只表示跳过 |
 | diagnostic report | `bugx cloud log-report` | 诊断日志尾部；default 256 KB，handler clamp 1..1024；device/version/kind/payload | 当前 root；kind default `cli-diagnostics` | 单向 POST，需 auth/配额；日志可能含路径和上下文 | 上传前审查 + bytes/lines、网络结果、退出码 |
 | lesson feedback | `bugx cloud feedback` | 本地 feedback 的 lesson_id/outcome，最多 100，附可选 run/project | 当前项目/lifecycle filter | `--dry-run` 无网络；非 dry-run 单向 POST | dry-run 预览或 updated/missing、网络结果、退出码 |
 | bundle | `cloud export|upload` | export 生成的指定 V2 JSON bundle | export default project/full；upload 以输入 bundle scope 为准 | export 本地原子写；upload 网络并采用 snapshot、强制 baseline pull | bundle SHA-256 + snapshot_id/version + upload 后 status |
 
 知识同步的 `detail-mode=summary` 只是删除部分 pattern/incident 详情，不能当作“无业务内容”或“无敏感数据”。`sensitive_policy` 的值是 `block|redact|allow`；配置缺失时实现缺省 `allow`，所以 AI 在用户未选择策略时必须停下来询问，而不是静默上传原始记录。非默认策略的审计摘要在 `~/.bugx/logs/sync-policy-audit.jsonl`。
 
-注意：`config set telemetry.data_sharing false` 会清空飞轮 outbox，并阻止正常生产者入队，但当前 CLI `telemetry flush/upload` handler 构造 uploader 时显式传入 `data_sharing=True`，因此它不是独立的 consent gate。AI 必须在调用前自行确认用户授权；不能把该命令返回 0 写成“隐私策略已放行”。
+遥测门禁统一由 `core/cloud_sync/consent.py:telemetry_enabled()` 裁决。未配置持久化值时默认 `true`；`bugx config set telemetry.data_sharing false` 会清空飞轮 outbox、停止本地统计写入，并让知识同步 push/pull 进入撤销态。持久化的 `false` 是硬撤销，不能用 `BUGX_TELEMETRY_ENABLED=1` 或调用方传入 `data_sharing=True` 绕过；该环境变量只在未持久化撤销时覆盖当前进程，非法值按关闭处理。`telemetry flush/upload` 关闭时不联网、返回 0 并打印已关闭；该 0 只表示安全跳过。普通 CLI 命令还会每日最多尝试一次安装/心跳事件，首次 `installed`、之后 `heartbeat`，通过同一 outbox 传输。
+
+AI 在用户要求“上传数据”时仍必须先分类并说明 telemetry 数据面；但不能把“未见用户逐次确认”误判为实现上的关闭，因为当前产品默认开启。用户明确要求不上传时，先执行 `bugx config set telemetry.data_sharing false` 或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`，再继续只读/本地路径。
 
 ### 10.2 Cloud state machine and recovery
 

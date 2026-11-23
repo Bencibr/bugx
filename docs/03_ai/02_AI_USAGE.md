@@ -1,6 +1,6 @@
 # BugX AI 使用指南
 
-> **版本**：0.1.1+build.627 ｜ **更新日期**：2026-11-10
+> **版本**：0.1.2+build.11 ｜ **更新日期**：2026-11-23
 > **定位**：给宿主 AI 的任务型操作指南
 > **相关文档**：[AI Reference](01_AI_REFERENCE.md) ｜ [AI 命令手册](03_AI_COMMANDS.md) ｜ [用户故障排查](../01_guides/03_TROUBLESHOOTING.md)
 
@@ -127,12 +127,12 @@ bugx cloud sync --root <ROOT> --scope project
 |---|---|---|---|
 | 同步 BugX 知识 | `bugx cloud sync --scope project|global|all` | consent、scope、`full|summary`、`block|redact|allow` | 每层 baseline/push/pull 摘要 + `cloud status` 收敛 |
 | 上传项目规模/画像 | `bugx project sync --json` | 账号、项目绑定、是否允许指标出网 | `status=ok`、`project_id`、`synced=true` |
-| 发送飞轮遥测 | `bugx telemetry flush|upload` | telemetry consent、队列范围、strict policy | inspect/audit + sent/remaining 结果 |
+| 发送飞轮遥测 | 普通 CLI 命令会每日最多自动记录并尽力发送安装/心跳；显式发送使用 `bugx telemetry flush|upload` | 遥测门禁、队列范围、strict policy；未配置时门禁默认开启 | `telemetry inspect --latest --json`、egress audit、`sent/remaining`；服务端安装统计只能作为已联网收到的补充证据 |
 | 上报日志 | `bugx cloud log-report --tail-kb ...` | 日志尾部是否有秘密；kind、大小、限额 | bytes/lines + 网络返回和退出码 |
 | 上报 lesson 反馈 | `bugx cloud feedback --dry-run` → 非 dry-run | 条目、outcome、lifecycle/run/project；先预览 | dry-run 条目或 updated/missing |
 | 传输 bundle | `cloud export` → 人工检查 → `cloud upload` | bundle SHA-256、scope、mode、敏感策略 | snapshot_id/version + 上传后本地基线收敛 |
 
-若用户只说“把数据上传一下”而没有指定数据面、scope 和授权，必须停在 `BLOCKED/NEEDS_USER_SCOPE`，先列出上述选项，不能自行选择 `all`、`full` 或 `allow`。`cloud sync` 省略 scope 时当前默认可能是 `all`；`onboard on` 和启动 onboarding 还可能同步 global + project。项目级同步成功后，不能推断后续 `pre` 仍 project-only。
+若用户只说“把数据上传一下”而没有指定数据面、scope 和授权，显式上传必须停在 `BLOCKED/NEEDS_USER_SCOPE`，先列出上述选项，不能自行选择 `all`、`full` 或 `allow`。遥测的产品默认门禁是开启，但这不等于 AI 获得了替用户扩大 knowledge/profile/log/bundle 数据面的授权；如果用户要求“不上传遥测”，先执行 `bugx config set telemetry.data_sharing false`，或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`。`cloud sync` 省略 scope 时当前默认可能是 `all`；`onboard on` 和启动 onboarding 还可能同步 global + project。项目级同步成功后，不能推断后续 `pre` 仍 project-only。
 
 云端故障恢复顺序固定为：`cloud status --json` → `auth status --verify`（需要网络时）→ `conflicts list` → `dead-letter list` → 仅在明确 cursor/baseline 失配时 `sync --calibrate`。`ack_pending=true`/`committed=true` 先标 `RECOVERY_REQUIRED`，不要 reset 或重复 upload；open conflict、data sharing revoked、payload/TLS/账号错误都不能用 calibrate 绕过。
 

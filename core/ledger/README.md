@@ -1,6 +1,6 @@
 # BugX Ledger (攻防复盘账本与错题经验库)
 
-> **版本契约**: `0.1.1` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
+> **版本契约**: `0.1.2` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
@@ -26,6 +26,7 @@ core/ledger/
 │   ├── patterns.py              # 提炼形成的攻击模式、代码脆弱性规则与避坑指南知识库
 │   ├── tool_experience.py       # 工具调用经验库，记录各语言与框架下的最佳参数
 │   ├── lesson_ledger.py         # 错题集主管理门面，支持模式匹配与经验检索
+│   ├── fp_ledger.py             # 负样本误报账本与源码哈希防误杀护栏 (P1)
 │   └── lesson_replay.py         # 历史错题与回归用例离线重放引擎
 │
 ├── 3. 数据规范、契约与统一调用门面 (Schema, Facade & Verification)

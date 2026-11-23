@@ -190,7 +190,7 @@ TAXONOMY_CATALOGUE: dict[str, VulnerabilityTaxonomy] = {
             "前端优先采用 textContent/innerText 替代 innerHTML",
             "配置完备的 Content-Security-Policy (CSP) 响应头作为纵深防御",
         ],
-        positive_control_inputs=["Hello World", "Welcome to BugX", "Status: 100% OK"],
+        positive_control_inputs=["Hello World", "Welcome to BugHunter", "Status: 100% OK"],
         negative_control_payloads=[
             "<script>alert(1)</script>",
             "<img src=x onerror=alert('xss')>",
@@ -664,7 +664,7 @@ def generate_verify_script(
     script_content = f'''#!/usr/bin/env python3
 """自动化回归检验脚本 - 针对 {taxonomy.cwe_id} ({taxonomy.name})。
 
-由 BugX L7 Skill Synthesizer 自动合成。
+由 BugHunter L7 Skill Synthesizer 自动合成。
 验证目标：
   1. [Positive Control] 良性正常输入（Happy-Path）顺利通过，无功能破损；
   2. [Negative Control] 恶意攻击载荷被确定性拦截或参数化中和。
@@ -738,7 +738,7 @@ def default_global_skills_dir() -> Path:
 
 
 class SkillSynthesizer:
-    """BugX L7 Agent Skill 智能合成器。"""
+    """BugHunter L7 Agent Skill 智能合成器。"""
 
     def __init__(self, default_output_dir: Path | str | None = None) -> None:
         if default_output_dir:
@@ -813,7 +813,7 @@ description: 针对 {taxonomy.cwe_id} ({taxonomy.name} / {taxonomy.owasp_id}) �
 > **错误签名**：`{sanitized_signature}`  
 > **核心定性**：{sanitized_summary}  
 
-本技能由 BugX L7 经验归档引擎根据实锤已验证漏洞及修复自动提炼合成，提供端到端代码审计 SOP、模式匹配规则、规范化修复准则与确定性回归测试。
+本技能由 BugHunter L7 经验归档引擎根据实锤已验证漏洞及修复自动提炼合成，提供端到端代码审计 SOP、模式匹配规则、规范化修复准则与确定性回归测试。
 
 ---
 

@@ -26,7 +26,8 @@ flowchart TD
     subgraph Phase3["3. Adjudication & Settlement (裁决结算与确认)"]
         C1["judge_phase.py<br/>Judge 智能体证据审查"] --> C2["findings_adjudication.py<br/>反事实验证与漏洞仲裁"]
         C2 --> C3["candidate_revalidation.py<br/>候选补丁复验与消歧"]
-        C3 --> C4["finding_confirm_phase.py<br/>人机或自治确认闭环"]
+        C3 --> C3V["verify_loop.py<br/>独立验证员盲审与报错自纠错闭环"]
+        C3V --> C4["finding_confirm_phase.py<br/>人机或自治确认闭环"]
         C4 --> C5["finding_settlement.py<br/>Finding 最终落盘与账本结算"]
         C5 --> C6["findings_snapshot.py<br/>Finding 阶段性快照保存"]
     end
@@ -84,11 +85,13 @@ flowchart TD
 | `pre_state_builder.py` | 前置会话状态构建器，初始化 `.bugx` 会话目录与配置注入 | `build_initial_session_state` |
 | `report_sharing.py` | 审计与攻防报告外发分发器（Webhook、钉钉/企微、文件导出） | `dispatch_report_share` |
 | `round_orchestrator.py` | 轮次迭代编排器，驱动多轮 Worker -> Judge -> Settle 循环推进 | `orchestrate_rounds` |
+| `semantic_recon.py` | Recon 阶段轻量语义侦察叠加层（隐式路由 / 自定义鉴权边界 / 业务不变量），含物理锚点核验与反注入净化 (P2) | `run_semantic_recon_overlay`, `load_semantic_overlay` |
 | `session_runtime.py` | 会话级运行态上下文管理器，守卫会话持久化与单例实例 | `SessionRuntimeContext` |
 | `SPEC.md` | 生命周期规范设计与状态迁移状态机真理文档 | 阶段规范与失败处理契约 |
 | `startup_gates.py` | 启动前置安全门禁（文件树白名单、脏工作区检查、权限拦截） | `verify_startup_gates` |
 | `startup_interaction.py` | 交互式问答决策引擎，根据终端能力与配置解析交互模式 | `resolve_startup_interaction` |
-| `startup_version_gate.py` | 版本硬门禁校验器，确保运行时版本严格等于 `0.1.1` 绝不漂移 | `assert_version_integrity` |
+| `verify_loop.py` | 独立验证员盲审输入包构造、Anti-Gaming 校验与报错驱动 PoC 自纠错闭环 | `build_verify_bundle`, `execute_verify_attempt`, `run_verification_loop` |
+| `startup_version_gate.py` | 版本硬门禁校验器，确保运行时版本严格等于 `0.1.2` 绝不漂移 | `assert_version_integrity` |
 | `supervisor_bridge.py` | Supervisor 模块间解耦桥接层，提供轻量化调用门面 | `SupervisorBridge` |
 | `supervisor_coverage.py` | 覆盖率生命周期继承器，支持空闲历史会话继承与动态分发 | `SupervisorCoverageSync` |
 | `supervisor_degraded.py` | 降级容灾与探针就地自愈控制器，无损处理缺失依赖与环境 | `SupervisorDegradedCoordinator` |
@@ -100,7 +103,7 @@ flowchart TD
 
 ## 3. 核心设计契约与公理 (Design Axioms)
 
-1. **版本绝对固化公理**：`startup_version_gate.py` 必须在任何业务逻辑启动前执行，基线版本严格锁定在 `0.1.1`，杜绝任何环境版本漂移。
+1. **版本绝对固化公理**：`startup_version_gate.py` 必须在任何业务逻辑启动前执行，基线版本严格锁定在 `0.1.2`，杜绝任何环境版本漂移。
 2. **状态机单向流转与幂等性**：生命周期从 `Pre` $\rightarrow$ `Round` $\rightarrow$ `Worker` $\rightarrow$ `Judge` $\rightarrow$ `Settlement` $\rightarrow$ `Post` 严格单向流动，禁止逆流操作；重试必须走显式的轮次迭代（`advance_round_lifecycle`）。
 3. **证据零伪造公理**：在 `findings_adjudication.py` 与 `candidate_revalidation.py` 中，所有缺陷判定必须有可执行的反事实测试证据，严禁仅凭模型推理文本定性。
 4. **工作树物理安全红线**：`post_dry_run.py` 与 `post_commit.py` 严格遵守工作树保护宪法，未授权时绝对禁止覆盖用户未暂存的修改。

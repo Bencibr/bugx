@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import json
 import os
+import platform
 import shutil
 import sqlite3
 import tarfile
@@ -28,17 +29,30 @@ from typing import Any, Callable, Iterable, Mapping
 from core.governance.secret_redactor import SecretRedactor
 
 try:
-    from core.infra.client_metadata import client_headers, tls_context
+    from core.infra.client_metadata import (
+        client_headers,
+        client_marker,
+        client_version,
+        release_channel,
+        tls_context,
+    )
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from core.infra.client_metadata import client_headers, tls_context
+    from core.infra.client_metadata import (
+        client_headers,
+        client_marker,
+        client_version,
+        release_channel,
+        tls_context,
+    )
 
 MAX_OUTBOX_RECORDS = 1000
 MAX_OUTBOX_BYTES = 50 * 1024 * 1024
 MAX_AUDIT_BYTES = 10 * 1024 * 1024
 AUDIT_BACKUPS = 3
 FLYWHEEL_PATH = "/api/v1/agent/telemetry/flywheel"
+INSTALLATION_HEARTBEAT_INTERVAL = 24 * 60 * 60
 QUALITY_TIERS = {"tier-1": 3, "tier-2": 2, "tier-3": 1, "TIER-1": 3, "TIER-2": 2, "TIER-3": 1}
 
 
@@ -52,14 +66,6 @@ def default_outbox_path() -> Path:
 
 def default_audit_path() -> Path:
     return Path(os.environ.get("BUGX_FLYWHEEL_AUDIT", str(_bugx_root() / "telemetry" / "egress_audit.log"))).expanduser()
-
-
-def _stored_data_sharing() -> bool | None:
-    # 单一真源：与 cloud_onboard.sync_layers / auto_sync 共用 consent 判定，
-    # 禁止在这里另写一套读取逻辑（双轨实现会让撤销在两处产生不同结论）。
-    # 必须保留三态：撤销（False）要压过 BUGX_ACCEPT_DATA_SHARING 预同意入口。
-    from core.cloud_sync.consent import data_sharing_flag
-    return data_sharing_flag()
 
 
 def _stored_base_url() -> str | None:
@@ -86,6 +92,64 @@ def _stored_auth_token() -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         pass
     return None
+
+
+def _client_kind() -> str:
+    value = str(os.environ.get("BUGX_CLIENT_KIND") or os.environ.get("BUGX_CLI_SOURCE") or "pip").strip().lower()
+    return value if value in {"pip", "npm", "source", "editable", "unknown"} else "unknown"
+
+
+def _artifact_kind() -> str:
+    return "npm-package" if _client_kind() == "npm" else "python-wheel"
+
+
+def _telemetry_context(base_url: str) -> dict[str, Any]:
+    """Build only stable, scoped client metadata for remote attribution.
+
+    The installation identity is an HMAC of the local installation secret and
+    server origin.  No hostname, username, project path, credential, or secret
+    value is included in the payload.
+    """
+    from core.cloud_sync.device_identity import get_device_id
+    from core.report_engine.report_client import installation_identity
+
+    return {
+        "installation_id": installation_identity(base_url, account_id=""),
+        "device_id": get_device_id(),
+        "client_version": client_version(),
+        "client_marker": client_marker(),
+        "release_channel": release_channel(),
+        "client_kind": _client_kind(),
+        "artifact_kind": _artifact_kind(),
+        "platform": platform.system().lower() or "unknown",
+    }
+
+
+def _installation_state_path() -> Path:
+    return _bugx_root() / "telemetry" / "installation-state.json"
+
+
+def _load_installation_state() -> dict[str, Any]:
+    path = _installation_state_path()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return {}
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+
+
+def _save_installation_state(state: Mapping[str, Any]) -> None:
+    path = _installation_state_path()
+    from core.report_engine.report_client import atomic_write_nofollow
+
+    atomic_write_nofollow(
+        path,
+        _canonical(dict(state)),
+        mode=0o600,
+        parent_mode=0o700,
+    )
 
 
 def _canonical(value: Any) -> bytes:
@@ -407,18 +471,11 @@ class FlywheelUploader:
         self.audit_path = Path(audit_path or default_audit_path()).expanduser()
         self._urlopen = urlopen or urllib.request.urlopen
         self.auth_token = auth_token if auth_token is not None else _stored_auth_token()
-        # F-024：撤销（显式 false）是硬闸门——BUGX_ACCEPT_DATA_SHARING 预同意
-        # 入口只对「未表态」生效，不得越过用户显式撤销（与 sync_push/pull 的
-        # require_sharing 硬闸门同策略）。
-        if data_sharing is not None:
-            self.data_sharing = data_sharing
-        elif _stored_data_sharing() is False:
-            self.data_sharing = False
-        else:
-            self.data_sharing = (
-                os.environ.get("BUGX_ACCEPT_DATA_SHARING") == "1"
-                or _stored_data_sharing() is True
-            )
+        # 统一门禁：显式 false 只能进一步关闭，不能用显式 true 绕过用户
+        # 配置或 BUGX_TELEMETRY_ENABLED=0。未配置时由 consent.py 的产品默认值
+        # 开启远程遥测，满足“默认开启、可关闭”的契约。
+        self._requested_data_sharing = data_sharing
+        self.data_sharing = self._sharing_enabled()
         self.privacy_strict = (os.environ.get("BUGX_PRIVACY_STRICT") == "1") if privacy_strict is None else privacy_strict
         self.sleep = sleep
         self.timeout = timeout
@@ -426,6 +483,16 @@ class FlywheelUploader:
         self._client_failures = 0
         self._circuit_until = 0.0
         self._redactor = SecretRedactor(test_context=bool(os.environ.get("BUGX_TEST_CONTEXT") == "1"))
+
+    def _sharing_enabled(self) -> bool:
+        if self._requested_data_sharing is False:
+            return False
+        try:
+            from core.cloud_sync.consent import telemetry_enabled
+
+            return bool(telemetry_enabled())
+        except Exception:  # noqa: BLE001 - privacy gate fails closed
+            return False
 
     def close(self) -> None:
         if getattr(self, "_redactor", None):
@@ -441,6 +508,19 @@ class FlywheelUploader:
         clean = self._redactor.redact_records(dict(payload))
         if self.privacy_strict:
             metrics = clean.get("metrics") if isinstance(clean, dict) else None
+            safe_context = {
+                key: clean.get(key)
+                for key in (
+                    "installation_id",
+                    "client_version",
+                    "release_channel",
+                    "client_kind",
+                    "artifact_kind",
+                    "platform",
+                    "installation_event",
+                )
+                if isinstance(clean, dict) and isinstance(clean.get(key), str) and clean.get(key)
+            }
             clean = {
                 "schema_version": 1,
                 "event_type": clean.get("event_type", "flywheel") if isinstance(clean, dict) else "flywheel",
@@ -448,13 +528,18 @@ class FlywheelUploader:
                 "topology_hash": clean.get("topology_hash") if isinstance(clean, dict) else None,
                 "metrics": metrics if isinstance(metrics, dict) else {},
                 "privacy": "strict",
+                **safe_context,
             }
         return clean
 
     def enqueue(self, payload: Mapping[str, Any], *, tier: str | int | None = None) -> int | None:
+        self.data_sharing = self._sharing_enabled()
         if not self.data_sharing:
             return None
-        clean = self._redact(payload)
+        enriched = dict(payload)
+        for key, value in _telemetry_context(self.base_url).items():
+            enriched.setdefault(key, value)
+        clean = self._redact(enriched)
         return self.outbox.enqueue(clean, tier=tier or clean.get("quality_tier"))
 
     queue = enqueue
@@ -486,6 +571,26 @@ class FlywheelUploader:
         if dpo_pair:
             payload["dpo_preference"] = dpo_pair.as_dict() if isinstance(dpo_pair, DPOPreferencePair) else dict(dpo_pair)
         return self.enqueue(payload, tier=quality)
+
+    def enqueue_installation(self, event: str = "heartbeat") -> int | None:
+        """Queue an install/heartbeat identity event in the existing outbox.
+
+        The server treats this event as an upsert into its installation table,
+        while retaining the normal Flywheel event receipt for auditability.
+        """
+        normalized = str(event or "heartbeat").strip().lower()
+        if normalized not in {"installed", "heartbeat"}:
+            raise ValueError("installation event must be installed or heartbeat")
+        return self.enqueue(
+            {
+                "schema_version": 2,
+                "event_type": "installation",
+                "installation_event": normalized,
+                "quality_tier": "tier-3",
+                "metrics": {},
+            },
+            tier="tier-3",
+        )
 
     def _url(self) -> str:
         return self._endpoint
@@ -584,6 +689,7 @@ class FlywheelUploader:
 
     def flush(self, *, limit: int = 100, batch_size: int = 1) -> dict[str, Any]:
         """Flush queued records to the telemetry flywheel (DES-06, DES-18)."""
+        self.data_sharing = self._sharing_enabled()
         if not self.data_sharing or time.monotonic() < self._circuit_until:
             return {"sent": 0, "remaining": self.outbox.count(), "circuit_open": True}
         sent = 0
@@ -729,6 +835,61 @@ class FlywheelUploader:
         return len([line for line in records if line.strip()])
 
 
+def maybe_report_installation(*, force: bool = False) -> dict[str, Any]:
+    """Queue and opportunistically flush one install/heartbeat event.
+
+    The CLI calls this at most once per day.  It is deliberately best effort:
+    a network failure leaves the normal bounded outbox intact and cannot block
+    the requested local command.  ``force`` is reserved for an explicit
+    diagnostic/verification caller and still cannot bypass the privacy gate.
+    """
+    try:
+        from core.cloud_sync.consent import telemetry_enabled
+
+        if not telemetry_enabled():
+            return {"enabled": False, "status": "disabled", "sent": 0}
+        state = _load_installation_state()
+        now = time.time()
+        last_attempt = float(state.get("last_attempt_at") or 0.0)
+        if not force and last_attempt > 0 and now - last_attempt < INSTALLATION_HEARTBEAT_INTERVAL:
+            return {"enabled": True, "status": "not_due", "sent": 0}
+
+        event = "installed" if not bool(state.get("installed_reported")) else "heartbeat"
+        with FlywheelUploader() as uploader:
+            if not uploader.data_sharing:
+                return {"enabled": False, "status": "disabled", "sent": 0}
+            record_id = uploader.enqueue_installation(event)
+            if record_id is None:
+                return {"enabled": False, "status": "disabled", "sent": 0}
+            flushed = uploader.flush(limit=20, batch_size=20)
+            remaining_ids = {
+                int(item["id"])
+                for item in uploader.outbox.items(limit=uploader.outbox.max_records)
+            }
+            delivered = record_id not in remaining_ids
+
+        state.update({
+            "schema_version": 1,
+            "last_attempt_at": now,
+            "last_event": event,
+            "installed_reported": bool(state.get("installed_reported")) or delivered,
+        })
+        try:
+            _save_installation_state(state)
+        except (OSError, ValueError):
+            # The telemetry event itself has already been queued/sent.  State
+            # persistence failure only causes a bounded duplicate next time.
+            pass
+        return {
+            "enabled": True,
+            "status": "sent" if delivered else "queued",
+            "event": event,
+            "sent": int(flushed.get("sent", 0)) if isinstance(flushed, dict) else 0,
+        }
+    except Exception as exc:  # noqa: BLE001 - telemetry must not block CLI work
+        return {"enabled": True, "status": "error", "error": str(exc), "sent": 0}
+
+
 def _encrypt(data: bytes, passphrase: str) -> bytes:
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -763,7 +924,8 @@ def _decrypt(data: bytes, passphrase: str) -> bytes:
 
 __all__ = [
     "AUDIT_BACKUPS", "DPOPreferencePair", "FLYWHEEL_PATH", "FlywheelOutbox", "FlywheelUploader",
+    "INSTALLATION_HEARTBEAT_INTERVAL",
     "MAX_AUDIT_BYTES", "MAX_OUTBOX_BYTES", "MAX_OUTBOX_RECORDS", "OutboxFullError",
     "build_dpo_preference_pair", "default_audit_path", "default_outbox_path",
-    "merkle_root", "quality_tier", "quality_tier_name",
+    "maybe_report_installation", "merkle_root", "quality_tier", "quality_tier_name",
 ]

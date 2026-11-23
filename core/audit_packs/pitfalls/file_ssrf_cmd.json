@@ -1,0 +1,64 @@
+{
+  "pack_id": "file_ssrf_cmd",
+  "schema_version": 1,
+  "description": "跨语言文件系统、SSRF 与命令注入冷启动漏洞先验包",
+  "pitfalls": [
+    {
+      "pitfall_id": "IO-PATH-001",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["file", "http", "api", "storage"],
+      "title": "未做规范化前缀校验的路径拼接导致目录穿越或同前缀逃逸",
+      "anti_pattern_signals": ["os.path.join(", "Path(", "open(", "send_file(", "readFile(", "startswith("],
+      "false_positive_guards": [
+        "使用 resolve().relative_to(base.resolve()) 且拦截符号链接组件",
+        "startswith 校验包含尾部分隔符 os.sep 且先经 realpath 规范化"
+      ],
+      "poc_skeleton": "传入 `../target_sibling/secret` 或 `../../etc/hosts`，验证是否绕过目录限制"
+    },
+    {
+      "pitfall_id": "IO-CMD-002",
+      "cwe": "CWE-78",
+      "severity": "critical",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["cli", "api", "process", "http"],
+      "title": "subprocess(shell=True) / os.system / child_process.exec 拼接非受信参数",
+      "anti_pattern_signals": ["shell=True", "os.system(", "os.popen(", "child_process.exec(", "exec.Command(\"sh\"", "Runtime.getRuntime().exec("],
+      "false_positive_guards": [
+        "使用 argv 数组形式且 shell=False，并对参数做严格字符白名单校验"
+      ],
+      "poc_skeleton": "传入带命令分隔符的无害标记参数，验证是否触发预期外命令解析"
+    },
+    {
+      "pitfall_id": "IO-SSRF-003",
+      "cwe": "CWE-918",
+      "severity": "high",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["http", "webhook", "api", "network"],
+      "title": "服务端按用户提供 URL 发起 HTTP 请求未拦截回环/私网/云元数据地址（SSRF）",
+      "anti_pattern_signals": ["requests.get(", "httpx.", "urllib.request.urlopen(", "fetch(", "axios.get(", "http.Get("],
+      "false_positive_guards": [
+        "解析 DNS 后校验所有解析 IP 非私网/回环/链路本地（169.254.169.254），且禁用自动重定向或对每跳重验"
+      ],
+      "poc_skeleton": "传入本地回环测试端点或 `http://169.254.169.254/`，断言服务端直接发出请求且未拒绝私网 IP"
+    },
+    {
+      "pitfall_id": "IO-ZIPSLIP-004",
+      "cwe": "CWE-22",
+      "severity": "high",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["file", "archive", "upload"],
+      "title": "zipfile.extractall / tarfile.extractall 未校验归档成员路径（Zip Slip）",
+      "anti_pattern_signals": ["extractall(", "tarfile.open(", "zipfile.ZipFile(", "unzip"],
+      "false_positive_guards": [
+        "逐成员校验 resolved.relative_to(dest) 并拒绝符号链接/硬链接（Python 3.12+ filter='data'）"
+      ],
+      "poc_skeleton": "构造包含 `../escape.txt` 成员的内存归档，调用解压函数验证文件写到目标目录外"
+    }
+  ]
+}

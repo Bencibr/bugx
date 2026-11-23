@@ -582,6 +582,19 @@ def run_recon_scout(
     return []
 
 
+def build_and_persist_semantic_overlay(
+    root: Path,
+    *,
+    llm_analyzer: Any = None,
+    max_files: int = 24,
+) -> dict[str, Any]:
+    """在 pre 阶段静态图谱之上叠加轻量语义侦察（隐式路由 / 鉴权边界 / 业务不变量，P2 / T-006）。"""
+    from core.launch_phases import semantic_recon
+    return semantic_recon.run_semantic_recon_overlay(
+        root, llm_analyzer=llm_analyzer, max_files=max_files, persist=True,
+    )
+
+
 def match_unit_for_sink(units: list[str], rel_file: str, line: int | None) -> str | None:
     if not units or not rel_file:
         return None

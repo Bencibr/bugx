@@ -145,10 +145,10 @@ def confirm_data_sharing(args: argparse.Namespace) -> bool:
         # ``sharing_revoked()``），所以非交互时**不落盘**、按默认允许处理。
         return True
     try:
-        answer = input("允许 BugX 上传脱敏后的攻防数据用于改进平台？[y/N] ").strip().lower()
+        answer = input("允许 BugX 上传脱敏后的攻防数据用于改进平台？[Y/n] ").strip().lower()
     except (EOFError, OSError):
-        answer = "n"
-    allowed = answer in {"y", "yes"}
+        answer = ""
+    allowed = answer not in {"n", "no"}
     _save_data_sharing(allowed)
     return allowed
 
@@ -158,7 +158,7 @@ def command_telemetry(args: argparse.Namespace) -> int:
     try:
         _ensure_core_importable()
         from core.cloud_sync.flywheel_client import FlywheelUploader
-        uploader = FlywheelUploader(data_sharing=True)
+        uploader = FlywheelUploader()
         action = getattr(args, "telemetry_command", "inspect")
         if action == "inspect":
             result = uploader.inspect(latest=bool(getattr(args, "latest", False)))
@@ -169,10 +169,14 @@ def command_telemetry(args: argparse.Namespace) -> int:
                     print(json.dumps(entry, ensure_ascii=False))
             return 0
         if action in {"flush", "upload"}:
+            if not uploader.data_sharing:
+                print("[telemetry] 遥测已关闭，未执行网络上传。")
+                return 0
             batch_size = int(getattr(args, "batch_size", 20) or 20)
             flushed = uploader.flush(batch_size=batch_size)
             sent = flushed.get("sent", flushed) if isinstance(flushed, dict) else flushed
-            print(f"[telemetry] 已推送并清空本地 Outbox：{sent} 条事件")
+            remaining = flushed.get("remaining", "unknown") if isinstance(flushed, dict) else "unknown"
+            print(f"[telemetry] 本次推送：{sent} 条事件；本地 Outbox 剩余：{remaining}")
             return 0
         output = uploader.export_bundle(
             getattr(args, "out"),
@@ -198,7 +202,7 @@ def command_telemetry_config(args: argparse.Namespace) -> int:
             if not enabled:
                 _ensure_core_importable()
                 from core.cloud_sync.flywheel_client import FlywheelUploader
-                cleared = FlywheelUploader(data_sharing=True).clear_outbox()
+                cleared = FlywheelUploader().clear_outbox()
                 print(f"[config] telemetry.data_sharing=false；已清空 {cleared} 条飞轮记录")
                 print("[config] 云端同步已停用：撤销态下 sync_layers/auto_sync 拒绝所有 push/pull")
             else:
@@ -345,6 +349,21 @@ def command_cloud(args: argparse.Namespace) -> int:
         else:
             print(message)
         return 0
+
+    scope = None
+    if act == "sync":
+        scope = getattr(args, "sync_scope", None)
+        if scope is None:
+            try:
+                from core.cloud_sync.cloud_client import load_cloud_config
+
+                scope = load_cloud_config().get("sync_scope_default", "project")
+            except (OSError, TypeError, ValueError, CliError) as exc:
+                print(f"[cloud] 无法读取同步范围：{exc}", file=sys.stderr)
+                return 2
+        if scope not in ("project", "global", "all"):
+            print("[cloud] 同步范围无效，请使用 --scope project、global 或 all。", file=sys.stderr)
+            return 2
 
     try:
         client = CloudClient()
@@ -1195,17 +1214,7 @@ def command_cloud(args: argparse.Namespace) -> int:
         return 2
 
     if act == "sync":
-        # DOC-211：--scope 缺省时读用户级 sync_scope_default（默认 all）；
-        # onboard-on（:1216）刻意传显式 "all"，不受配置收窄。
-        try:
-            from core.cloud_sync.cloud_client import load_cloud_config
-            sync_default_scope = load_cloud_config().get("sync_scope_default") or "all"
-        except Exception:  # noqa: BLE001
-            sync_default_scope = "all"
-        if getattr(args, "sync_scope", None) is None and sync_default_scope != "all":
-            print(f"[cloud] sync_scope_default={sync_default_scope}（配置生效；显式 --scope 可覆盖）")
-        return _cloud_sync_command(args, client, root, get_device_id,
-                                   default_scope=sync_default_scope)
+        return _cloud_sync_command(args, client, root, get_device_id, scope=scope)
 
     if act == "projects":
         sub = getattr(args, "cloud_project_action", "list")
@@ -1290,10 +1299,9 @@ def command_cloud(args: argparse.Namespace) -> int:
         print("[cloud] 已开启云端同步，立即同步 global + project…")
         sync_args = argparse.Namespace(
             project_slug=args.project_slug,
-            sync_scope="all",
             detail_mode=None,
         )
-        return _cloud_sync_command(sync_args, client, root, get_device_id)
+        return _cloud_sync_command(sync_args, client, root, get_device_id, scope="all")
 
     return 2
 

@@ -1,6 +1,6 @@
 # BugX Retrieval Engine (代码切片、拓扑与混合检索增强引擎)
 
-> **版本契约**: `0.1.1` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
+> **版本契约**: `0.1.2` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 
@@ -39,6 +39,7 @@ core/retrieval/
 │   ├── knowledge_sources.py     # 知识来源拓扑解析与分层路径映射
 │   ├── knowledge_sync.py        # 多项目/云端安全知识库增量双向同步
 │   ├── corpus_fetch.py          # 种子测试语料与开源高质量安全样本抓取
+│   ├── pitfall_packs.py         # 按技术栈按需挂载的冷启动漏洞先验包与双路 RRF 检索引擎 (P1)
 │   └── code_analyzer.py         # 多语言代码静态语义分析与复杂度度量器
 │
 └── 6. 包初始化与导出门面

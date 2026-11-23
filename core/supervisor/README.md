@@ -1,6 +1,6 @@
 # BugX Supervisor (并发协调与智能体调度仲裁中心)
 
-> **版本契约**: `0.1.1` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
+> **版本契约**: `0.1.2` | **所属分层**: `Layer 3: 并发协调、智能体编排与账本`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 

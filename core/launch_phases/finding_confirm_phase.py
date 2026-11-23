@@ -47,9 +47,11 @@ from typing import Any, Mapping
 
 if __package__:
     from core.launch_phases.common import resolve_project_root, supervisor_state_path
+    from core.launch_phases import verify_loop
 else:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from core.launch_phases.common import resolve_project_root, supervisor_state_path
+    from core.launch_phases import verify_loop
 
 _SHELL_TOKENS = (";", "&&", "||", "`", "$(", ">", "<")
 
@@ -187,11 +189,25 @@ def confirm(
     """
     from core.supervisor import audit_supervisor
     from core.ledger import finding_confirmation
+    from core.ledger.finding_verification import (
+        diagnose_verification_error,
+        diagnose_verification_receipt,
+        snapshot_target_hashes,
+        validate_python_poc_pair,
+        verify_target_hashes_unchanged,
+    )
 
     # 用模块级引用（可被测试替换）；函数内重新 import 会绕过 monkeypatch。
     root = resolve_project_root().resolve()
+    state_dir = supervisor_state_path().parent
     supervisor = audit_supervisor.Supervisor(root, state_path=supervisor_state_path())
     state = supervisor.status()
+    findings_by_fp: dict[str, dict[str, Any]] = {}
+    for raw_f in getattr(state, "findings", ()) or ():
+        f_dict = raw_f if isinstance(raw_f, dict) else getattr(raw_f, "to_dict", dict)()
+        f_fp = str(f_dict.get("fingerprint") or "").strip()
+        if f_fp:
+            findings_by_fp[f_fp] = f_dict
     recipes = json.loads(Path(recipes_path).read_text(encoding="utf-8"))
     if isinstance(recipes, dict):
         recipes = [recipes]
@@ -212,6 +228,22 @@ def confirm(
             print(f"[findings-confirm] ✗ oracle 文件不存在: {oracle_file}")
             failed += 1
             continue
+        vdir = verify_loop.verify_dir_for_finding(state_dir, fp)
+        finding_meta = findings_by_fp.get(fp, {"fingerprint": fp})
+        rel_file, _ = verify_loop._extract_target_file_and_line(finding_meta)
+        ast_diag = validate_python_poc_pair(
+            _strip_runner_wrapper(pos),
+            _strip_runner_wrapper(neg),
+            finding_key=fp,
+            attempt=1,
+            target_hints=(),
+        )
+        if ast_diag is not None:
+            diag_path = verify_loop.record_attempt_diagnostic(vdir, ast_diag)
+            print(f"[findings-confirm] ✗ anti-gaming {fp[:44]} ({ast_diag.failure_code}): {ast_diag.summary} → {diag_path.name}")
+            failed += 1
+            continue
+        before_hashes = snapshot_target_hashes(root, [rel_file] if rel_file else [])
         recipe = {
             "positive": {"argv": _wrap_positive(pos),
                           "oracle": {"kind": "exit_code", "expected_exit_code": 1}},
@@ -222,14 +254,33 @@ def confirm(
             "oracle_hash": hashlib.sha256(oracle_path.read_bytes()).hexdigest(),
         }
         try:
-            supervisor.verify_finding(finding=fp, recipe=recipe)
+            verify_res = supervisor.verify_finding(finding=fp, recipe=recipe)
         except audit_supervisor.SupervisorError as exc:
-            print(f"[findings-confirm] ✗ verify {fp[:44]}: {str(exc)[:140]}")
+            diag = diagnose_verification_error(exc, attempt=1, finding_key=fp, stage="supervisor_verify")
+            diag_path = verify_loop.record_attempt_diagnostic(vdir, diag)
+            print(f"[findings-confirm] ✗ verify {fp[:44]} ({diag.failure_code}): {str(exc)[:140]} → {diag_path.name}")
             failed += 1
             continue
-        # F-RSI-20261118-009：recipe 可携带 severity（确认方定级补录）——
-        # triage 候选常缺 severity，确认动作随门禁要求补全报告字段。
-        recipe_severity = str(recipe.get("severity") or "").strip() or None
+        tampered = verify_target_hashes_unchanged(root, before_hashes)
+        if tampered:
+            diag = diagnose_verification_error(
+                f"PoC modified target source file(s): {', '.join(tampered)}",
+                attempt=1, finding_key=fp, failure_code="source_tampered_rejected", stage="anti_tamper",
+            )
+            diag_path = verify_loop.record_attempt_diagnostic(vdir, diag)
+            print(f"[findings-confirm] ✗ source-tampered {fp[:44]}: {tampered} → {diag_path.name}")
+            failed += 1
+            continue
+        receipt = verify_res.get("receipt") if isinstance(verify_res, Mapping) else {}
+        v_status = str(verify_res.get("status") or (receipt.get("status") if isinstance(receipt, Mapping) else ""))
+        if v_status and v_status != "CONFIRMED":
+            diag = diagnose_verification_receipt(receipt if isinstance(receipt, Mapping) else {}, attempt=1, finding_key=fp)
+            diag_path = verify_loop.record_attempt_diagnostic(vdir, diag)
+            print(f"[findings-confirm] ✗ verify-not-confirmed {fp[:44]} ({diag.failure_code}): {diag.summary} → {diag_path.name}")
+            failed += 1
+            continue
+        # F-RSI-20261118-009 / P0-D04：从输入 item 读取定级补录（原从 recipe 读取恒为 None）
+        recipe_severity = str(item.get("severity") or "").strip() or None
         try:
             supervisor.confirm_finding(
                 finding=fp, decision="confirmed",
@@ -327,6 +378,98 @@ def _reject_triplet(value: str) -> tuple[str, str, str]:
     return parts[0].strip(), parts[1].strip(), parts[2].strip()
 
 
+def prepare_verify_bundles(
+    fingerprints: list[str] | None = None,
+    *,
+    max_attempts: int = verify_loop.DEFAULT_MAX_ATTEMPTS,
+) -> int:
+    """为 pending 候选生成独立验证员盲审包 VerifyBundle（P0 D-01）。"""
+    from core.supervisor import audit_supervisor
+
+    max_attempts = verify_loop.normalize_max_attempts(max_attempts)
+    root = resolve_project_root().resolve()
+    state_dir = supervisor_state_path().parent
+    supervisor = audit_supervisor.Supervisor(root, state_path=supervisor_state_path())
+    state = supervisor.status()
+    wanted = {fp.strip() for fp in (fingerprints or []) if fp and fp.strip()}
+
+    generated: list[dict[str, str]] = []
+    for raw_f in getattr(state, "findings", ()) or ():
+        f_dict = raw_f if isinstance(raw_f, dict) else getattr(raw_f, "to_dict", dict)()
+        confirmation = f_dict.get("confirmation")
+        if isinstance(confirmation, dict) and confirmation.get("decision"):
+            continue
+        fp = str(f_dict.get("fingerprint") or "").strip()
+        if not fp or (wanted and fp not in wanted):
+            continue
+        bundle_path, _ = verify_loop.build_verify_bundle(
+            root, state_dir, f_dict, attempt=1, max_attempts=max_attempts,
+        )
+        generated.append({"fingerprint": fp, "bundle_path": str(bundle_path)})
+        print(f"[findings-confirm] ✓ verify-bundle {fp[:48]} → {bundle_path}")
+
+    if not generated:
+        print("[findings-confirm] 未找到匹配的 pending 候选")
+        return 1
+    print(f"[findings-confirm] 已生成 {len(generated)} 份盲审 VerifyBundle（协议：core/prompts/stages/stage_verify.md）")
+    return 0
+
+
+def run_verify_attempt_file(
+    attempt_path: Path,
+    *,
+    max_attempts: int = verify_loop.DEFAULT_MAX_ATTEMPTS,
+) -> int:
+    """消费独立验证员提交的单轮 attempt JSON 并执行引擎验证/自纠错推进（P0 D-02~D-05）。"""
+    from core.supervisor import audit_supervisor
+
+    max_attempts = verify_loop.normalize_max_attempts(max_attempts)
+    root = resolve_project_root().resolve()
+    state_dir = supervisor_state_path().parent
+    supervisor = audit_supervisor.Supervisor(root, state_path=supervisor_state_path())
+    state = supervisor.status()
+    findings_by_fp: dict[str, dict[str, Any]] = {}
+    for raw_f in getattr(state, "findings", ()) or ():
+        f_dict = raw_f if isinstance(raw_f, dict) else getattr(raw_f, "to_dict", dict)()
+        f_fp = str(f_dict.get("fingerprint") or "").strip()
+        if f_fp:
+            findings_by_fp[f_fp] = f_dict
+
+    payload = json.loads(Path(attempt_path).read_text(encoding="utf-8"))
+    items = payload if isinstance(payload, list) else [payload]
+    settled_any = False
+    has_failure = False
+
+    for item in items:
+        if not isinstance(item, Mapping):
+            has_failure = True
+            continue
+        fp = str(item.get("fingerprint") or "").strip()
+        if not fp or fp not in findings_by_fp:
+            print(f"[findings-confirm] ✗ 未知 finding fingerprint: {fp[:48]}")
+            has_failure = True
+            continue
+        result = verify_loop.execute_verify_attempt(
+            root=root,
+            state_dir=state_dir,
+            supervisor=supervisor,
+            finding=findings_by_fp[fp],
+            positive=str(item.get("positive") or ""),
+            negative=str(item.get("negative") or ""),
+            max_attempts=max_attempts,
+        )
+        status = str(result.get("status") or "")
+        print(json.dumps(result, ensure_ascii=False))
+        if status in {"CONFIRMED", "REJECTED", "STALLED"}:
+            settled_any = True
+        if status not in {"CONFIRMED"}:
+            has_failure = True
+
+    if settled_any:
+        _materialize_findings(root, supervisor)
+    return 0 if not has_failure else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """``bugx engine findings-confirm`` 的**唯一**参数契约。
 
@@ -338,7 +481,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="bugx engine findings-confirm",
-        description="Finding 确认一条龙：校验 recipe → 引擎双正例+负对照实跑 → 物化确认块 → sync。",
+        description="Finding 确认一条龙与独立验证员盲审闭环：校验 recipe / 盲审包 → 引擎双正例+负对照实跑 → 诊断自纠错 → 物化确认块。",
     )
     parser.add_argument(
         "recipes", nargs="?", metavar="RECIPE",
@@ -361,6 +504,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--from-verdicts", action="store_true",
         help="输入文件是 judge verdicts（自动生成 recipe）而不是 recipe 本身",
     )
+    parser.add_argument(
+        "--prepare-verify", nargs="*", metavar="FP",
+        help="为指定（或全部 pending）候选生成独立验证员盲审包 VerifyBundle（P0）",
+    )
+    parser.add_argument(
+        "--verify-attempt", dest="verify_attempt", metavar="ATTEMPT_JSON",
+        help="提交独立验证员单轮输出 JSON，执行 Anti-Gaming + 双正例负对照 + 报错诊断推进（P0）",
+    )
+    parser.add_argument(
+        "--max-attempts", dest="max_attempts", type=int, default=verify_loop.DEFAULT_MAX_ATTEMPTS,
+        help=f"单条 Finding 报错自纠错最大重试次数（1..{verify_loop.HARD_MAX_ATTEMPTS}，默认 {verify_loop.DEFAULT_MAX_ATTEMPTS}）",
+    )
     return parser
 
 
@@ -370,13 +525,19 @@ def main(argv: list[str]) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:  # argparse 用 exit(2) 表示用法错误
         return int(exc.code or 2)
+    if args.prepare_verify is not None:
+        return prepare_verify_bundles(args.prepare_verify, max_attempts=args.max_attempts)
+    if args.verify_attempt:
+        return run_verify_attempt_file(Path(args.verify_attempt), max_attempts=args.max_attempts)
     rejects: list[tuple[str, str, str]] = list(args.reject or [])
     source = args.recipe_opt or args.recipes
     if not source:
         parser.print_usage()
         print(
             "用法：bugx engine findings-confirm --recipe <recipes.json> "
-            "[--all-pending] [--reject <fp>:<class>:<reason> ...]"
+            "[--all-pending] [--reject <fp>:<class>:<reason> ...]\n"
+            "  或：bugx engine findings-confirm --prepare-verify [FP ...]\n"
+            "  或：bugx engine findings-confirm --verify-attempt <attempt.json> [--max-attempts 3]"
         )
         return 2
     if args.from_verdicts:

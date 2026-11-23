@@ -123,6 +123,7 @@ _STAGE_MAP = {
     "l0": "l0_router.md",
     "gate": "stages/stage_gate.md",
     "explore": "stages/stage_explore.md",
+    "verify": "stages/stage_verify.md",
     "mutate": "stages/stage_mutate.md",
     "repair": "stages/stage_repair.md",
 }
@@ -520,7 +521,11 @@ def load_stage(stage: str, root: Path | None = None) -> str:
     prompts_dir = get_prompts_dir(root)
     file_path = prompts_dir / _STAGE_MAP[key]
     if not file_path.is_file():
-        raise FileNotFoundError(f"阶段提示词文件缺失: {file_path}")
+        local_fallback = Path(__file__).resolve().parents[1] / "prompts" / _STAGE_MAP[key]
+        if local_fallback.is_file():
+            file_path = local_fallback
+        else:
+            raise FileNotFoundError(f"阶段提示词文件缺失: {file_path}")
     content = file_path.read_text(encoding="utf-8").strip()
     # P1：附加 bugx.md 权威章节指针，消除"阶段卡 vs 全文"双源竞争。
     content += _stage_section_pointers(key, root)
@@ -558,15 +563,46 @@ def get_stage_prompt(
     context: Mapping[str, object] | None = None,
     root: Path | None = None,
     locale: str | None = None,
+    *,
+    host: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    policy: str | None = None,
+    last_error: str | None = None,
 ) -> str:
-    """组装阶段提示词，注入动态上下文事实 (DOC-043, DOC-067, DOC-139)。"""
+    """组装阶段提示词，注入动态上下文事实，并按可配置策略引擎适配模型风控边界 (DOC-043, DOC-067, DOC-139)。"""
+    from core.planning import prompt_policy_engine
+
     key = stage.strip().lower()
-    base_prompt = load_stage(key, root=root)
+    resolved_policy = prompt_policy_engine.resolve_policy(
+        host=host,
+        provider=provider,
+        model=model,
+        last_error=last_error,
+        explicit_policy=policy,
+        root=root,
+    )
+    override_rel = prompt_policy_engine.resolve_stage_override_relpath(resolved_policy, key)
+    if override_rel:
+        override_path = prompt_policy_engine.PROMPTS_ROOT / override_rel
+        if override_path.is_file():
+            base_prompt = override_path.read_text(encoding="utf-8")
+        else:
+            base_prompt = load_stage(key, root=root)
+    else:
+        base_prompt = load_stage(key, root=root)
+
+    def _finalize(rendered: str) -> str:
+        return prompt_policy_engine.apply_policy(
+            rendered,
+            resolved_policy,
+            include_preamble=True,
+            include_safe_repro=(key in {"verify", "mutate"}),
+        )
+
     if not context:
         # L0 是常驻入口，也必须经过和其他注入段相同的硬预算出口。
-        if key == "l0":
-            return base_prompt
-        return base_prompt
+        return _finalize(base_prompt)
 
     title = "## 动态运行时事实（Dynamic Context）"
     if i18n is not None:
@@ -604,11 +640,15 @@ def get_stage_prompt(
                 "dynamic_context": "Dynamic Context 事实注入",
             },
         )
-        return sections["l0_router"] + sections["dynamic_context"] + _record_budget_degradations(
-            context_degradations + degradations, stage="l0",
+        return _finalize(
+            sections["l0_router"] + sections["dynamic_context"] + _record_budget_degradations(
+                context_degradations + degradations, stage="l0",
+            )
         )
-    return base_prompt + context_text + _record_budget_degradations(
-        context_degradations, stage=key,
+    return _finalize(
+        base_prompt + context_text + _record_budget_degradations(
+            context_degradations, stage=key,
+        )
     )
 
 
@@ -1503,7 +1543,7 @@ def build_domain_specialized_prompt(
     # 4. 构建分段
     # A. 头部基础信息
     header_text = (
-        f"## BugX 领域专精 Worker JIT 提示词 (DOC-248)\n"
+        f"## BugHunter 领域专精 Worker JIT 提示词 (DOC-248)\n"
         f"- **专精角色**: {role_label} (亲和性: {affinity}, 建议模型等级: {tier_label})\n"
         f"- **目标形态**: {target_form_norm}\n"
         f"- **技术栈知识**: {tech_norm}\n"

@@ -1,0 +1,67 @@
+{
+  "pack_id": "js_ts_web",
+  "schema_version": 1,
+  "description": "JavaScript / TypeScript Web 冷启动漏洞先验包（Express / Next.js / React / Node）",
+  "pitfalls": [
+    {
+      "pitfall_id": "JS-PROTO-001",
+      "cwe": "CWE-1321",
+      "severity": "high",
+      "languages": ["javascript", "typescript"],
+      "frameworks": ["express", "nextjs", "node"],
+      "surfaces": ["http", "api", "json"],
+      "title": "递归对象合并/路径赋值未拦截 __proto__ / constructor.prototype（原型污染）",
+      "anti_pattern_signals": ["__proto__", "Object.assign", "deepMerge", "merge(", "for (const key in", "target[key] ="],
+      "false_positive_guards": [
+        "显式跳过 key === '__proto__' || key === 'constructor' || key === 'prototype'",
+        "目标对象使用 Object.create(null) 或 Map 存储动态键"
+      ],
+      "poc_skeleton": "传入 JSON `{\"__proto__\": {\"polluted\": true}}` 经合并函数处理后检查 `({}).polluted === true`"
+    },
+    {
+      "pitfall_id": "JS-XSS-002",
+      "cwe": "CWE-79",
+      "severity": "high",
+      "languages": ["javascript", "typescript"],
+      "frameworks": ["react", "nextjs", "vue", "express"],
+      "surfaces": ["web", "ui", "http"],
+      "title": "dangerouslySetInnerHTML / innerHTML / javascript: URL 未经净化",
+      "anti_pattern_signals": ["dangerouslySetInnerHTML", "innerHTML", "v-html", "res.send(", "window.location ="],
+      "false_positive_guards": [
+        "经过 DOMPurify.sanitize() 且禁止 javascript:/data: 协议",
+        "URL 经 new URL() 解析并严格限制 protocol 为 http:/https:"
+      ],
+      "poc_skeleton": "传入 `<img src=x onerror=alert(1)>` 或 `javascript:alert(1)`，验证输出未转义或协议未拦截"
+    },
+    {
+      "pitfall_id": "JS-NOSQLI-003",
+      "cwe": "CWE-943",
+      "severity": "critical",
+      "languages": ["javascript", "typescript"],
+      "frameworks": ["express", "nextjs", "node", "mongoose"],
+      "surfaces": ["http", "api", "database"],
+      "title": "req.body / req.query 对象直接传入 MongoDB findOne（NoSQL 运算符注入）",
+      "anti_pattern_signals": ["findOne(", "find(", "req.body", "req.query", "$ne", "$gt", "$regex"],
+      "false_positive_guards": [
+        "输入经 zod/joi 强类型校验为 string（String(val) 或 typeof val === 'string'）",
+        "开启 sanitizeFilter 或过滤 `$` 开头键"
+      ],
+      "poc_skeleton": "登录或查询接口传入 `{\"password\": {\"$ne\": \"\"}}`，验证绕过校验返回首条记录"
+    },
+    {
+      "pitfall_id": "JS-OPENREDIRECT-004",
+      "cwe": "CWE-601",
+      "severity": "medium",
+      "languages": ["javascript", "typescript"],
+      "frameworks": ["express", "nextjs", "node"],
+      "surfaces": ["http", "web", "auth"],
+      "title": "res.redirect / NextResponse.redirect 直接跳转外部非受信 URL",
+      "anti_pattern_signals": ["res.redirect(", "NextResponse.redirect(", "returnUrl", "next=", "redirect_uri"],
+      "false_positive_guards": [
+        "仅允许单斜杠相对路径（startswith('/') 且不以 '//' 开头且不含反斜杠）",
+        "解析 host 严格命中固定域名白名单"
+      ],
+      "poc_skeleton": "传入 `next=//evil.example` 或 `next=https://evil.example`，断言响应 Location 指向外部域"
+    }
+  ]
+}

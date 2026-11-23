@@ -1,6 +1,6 @@
 # BugX 架构总览
 
-> **版本**: 0.1.1+build.627 | **更新日期**: 2026-11-19 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
+> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
 > 本文是 BugX 生产源仓的设计入口：一张图看懂分层、框架与数据流。面向使用、集成与二次开发的工程师。
 
 > [!IMPORTANT]
@@ -16,6 +16,24 @@
 `tests/` 仍由目标项目负责，不能与本仓库过程文件混淆。长期保留的验证资产统一位于
 `verification/`，评测数据的规范路径为 `verification/evals/`。发布构建统一调用
 `scripts/package_dist.py`，Jenkins 只负责解析发布通道、版本和凭据，不重复实现打包。
+
+## 版本检查与 CLI 自更新架构边界（2026-11-21）
+
+版本检查和安装更新是独立于审计生命周期的发布控制面。`bugx update --check` 只读取
+服务端发布元数据；`bugx update` 才允许产生 pip/npm 全局安装、全局引擎、已登记宿主和
+目标 root 的 installation-only doctor 副作用。当前安装来源决定制品类型：pip 选择
+`python-wheel`，npm wrapper 选择 `npm-tarball`；源码 checkout、editable 或无法识别的
+安装来源拒绝自动覆盖。
+
+服务端公开端点是 `/api/v1/agent/version` 和 `/api/v1/agent/download`。两者以
+`channel + artifact_kind + release_id` 绑定同一发布快照，客户端还必须核对合法版本、
+64 位 SHA-256、包内身份和安装后的实际版本。服务端只允许 `stable`/`alpha`，不把未知
+通道回退到 stable。更新阶段写用户级 `~/.bugx/update/receipts/` 收据：安装器切换前
+失败是 `ABORTED`，切换后任一引擎/宿主/doctor 阶段失败是 `RECOVERY_REQUIRED`，只有
+收据终态 `COMPLETE` 才能称为更新闭环完成。
+
+版本检查返回 0、更新命令返回 0 或模型/Task 文本，都不能证明审计、Worker、ACP、MCP
+或目标代码执行已经完成；这些能力仍需各自真实 receipt 和生命周期证据。
 
 ---
 
@@ -138,6 +156,33 @@
 ### SAST 外部工具安装边界
 
 `sast_probe` 的内置扫描提供无外部依赖回退。启动自愈仅接受当前阶段计划选择的 `sast`、`bandit`、`semgrep` 规范探针；探针遍历 PATH 候选并选择满足最低兼容版本的程序。无兼容候选时，包名与固定版本从 `core/runtime/tool_install_targets.py` 读取，通过 `pipx` / `uv tool` 隔离安装；安装后清空探针缓存并核对登记的精确版本。未知近似名称、非活动阶段、缺少隔离安装器、安装失败或复核失败均不会被报告为自愈成功，也不会向引擎 Python 环境写包。外部包索引及传递依赖完整性仍是单独的供应链验证边界。
+
+### 独立 Verification 角色与报错驱动 PoC 自纠错闭环（2026-11-21）
+
+为消除分析阶段与验证阶段耦合带来的证实偏差与单次 recipe 失败损耗，确认流水线引入独立盲审验证机制（`core/prompts/stages/stage_verify.md` + `core/launch_phases/verify_loop.py` + `core/ledger/finding_verification.py`）：
+- **盲审隔离**：`bugx engine findings-confirm --prepare-verify` 为 pending 候选生成 `state/verify/<fp_slug>/bundle.json`，仅含白名单缺陷声明、受限代码切片、运行环境事实与锁定 oracle，不透传 Analysis/Judge 长推理链。
+- **结构化失败诊断与有界自纠错**：每次 `verify_finding` 失败按 8 类规范 `failure_code`（含 `syntax_or_import_error`、`positive_not_triggered`、`positive_flaky`、`negative_false_trigger`、`negative_trivial_rejected`、`env_or_dependency_blocked`、`timeout_exceeded`、`shell_token_rejected`）脱敏截断（≤4KB）落盘至 `state/verify/<fp_slug>/attempt-<n>.json`；通过 `--verify-attempt` 或 `run_verification_loop` 执行最多 `max_attempts`（默认 3、上限 5）轮报错驱动修订，遇到连续相同代码哈希（`verifier_stalled`）或环境阻塞立即熔断，耗尽后显式收敛为 `blocked` 或 `rejected(<class>)`，不静默丢弃。
+- **Anti-Gaming 硬门禁**：引擎确定性锁定 `oracle_reference` / `oracle_hash` 不可覆写；AST 静态校验拦截空壳负对照；执行前后校验目标源码 SHA-256，检测到 PoC 篡改源码立即触发 `source_tampered_rejected` 阻断确认。
+
+### 按技术栈挂载的冷启动漏洞先验包与负样本误报账本（2026-11-22）
+
+在严格保持零外部依赖（`dependencies = []`）的前提下，补齐冷启动知识密度与正负双轨降噪闭环（`core/audit_packs/pitfalls/` + `core/retrieval/pitfall_packs.py` + `core/ledger/fp_ledger.py` + `core/launch_phases/worker_prior.py`）：
+- **按技术栈硬过滤 + 双路 RRF 融合**：`pitfall_packs.py` 依据 `project_profile`（`languages` / `frameworks` / `surfaces`）与目标源码反模式信号执行双路 RRF 召回，避免跨语言噪声污染，并按 `KNOWLEDGE_GUIDANCE_CHAR_BUDGET` 封顶渲染。
+- **源码哈希绑定负样本护栏（防误杀）**：`verify_loop.py` 仅在真实实跑证伪（`rejection_class == "not_reproducible"`）时将误报沉淀至 `.bugx/knowledge/fp-ledger.json` 并绑定目标文件 `source_sha256`（严禁将 `timeout` / `env_blocked` / `source_tampered` 入库）；后续查询实时重算文件哈希，源码一旦变更即自动退化为 `stale_guard` 失效，防止旧误报掩盖新引入漏洞。
+
+### Recon 阶段轻量语义侦察叠加层（2026-11-22）
+
+在 `pre_recon_scout.py` 静态图谱之上新增 `core/launch_phases/semantic_recon.py`，结构化提取三类静态扫描盲区——**隐式框架路由（`implicit_routes`）**、**自定义鉴权边界（`auth_boundaries`）**与**业务不变量（`business_invariants`）**，落盘至 `.bugx/state/semantic-recon-overlay.json` 并经 `worker_prior.build_semantic_recon_guidance` 按目标文件与字符预算精准注入：
+- **双通道与离线兜底**：支持可插拔轻量 LLM 侦察回调，不可用时自动降级到纯标准库 AST 启发式提取器；
+- **反幻觉与反注入门禁**：所有条目必须通过物理文件存在性、防越界/符号链接与真实行号范围核验（幻觉条目物理丢弃），文本字段剥离控制字符并净化 prompt-injection 载荷；
+- **文件级哈希失效**：按 `watched_file_hashes` 粒度校验，单文件变更仅失效该文件条目，未改动文件保持有效。
+
+### 声明式可配置提示词策略引擎（Prompt Policy Engine，2026-11-22）
+
+针对不同模型/网关（如 OpenAI / Codex 的 `cyber policy` / Daybreak 分级风控）对攻防措辞的敏感度差异，新增零 `if-else` 硬编码的配置驱动策略引擎（`core/prompts/policies/prompt_policies.json` + `core/planning/prompt_policy_engine.py`），并统一穿透 `prompt_harness.py`、`worker_prior.py` 与 `verify_loop.py`：
+- **默认保留原版（`standard`）**：零改写字节级透传，不影响非受限宿主及已获 Daybreak 授权账号（可通过 `BUGX_PROMPT_POLICY=standard` 显式钉选）；
+- **双触发配置路由**：支持静态 `routing_rules`（按 `host` / `provider` / `model_patterns` 优先级匹配）与运行时 `reactive_triggers`（捕获 `cyber policy` / `Daybreak` 等风控报错自动降级至 `defensive_qa`）；支持项目级 `.bugx/prompt-policies.json` 零代码扩展新模型策略；
+- **代码块物理保护**：词表重写严格跳过 Markdown 围栏代码块（```` ``` ````）与行内代码（`` ` ``），保证代码变量名、路径与 `CWE-*` 技术机制词零损坏，同时为受限网关加载无害哨兵复现模板 `stage_verify.defensive.md`。
 
 
 ## 2. 设计框架（五条原则）
@@ -320,13 +365,14 @@ layout manifest；发现旧项目 `.bugx/core/` 时会迁移可识别数据并�
 “初始化项目 → 写入宿主配置 → 重启宿主 → 新会话重新启动 BugX”；自动审查不提供静默手动回退，
 也不以跨项目进程或主动探活替代当前会话的加载证明。
 
-安装前的 `command_agent` 事务只快照 BugX 自己会修改的精确文件，因此既支持在项目目录安装，
-也支持在用户目录安装用户级 `.bugx` 和 Agent 全局入口。快照不会递归枚举或复制 `.codex`、
-`.agents` 等宿主目录中的缓存、插件、会话和数据库。若 `.agents` 已是宿主管理的符号链接/
-Windows 重解析点，快照阶段保留并跳过它；这避免 Codex/ChatGPT 用户级目录阻断其他 Agent
-的安装。ChatGPT 只将 Marketplace 解析到该链接的真实目录目标写入，项目插件实体仍写入项目内；
-嵌套链接和其他宿主资源仍由 `infra.security` 拒绝。失败回滚只恢复受事务管理的文件，绝不删除
-宿主链接或无关宿主数据。
+安装前的 `command_agent` 事务先解析本次 `--agent` 选择，再计算受管安装面。快照始终保护共享
+`.bugx` 运行态，并只追加所选适配器声明的目录；OpenCode 选中时才追加 `opencode.json`。
+因此在项目目录或用户目录安装都只快照 BugX 自己会修改的精确文件，不会递归枚举或复制 `.codex`、
+`.agents` 等宿主目录中的缓存、插件、会话和数据库。未选中的宿主目录即使是符号链接或 Windows
+重解析点也不参与本次事务，不能阻断其他 Agent 的安装。选中的写入面仍由快照阶段拒绝符号链接/
+重解析点，后续嵌套链接和其他宿主资源由 `infra.security` 拒绝。ChatGPT 只将 Marketplace 解析到
+`.agents` 链接的真实目录目标写入，项目插件实体仍写入项目内。失败回滚只恢复受事务管理的文件，
+绝不删除宿主链接或无关宿主数据。
 
 全局 Agent 入口在每次写入前都先持久化目标快照与事务 journal；快照或 journal 写入失败时，
 该目标不得改动。普通文件回滚使用同目录临时文件加 `os.replace`，替换安装时创建的链接本身，
@@ -343,9 +389,10 @@ worker 模板，只有模板一致的普通文件才备份并移除；自定义�
 
 ```mermaid
 flowchart LR
-    A[command_agent] --> B[_agent_install_snapshot]
-    B -->|BugX 管理的精确文件| C[复制到 staging]
-    B -->|.agents 已是宿主管理链接| D[保留并跳过]
+    A[command_agent] --> S[解析选中的宿主]
+    S --> B[_agent_install_snapshot]
+    B -->|共享 .bugx + 选中宿主的精确文件| C[复制到 staging]
+    B -->|未选中的链接目录| D[不纳入事务]
     C --> E[宿主安装]
     D --> E
     E -->|ChatGPT: 仅写入 resolved .agents/plugins/marketplace.json| G[受限宿主目录写入]
@@ -1207,9 +1254,9 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 同时验证 `coverage_complete=true` 与 `open_findings=[]`。
 
 依据系统发布与版本策略：本仓走
-`0.1.1-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
+`0.1.2-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
 `interfaces/cli/bugx_cli/__init__.py` 为唯一权威源，其余版本标记为引擎契约的功能性
-副本（doctor 依赖其一致性）。当前正式基线为 `0.1.1`。
+副本（doctor 依赖其一致性）。当前正式基线为 `0.1.2`。
 
 
 ## 7. 开发生命周期与设计文档同步门禁
@@ -1217,7 +1264,7 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 BugX 固化了“方案审计先行、定向测试守护、现有设计文档同步更新”的工程生命周期治理体系（由 `dev-doc` Skill 与 `scripts/dev_doc.py` 承载）：
 - **设计规划（plan）**：自动生成带 5 问逐条审计矩阵的 `DOC-XXX.md`，并强制注入现有核心设计文档更新清单（`02_DESIGN_SPEC.md`、`01_ARCHITECTURE.md`、`03_BUGX_AUDIT_FLOW.md`、`01_AI_REFERENCE.md`）；
 - **审计核验（check）**：核查所有设计项结论均为 `AUDITED_OK`，并在开发过程中实时提示现有设计文档的修改情况；
-- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.1`。
+- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.2`。
 
 ### 远程补丁验证数据流
 
@@ -1609,7 +1656,7 @@ Windows、macOS、Linux 的统一生命周期转发入口。Windows 不要求项
 
 `asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资源。即使 CLI 从
 editable checkout 导入，源码仓库的 `core/` 也不会自动成为资源候选；安装载荷缺失或不完整
-时由 `MissingAgentAssetError` 标记。Wheel 通过逐目录 `data-files` 声明提供 core 资源；Jenkins 发布流水线在改写 staged 版本、通道与默认云端地址后重签 `engine-integrity.json`，并在上传前逐项校验 wheel 清单文件哈希及 CLI/core Build ID。真实 CLI 控制台入口只针对默认安装资源执行一次自动恢复：
+时由 `MissingAgentAssetError` 标记。Wheel 通过逐目录 `data-files` 声明提供 core 资源；Jenkins 发布流水线在改写 staged 版本、通道与默认云端地址后重签 `engine-integrity.json`，并在上传前逐项校验 wheel 清单文件哈希及 CLI/core Build ID。默认安装资源损坏时普通命令只报告诊断。用户可以从真实 CLI 控制台显式执行 `bugx update --repair-assets`：
 先读取当前非 editable wheel distribution dist-info 内的原始 `RECORD` 文本（不能依赖会因目标文件缺失而漏项的 `distribution.files`）；只有 CLI 与全局引擎 Build ID 相同、且全局文件逐项匹配 `RECORD` 的 SHA-256 和大小时，才在 wheel 资源目录同级暂存、复验并原子恢复。否则才访问网络：优先从官方 stable 发行 API `https://bugx.dev` 获取 wheel；仅该 API 不可用时才查询官方 PyPI 的 `bugx-cli` stable wheel（不采用用户配置的云端同步地址、设备路由或其他镜像）。校验 HTTPS、响应摘要、发行身份、语义版本、纯 Python 标签与 Build ID 下限（至少达到当前 CLI、现有 asset 与共享引擎中的最高值），
 并在 pip 安装前验证完整核心载荷清单；安装后再次校验 distribution、非 editable 状态、资源路径
 和核心清单，再以同一 Python 解释器重启原命令。`bugx update --repair-assets` 可显式触发，仅执行资源恢复；
@@ -3139,5 +3186,24 @@ flowchart TD
    - 彻底废除重复的 `bugx-artifacts/` 目录；移出并忽略测试工作树 `worktrees/` 与 `.code-review-graph/`；
    - 剔除 Git 误跟踪的 `.idea/` 个人 IDE 配置与历史 `.zcode/plans/` 会话；
    - 根目录下严格仅保留 16 项顶级元数据（`package.json`, `pyproject.toml`, `README.md`, `AGENTS.md`, `LICENSE` 等），实现人类视觉极简。
+
+### 遥测与安装统计边界（当前实现）
+
+遥测不是知识同步的别名，而是独立的单向飞轮数据面。客户端的统一门禁位于
+`core/cloud_sync/consent.py:telemetry_enabled()`：持久化 `telemetry.data_sharing` 缺失时默认开启，
+`false` 关闭；持久化 `false` 是硬撤销，不能被 `BUGX_TELEMETRY_ENABLED=1` 绕过；该变量只在未撤销时覆盖当前进程，非法值按关闭处理。门禁覆盖本地
+`core/runtime/global_telemetry.py` 写入、`core/cloud_sync/flywheel_client.py` 入队与 flush，
+以及 CLI 的安装/心跳上报。
+
+普通 CLI 命令由 `interfaces/cli/bugx_cli/cli.py` 每日最多调用一次安装报告：首次事件为
+`installed`，之后为 `heartbeat`，数据写入已有 `~/.bugx/telemetry/flywheel_outbox.sqlite3`，
+网络失败保留 outbox，不阻断用户命令。事件中的身份是服务端 origin 作用域化 HMAC 假名，
+仅带安装/设备匿名 ID、客户端版本/marker、release channel、client/artifact kind 和平台；
+不包含用户、主机名、项目路径、token 或安装密钥。`installation-state.json` 只用于本地节流。
+
+服务端接收端点仍为 `/api/v1/agent/telemetry/flywheel`；服务端在同一事务写入遥测事件并
+upsert 去重的 `agent_installations`，管理员统计通过 `/api/v1/admin/telemetry/stats`，
+安装列表通过 `/api/v1/admin/telemetry/installations`。客户端、服务端 `00053` migration、
+权限和管理端必须一起发布；只有客户端或只有“配置写入成功”均不构成安装统计可用。
 
 

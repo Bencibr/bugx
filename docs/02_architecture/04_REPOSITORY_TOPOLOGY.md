@@ -1,6 +1,6 @@
 # 全域全景架构与权威目录拓扑 (System Architecture & Repository Topology)
 
-> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.1` | **更新日期**: 2026-11-19
+> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.2` | **更新日期**: 2026-11-23
 > **文档定位**: Diátaxis - Explanation (工程拓扑、架构正交性与目录层级权威白皮书)  
 > **关联规范**: [`docs/02_architecture/01_ARCHITECTURE.md`](01_ARCHITECTURE.md) (系统高层架构设计), [`docs/02_architecture/02_DESIGN_SPEC.md`](02_DESIGN_SPEC.md) (设计规约总账), [`AGENTS.md`](../../AGENTS.md) (工程开发宪法)
 
@@ -62,7 +62,7 @@ graph TD
 ## 🌲 二、 权威全景目录层级树 (Directory Hierarchy)
 
 ```text
-bugx/
+bug-hunter/
 ├── 1. interfaces/                 # ★【交付与交互层】所有人机与终端呈现交互逻辑 (详情见 interfaces/README.md)
 │   ├── cli/                      #   - 统一命令行界面与命令分发树 (interfaces/cli/README.md)
 │   ├── bin/                      #   - Node CLI 跨平台包装器 (interfaces/bin/README.md)

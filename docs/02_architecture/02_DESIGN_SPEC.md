@@ -1,6 +1,6 @@
-# BugX 0.1.1+build.627 System Architecture & Design Specification
+# BugX 0.1.2+build.11 System Architecture & Design Specification
 
-> **版本**: 0.1.1+build.627 | **更新日期**: 2026-11-19 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
+> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
 > 🔒 **内部管理资产**：本文档为 BugX 系统内部底层实现契约、历史缺陷审定修复记录与自动化验证门禁总卷，仅供核心研发团队与系统维护者查阅。  
 > 最终用户请参阅面向用户的公开文档：[用户指南 (01_USER_GUIDE.md)](../../docs/01_guides/01_USER_GUIDE.md)、[命令手册 (02_COMMANDS.md)](../../docs/01_guides/02_COMMANDS.md)、[架构总览 (01_ARCHITECTURE.md)](01_ARCHITECTURE.md) 与 [核心流程 (03_BUGX_AUDIT_FLOW.md)](03_BUGX_AUDIT_FLOW.md)。  
 > 历史提案与测试执行记录只作审计留痕，不代表当前仓库仍保留对应文件；当前资产边界以本节和 `AGENTS.md` 为准。
@@ -11,6 +11,59 @@
 生成的目标项目中执行，验证完成后删除过程文件。`verification/` 下的基准、沙箱、补丁和
 验收脚本是长期证据资产，不得误删；评测目录的规范路径是 `verification/evals/`。发布构建
 唯一入口是 `scripts/package_dist.py`，Jenkins 不再复制打包逻辑。
+
+## 版本检查与自更新发布契约（2026-11-21）
+
+### 设计真值
+
+发布真相由服务端 `AgentReleaseHistory` 的 `release_id + channel + artifact_kind`
+组成；`python-wheel` 与 `npm-tarball` 可以共享一个 `release_id`，但必须分别上传、分别
+校验和分别由对应包管理器安装。旧的 stable Python `SystemSetting` 记录只允许作为版本
+读取兼容回退；没有 `release_id` 的记录不能进入新 CLI 的实际安装阶段。
+
+CLI 的更新调用链固定为：
+
+1. 识别当前 pip/npm/source/editable 安装来源并选择制品类型；
+2. 调用 `/api/v1/agent/version`，核对通道、版本、最小兼容版本、制品类型、`release_id`
+   和 SHA-256；
+3. 携带同一 identity 调用 `/api/v1/agent/download`，在用户级临时目录下载并重新计算摘要；
+4. pip 校验 wheel/sdist 元数据，npm 在不执行脚本的情况下校验 `package/package.json`
+   的包名和版本；
+5. 由当前包管理器执行安装，再刷新全局引擎、已登记宿主并执行 installation-only doctor；
+6. 写入脱敏 update receipt，按安装切换前后区分 `ABORTED` 与 `RECOVERY_REQUIRED`。
+
+服务端验证托管制品的扩展名、大小、数据库摘要和实际内容摘要；包内 Python/npm 身份
+由 CLI 在安装前验证。外部下载 URL 仍必须经过 HTTPS/本地测试地址约束，服务端不会执行
+客户端安装命令。发布流水线为 wheel 和 npm tarball 生成同一 `release_id`，通过一次 multipart
+请求提交两个制品；服务端先写入两个托管文件，再在同一个数据库事务中更新稳定通道投影并激活两条 history。任一校验或事务失败都不切换公开 history，并补偿删除本次新写入的文件；文件存储补偿本身失败时必须按服务端日志进入人工清理/恢复流程。
+
+### 验证边界
+
+Go 服务模块测试、CLI 语法/临时制品合约检查和管理端类型检查只能证明模块级契约；没有
+真实 Jenkins 发布、远程服务端下载、pip/npm 全局安装、宿主 ACP/MCP 或跨平台运行证据时，
+状态必须保持 `UNVERIFIED`，不得把版本检查成功、CLI 退出 0、模型文本或工具列表当成
+BugX 审计生命周期完成。
+
+## CLI 参数与副作用边界
+
+CLI 解析器定义公开命令、标准帮助和补全候选。参数归属以当前命令路径为准，子解析器仅
+覆盖显式给出的选项。项目根只允许指定一次，工程和 Supervisor 转发入口在分发前确定根目录。
+手工分发的引擎动作先校验参数，结算预览在日志和生命周期处理之前退出。移除的结算分享开关
+在入口拒绝，共享策略仅来自启动时写入的 `report_policy`。
+
+```mermaid
+flowchart TD
+    Input[命令参数] --> Parse[解析命令与项目根]
+    Parse --> Help{请求帮助}
+    Help -->|是| Usage[输出帮助并退出]
+    Help -->|否| Validate[校验选项和组合]
+    Validate -->|失败| Error[输出用法错误并退出]
+    Validate -->|预览| Preview[读取快照并退出]
+    Validate -->|动作| Handler[执行已选择的动作]
+```
+
+缺失安装资源的查询返回诊断。资源修复由独立命令授权。直接云同步只在显式选项或有效
+配置允许时扩大范围，缺省取项目。报告格式和输出目录只属于原先支持它们的命令模式。
 
 ## 测试执行诊断与性能契约（2026-10-29）
 
@@ -731,8 +784,8 @@ Codex 的完成门不能挂在 ACP 探针上，也不能因为 ACP 探针 `BLOCK
 - **CLI 多选与参数对齐**：`bugx install --agent all` 与交互式菜单第 10 项对齐，支持一次性配置当前环境所有可用宿主；同时支持逗号分隔列表（如 `--agent opencode,dsh`）；
 - **显式语言切换**：新增 `--locale <zh-CN|en-US>` 选项，允许绕过当前环境变量（`LANG=C.UTF-8`）直接生成指定语言的宿主提示词与配置；
 - **配置强制卸载防漂移**：`bugx uninstall --force` 支持对内容被修改或版本漂移的历史宿主配置文件执行备份重命名（`.bak.<timestamp>`）并清理，确保跨版本重装干净无残留；
-   - **自举开发环境基线隔离**：在 `bugx` 开发仓执行 `bugx install` 时，自动识别源仓环境（`_is_bugx_source_repo`），保护镜像声明版本（`VERSION` 文件），防止预发布版本（如 `1.0.0a10`）污染 Git 跟踪的基线声明；
-- **引擎资产来源隔离与自愈（BX-ENGINE-08）**：`asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资产；项目源码树 `core/` 绝不隐式成为运行时或安装源。仅显式设置 `BUGX_DEV_ASSET_ROOT=1` 或经安全校验的 `BUGX_ASSET_ROOT=<path>` 才能选择开发资产。默认安装载荷缺失/不完整时抛出带 `repairable` 属性的 `MissingAgentAssetError`；仅真实 CLI 控制台入口可尝试一次安全恢复。直接解析当前非 editable distribution 的 dist-info 原始 wheel `RECORD`（不依赖会在安装文件缺失时漏项的 `distribution.files`），只有全局引擎 Build ID 与当前 CLI 相同、且每个引擎文件的 SHA-256 和大小都逐项匹配 `RECORD` 时，才在安装数据目录同级暂存后原子恢复并复验；身份、哈希、路径、暂存或复验任一条件不满足则不使用该副本。离线恢复不可用时，再使用已通过自身完整性校验的全局引擎，优先从固定官方 stable 发行 API `https://bugx.dev` 查询/下载；仅 API 不可用时，才从官方 PyPI `bugx-cli` 查询未撤回的 stable wheel。在线恢复不采用云端知识同步配置、设备路由或其他镜像。PyPI 路径固定请求 `pypi.org` JSON 和 `files.pythonhosted.org` wheel，拒绝重定向、sdist、预发布、yanked 文件、版本降级和不匹配 SHA-256；wheel 仍通过发行名、`py3-none-any` 纯 Python 标签、CLI/现有 asset/共享引擎 Build ID 下限、完整核心清单和安装后非 editable 状态校验，再重启原命令一次。显式 `CloudClient(base_url=...)` 不解析无关云端配置；为兼容已安装的旧全局引擎，恢复入口只在构造客户端时临时覆盖 `BUGX_CLOUD_API_BASE` 并无论成功或异常都恢复。`pyproject.toml` 按 core 子目录映射 wheel 数据文件；Jenkins 在改写 staged 版本、通道和云端地址后重签 core manifest，并在上传前逐项核对 wheel 清单文件哈希及 CLI/core Build ID。显式覆盖、开发模式、项目布局和 runtime 门禁均不触发 pip；只读 `bugx update --check` 也不安装，且不能与 `--repair-assets` 组合；恢复条件不满足时 fail-closed。`bugx update --repair-assets` 只执行资源恢复；仅当 CLI 与 asset 自身一致且 Build ID 不低于共享引擎时直接结束；若默认安装资源完整但已落后于共享引擎，则从合格官方 stable 来源获取满足最大 Build ID 下限的 wheel，下载后、pip 前在共享引擎安装锁内复核，安装后核对实际 CLI/asset Build ID。恢复后重启并校验后不继续普通版本升级。editable 安装不改变源码隔离规则。`bugx install` 始终只读使用 `source = asset_root()`，不会因项目位于 BugX 源码仓库而覆盖 venv/site-packages 资产；从识别出的源码树安装共享引擎还必须显式 `--force`。
+   - **自举开发环境基线隔离**：在 `bug-hunter` 开发仓执行 `bugx install` 时，自动识别源仓环境（`_is_bugx_source_repo`），保护镜像声明版本（`VERSION` 文件），防止预发布版本（如 `1.0.0a10`）污染 Git 跟踪的基线声明；
+- **引擎资产来源隔离与自愈（BX-ENGINE-08）**：`asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资产；项目源码树 `core/` 绝不隐式成为运行时或安装源。仅显式设置 `BUGX_DEV_ASSET_ROOT=1` 或经安全校验的 `BUGX_ASSET_ROOT=<path>` 才能选择开发资产。默认安装载荷缺失/不完整时抛出带 `repairable` 属性的 `MissingAgentAssetError`；普通命令报告错误。仅真实 CLI 控制台显式执行 `bugx update --repair-assets` 才进入资源恢复。直接解析当前非 editable distribution 的 dist-info 原始 wheel `RECORD`（不依赖会在安装文件缺失时漏项的 `distribution.files`），只有全局引擎 Build ID 与当前 CLI 相同、且每个引擎文件的 SHA-256 和大小都逐项匹配 `RECORD` 时，才在安装数据目录同级暂存后原子恢复并复验；身份、哈希、路径、暂存或复验任一条件不满足则不使用该副本。离线恢复不可用时，再使用已通过自身完整性校验的全局引擎，优先从固定官方 stable 发行 API `https://bugx.dev` 查询/下载；仅 API 不可用时，才从官方 PyPI `bugx-cli` 查询未撤回的 stable wheel。在线恢复不采用云端知识同步配置、设备路由或其他镜像。PyPI 路径固定请求 `pypi.org` JSON 和 `files.pythonhosted.org` wheel，拒绝重定向、sdist、预发布、yanked 文件、版本降级和不匹配 SHA-256；wheel 仍通过发行名、`py3-none-any` 纯 Python 标签、CLI/现有 asset/共享引擎 Build ID 下限、完整核心清单和安装后非 editable 状态校验，再重启原命令一次。显式 `CloudClient(base_url=...)` 不解析无关云端配置；为兼容已安装的旧全局引擎，恢复入口只在构造客户端时临时覆盖 `BUGX_CLOUD_API_BASE` 并无论成功或异常都恢复。`pyproject.toml` 按 core 子目录映射 wheel 数据文件；Jenkins 在改写 staged 版本、通道和云端地址后重签 core manifest，并在上传前逐项核对 wheel 清单文件哈希及 CLI/core Build ID。显式覆盖、开发模式、项目布局和 runtime 门禁均不触发 pip；只读 `bugx update --check` 也不安装，且不能与 `--repair-assets` 组合；恢复条件不满足时 fail-closed。`bugx update --repair-assets` 只执行资源恢复；仅当 CLI 与 asset 自身一致且 Build ID 不低于共享引擎时直接结束；若默认安装资源完整但已落后于共享引擎，则从合格官方 stable 来源获取满足最大 Build ID 下限的 wheel，下载后、pip 前在共享引擎安装锁内复核，安装后核对实际 CLI/asset Build ID。恢复后重启并校验后不继续普通版本升级。editable 安装不改变源码隔离规则。`bugx install` 始终只读使用 `source = asset_root()`，不会因项目位于 BugX 源码仓库而覆盖 venv/site-packages 资产；从识别出的源码树安装共享引擎还必须显式 `--force`。
   - 本地 RECORD 恢复提交后复验失败时，原目标存在则恢复原目录备份；原目标缺失则通过唯一隔离目录与设备/inode 身份校验，仅清理本次发布目录。若发现符号链接、非目录或并发替换目标，必须保留该目标并硬失败，不得继续在线 wheel 或 pip 后备。
 - **wheel manifest 与源映射闭环**：`pyproject.toml` 的 data-files glob 必须覆盖 `engine-integrity.json` 的每条签名路径；一致性回归按 setuptools glob 语义检查源映射，wheel 校验继续对最终产物逐项核对文件和哈希，防止签名完整但包漏文件。
 - **npm 与 pip/uv 双包共存探测与隔离**：`bin/bugx.js` 注入 `BUGX_CLI_SOURCE=npm`；`bugx doctor` 自动诊断 `which -a bugx` 中的 npm、uv、pip、pyenv 优先级与版本冲突，输出确定性的卸载指引；`_self_uninstall_flow` 动态适配安装源给出精确卸载命令。
@@ -1122,6 +1175,28 @@ DOC-139 打通飞轮自动消费闭环：在每轮收尾 `_maybe_enqueue_flywhee
 进程 `auto_sync.py` 中自动触发 `flush()` 消费 Outbox，直连云端
 `/api/v1/agent/telemetry/flywheel`，支持匿名及已绑定凭据上报。
 
+当前遥测总闸门由 `core/cloud_sync/consent.py:telemetry_enabled()` 单一裁决：
+`telemetry.data_sharing` 缺失时默认开启，显式 `false` 关闭，
+持久化 `false` 是硬撤销，`BUGX_TELEMETRY_ENABLED` 只在未撤销时覆盖当前进程且非法值按关闭处理。该门禁同时保护
+`core/runtime/global_telemetry.py` 的本地统计写入、飞轮 outbox 入队、flush/upload
+和安装心跳；调用方传入的 `data_sharing=True` 不得绕过用户配置或进程关闭。
+
+普通 CLI 命令由 `interfaces/cli/bugx_cli/cli.py` 每日最多触发一次
+`maybe_report_installation()`：首次入队 `event_type=installation,
+installation_event=installed`，后续为 `heartbeat`，复用同一 outbox 与 2xx/失败保留语义。
+安装事件仅包含服务端 origin 作用域化的 `installation_id`、匿名 `device_id`、客户端版本、
+marker、release channel、client/artifact kind 和 platform；不发送用户名、hostname、
+项目绝对路径、凭据或安装密钥。`~/.bugx/telemetry/installation-state.json` 只保存本地
+节流状态，不是服务端收据。
+
+BugX Server 在 `/api/v1/agent/telemetry/flywheel` 接收事件时，在同一事务写入
+`agent_telemetry_events` 并按 `installation_id` upsert `agent_installations`；因此事件
+审计和去重安装统计不会出现单边成功。管理员只读统计通过
+`/api/v1/admin/telemetry/stats`，安装实例分页通过
+`/api/v1/admin/telemetry/installations`，后者受独立的
+`cloud:sync:admin-telemetry-installations` 权限保护。客户端、服务端 migration、管理页
+和权限必须同时部署；仅修改 CLI 不会产生服务端安装统计。
+
 ```mermaid
 flowchart LR
     A[Audit trace] --> R[SecretRedactor]
@@ -1130,6 +1205,10 @@ flowchart LR
     O --> D[Auto Drain: post_phase / auto_sync]
     D --> M[Merkle delta + DPO]
     M --> C[POST /api/v1/agent/telemetry/flywheel]
+    I[CLI daily installation/heartbeat<br/>installation_id + client metadata] --> G{telemetry_enabled}
+    G -->|enabled| O
+    G -->|disabled| X[No local write / no egress]
+    C --> U[Server upsert agent_installations<br/>and retain event receipt]
     K[Knowledge records] --> S[Existing 5-type Cloud Sync]
     S -. isolated .- C
 ```
@@ -1485,13 +1564,14 @@ sequenceDiagram
 
 ### 2.4 Install transaction boundary for host-managed `.agents`
 
-`interfaces/cli/bugx_cli/commands/agent.py::_agent_install_snapshot` snapshots only the exact BugX-owned
-files it may modify before host installation and restores them on failure. This boundary applies
-both in a project directory and when the user intentionally runs `bugx install` from the user
-directory. It never recursively enumerates or copies host caches, plugins, sessions, or databases
-under `.codex`, `.agents`, or other host surfaces. A pre-existing `.agents` symlink or Windows
-reparse point is treated as host-owned: the snapshot neither traverses nor removes it, so unrelated
-host installs are not blocked by a shared user-level directory.
+`interfaces/cli/bugx_cli/commands/agent.py::_agent_install_snapshot` first resolves the requested host
+adapters, then snapshots only the exact BugX-owned files in the shared `.bugx` surface and the
+selected adapters' declared surfaces. `opencode.json` joins the transaction only when OpenCode is
+selected. This boundary applies both in a project directory and when the user intentionally runs
+`bugx install` from the user directory. It never recursively enumerates or copies host caches,
+plugins, sessions, or databases under `.codex`, `.agents`, or other host surfaces. A symlink or
+Windows reparse point belonging to an unselected host is outside the transaction and cannot block
+the selected host installation. Selected write surfaces remain fail-closed at snapshot time.
 For ChatGPT, only the project Marketplace is resolved to that link's directory target and written
 there; the plugin payload remains under the ordinary project `plugins/bugx/` directory. Nested links
 and every other host resource still pass the existing `_assert_no_symlink_components` and host-resource
@@ -1502,8 +1582,9 @@ sequenceDiagram
     participant CLI as bugx install
     participant TX as Install snapshot
     participant Host as Host adapter
-    CLI->>TX: enumerate BugX-owned exact files
-    TX-->>CLI: skip existing linked .agents; snapshot only managed files
+    CLI->>CLI: resolve selected host adapters
+    CLI->>TX: enumerate shared and selected exact files
+    TX-->>CLI: leave unselected linked host surfaces outside the transaction
     CLI->>Host: validate and install selected host
     Host-->>CLI: ChatGPT writes only resolved .agents Marketplace target
     CLI->>TX: restore only snapshotted surfaces
@@ -2079,13 +2160,13 @@ project-root/
 `asset_root()` 只排在其后作为引导/安装来源；重复路径在每次插入时清理。SemVer
 相同则用数值 `build_id` 决定新旧。普通安装面对非空目标时，已安装引擎或安装源
 缺少 Build ID 都必须拒绝覆盖；目标 Build ID 高于源时也必须拒绝降级，只有显式
-`force=True` 才能绕过这些版本门禁。安装目的地不得是 `asset_root()`，也不得位于
+`--force` 才能绕过这些版本门禁。安装目的地不得是 `asset_root()`，也不得位于
 `sysconfig.get_path("data")` 或 `asset_root().parent` 之下，以免覆写 Python 安装载荷。
 `doctor --repair` 仅在 asset Build ID 严格高于 global 时才可使用强制替换。成功安装
 会把 `engine-receipt.json`（安装时间、CLI 完整版本、来源路径、Build ID）写在引擎
 目录的父目录；core 根目录仅承载 `engine-integrity.json` 清单中的静态文件。`bugx update`
 在 pip 安装后独立刷新全局引擎，并以 asset/global 完整性校验结果决定更新成功与否；
-若 CLI 安装资源本身不可解析，则由 BX-ENGINE-08 的一次性恢复路径先安全重装 CLI wheel，
+若 CLI 安装资源本身不可解析，显式执行 `bugx update --repair-assets` 进入 BX-ENGINE-08 的恢复路径，
 复验资源后重启原命令；stable 发行不可用或任一 Build ID/完整性检查失败时不进入项目命令。
 doctor 分别报告完整版本契约和已发现 asset/global/user-site/cli-prefix 副本 Build ID 一致性。
 副本诊断只在当前 asset 严格高于 global、路径发现完整且无其它副本高于 asset 时才建议
@@ -3551,9 +3632,9 @@ BugX CLI 支持 11 种 AI 宿主（OpenCode, DSH, Codex, Cline, Claude Code, ZCo
 基类 `HostAdapter` 彻底移除针对宿主名的 `if self.name == ...` 分支，只保留统一模板方法与默认钩子。
 
 ### 46.3 受管快照表面自报协议（`managed_surfaces`）
-每个 Adapter 必须实现 `managed_surfaces() -> tuple[str, ...]`，自报其在项目级可能触及的顶层目录与文件前缀。命令层 `_AGENT_INSTALL_SURFACES` 由基础集合与已注册宿主动态聚合：
-$$\text{Surfaces} = \text{Base} \cup \bigcup_{A \in \text{HOST\_ADAPTERS}} A.\text{managed\_surfaces}()$$
-新增宿主只需自报受管目录，安装事务引擎自动纳入快照并在异常时实现 100% 原子回滚。设计审计结论：`AUDITED_OK`。
+每个 Adapter 必须实现 `managed_surfaces() -> tuple[str, ...]`，自报其在项目级可能触及的顶层目录与文件前缀。安装命令先解析本次选中的 Adapter，再构造事务快照：
+$$\text{Surfaces}(S) = \text{Shared} \cup \bigcup_{A \in S} A.\text{managed\_surfaces}() \cup \text{Selected MCP paths}$$
+其中 `Shared` 当前为 `.bugx`，OpenCode 选中时加入 `opencode.json`，插件声明的 MCP 路径也投影为顶层受管面。未选中的宿主目录不进入快照，因此其符号链接或重解析点不能阻断当前安装；选中的写入面仍在快照阶段 fail-closed。新增宿主只需自报受管目录，安装事务引擎按选集纳入快照并在异常时恢复受管文件。设计审计结论：`AUDITED_OK`。
 
 ### 46.4 Claude Desktop 技能生命周期契约与防误删防卫（`creatorType` & `syncManaged`）
 在 Claude Desktop（Mac/Windows 客户端）中，本地 Agent 会话技能库位于 `local-agent-mode-sessions/skills-plugin/<org>/<user>/` 下的 `manifest.json`。
@@ -5797,7 +5878,7 @@ flowchart TD
 
 ### 67.2 `share_pending` 显式补偿（`--replay-share-pending`）
 
-- `submit` 仍自动重放；`local` 新增显式授权入口 `pre --replay-share-pending`（`force=True`）：
+- `submit` 仍自动重放；`local` 新增显式授权入口 `pre --replay-share-pending`：
   校验 report_hash/visibility 后重放并写 receipt、删除队列项。
 - `none` 硬拒绝（需先把策略改为 `local`/`submit`），不允许用 flag 绕过策略语义。
 

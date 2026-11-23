@@ -50,6 +50,7 @@ from ..host_adapters import (
     ENTRY_SKILL_PAYLOAD,
     ENTRY_USER_REGISTRATION,
     HOST_ADAPTERS,
+    HostAdapter,
     HOST_NAME_CLAUDE,
     HOST_NAME_FUNIDE,
     HOST_NAME_QODER,
@@ -124,32 +125,54 @@ class _CliProgress:
 # Backward-compatible test/import name; the renderer is shared by all long CLI commands.
 _InstallProgress = _CliProgress
 
-#: **未迁移**宿主的安装面基线（逐宿主切片时删除对应项）。已迁移宿主的目录由
-#: ``HOST_ADAPTERS.managed_surfaces()``（插件 marker 投影）自动追加。
-#: **未迁移**宿主的用户级可见位置提示；已迁移宿主用 ``全局 <label> 可见``。
+#: 安装事务始终保护的共享运行面。宿主目录由本次选中的适配器按需追加，
+#: 避免安装一个宿主时因为另一个宿主的用户自定义链接而提前失败。
+#: 宿主用户级注册后的「在哪里可见」提示。
 _USER_AGENT_VISIBILITY_HINTS = {
     "funide": "FunIDE 设置 → 智能体可见",
 }
 
 
 def _user_agent_visibility(host_name: str) -> str:
-    """用户级注册后的「在哪里可见」提示（未迁移宿主走基线表）。"""
+    """返回用户级注册后的「在哪里可见」提示。"""
 
     hint = _USER_AGENT_VISIBILITY_HINTS.get(host_name)
     return hint or f"全局 {engine_host_label(host_name)} 可见"
 
 
-_BASE_AGENT_INSTALL_SURFACES = (
-    ".bugx", ".opencode", ".claude", ".zcode", ".pi", ".agents",
-    ".workbuddy", ".codebuddy", ".qoder", ".github",
-    ".dsh", "plugins", CONFIG_NAME,
-)
-_AGENT_INSTALL_SURFACES = tuple(
-    dict.fromkeys(
-        list(_BASE_AGENT_INSTALL_SURFACES)
-        + [surface for adapter in HOST_ADAPTERS for surface in adapter.managed_surfaces()]
-    )
-)
+_BASE_AGENT_INSTALL_SURFACES = (".bugx",)
+
+
+def _agent_install_surfaces(
+    selected_adapters: tuple[HostAdapter, ...] | None = None,
+) -> tuple[str, ...]:
+    """Return the project surfaces that this transaction may write.
+
+    ``None`` preserves the complete registry projection for direct in-process
+    callers. The CLI install path passes the selected adapters so an unrelated
+    host directory cannot veto the transaction.
+    """
+    adapters = HOST_ADAPTERS if selected_adapters is None else selected_adapters
+    surfaces = list(_BASE_AGENT_INSTALL_SURFACES)
+    plugins = {
+        str(plugin.identity.name): plugin
+        for plugin in engine_host_plugins()
+        if getattr(plugin, "identity", None) is not None
+    }
+    for adapter in adapters:
+        surfaces.extend(adapter.managed_surfaces())
+        if adapter.supports(CAP_PROJECT_MCP_CONFIG):
+            surfaces.append(CONFIG_NAME)
+        plugin = plugins.get(adapter.name)
+        if plugin is not None:
+            for relative in plugin.install.mcp_relpaths:
+                path = Path(relative)
+                if not path.is_absolute() and path.parts:
+                    surfaces.append(path.parts[0])
+    return tuple(dict.fromkeys(surfaces))
+
+
+_AGENT_INSTALL_SURFACES = _agent_install_surfaces()
 
 # The transaction protects only BugX-owned files that the install path can
 # write.  It must never copy an entire host directory: user-level installs
@@ -328,8 +351,12 @@ def command_agent(args: argparse.Namespace) -> int:
         progress = _CliProgress(args)
         progress.update(0, "准备安装")
         root = args.root.resolve()
+        _ensure_core_importable()
+        selected_adapters = _select_install_adapters(
+            args, root, discover_hosts(root),
+        )
         try:
-            staging, existed = _agent_install_snapshot(root)
+            staging, existed = _agent_install_snapshot(root, selected_adapters)
         except (OSError, shutil.Error) as exc:
             raise CliError(_i18n_exc(
                 "agent.install_snapshot_failed",
@@ -339,7 +366,11 @@ def command_agent(args: argparse.Namespace) -> int:
         token = _GLOBAL_TX.set(staging)
         preserve_staging = False
         try:
-            return _command_agent_impl(args, progress=progress)
+            return _command_agent_impl(
+                args,
+                progress=progress,
+                selected_adapters=selected_adapters,
+            )
         except BaseException as install_error:
             progress.fail()
             rollback_errors: list[str] = []
@@ -391,7 +422,10 @@ def _ignore_install_snapshot_entries(directory: str, names: list[str]) -> list[s
     return [name for name in names if _is_special_install_entry(Path(directory) / name)]
 
 
-def _agent_install_snapshot(root: Path) -> tuple[Path, dict[str, bool]]:
+def _agent_install_snapshot(
+    root: Path,
+    selected_adapters: tuple[HostAdapter, ...] | None = None,
+) -> tuple[Path, dict[str, bool]]:
     """Stage only BugX-owned files before a host install.
 
     Installation touches shared runtime files as well as one or more host
@@ -403,7 +437,7 @@ def _agent_install_snapshot(root: Path) -> tuple[Path, dict[str, bool]]:
     staging = Path(tempfile.mkdtemp(prefix="bugx-install-transaction-")).resolve()
     existed: dict[str, bool] = {}
     try:
-        for relative in _AGENT_INSTALL_SURFACES:
+        for relative in _agent_install_surfaces(selected_adapters):
             target = root / relative
             existed[relative] = target.exists() or _is_reparse_point(target)
             if not existed[relative]:
@@ -736,8 +770,77 @@ def _installed_engine_build_id() -> int:
         pass
     return get_build_id() or 1
 
+
+def _select_install_adapters(
+    args: argparse.Namespace,
+    root: Path,
+    hosts: list[dict[str, object]],
+) -> tuple[HostAdapter, ...]:
+    """Resolve and validate the requested hosts before opening the transaction."""
+    raw_requested: list[str] = []
+    for item in getattr(args, "agent", []):
+        for sub in str(item).split(","):
+            sub = sub.strip()
+            if sub:
+                raw_requested.append(sub)
+    requested = list(dict.fromkeys(raw_requested))
+    if not requested:
+        if args.non_interactive:
+            raise CliError(_i18n_exc(
+                "agent.non_interactive_agent_required",
+                "非交互安装必须显式提供 --agent opencode/dsh/codex/cline/claude/zcode/workbuddy/pi/chatgpt/qoder/trea/funide",
+            ))
+        if not sys.stdin.isatty():
+            raise CliError(_i18n_exc(
+                "agent.non_tty_agent_required",
+                "当前不是交互终端；请显式提供 --agent",
+            ))
+        requested = _prompt_for_hosts(hosts, root)
+    if "all" in requested:
+        available_names = [str(item["name"]) for item in hosts if item["installed"]]
+        if not available_names and not args.allow_missing:
+            raise CliError(_i18n_exc(
+                "plugin.no_agent_detected",
+                "没有检测到已安装的 AI Agent；请安装 OpenCode/Codex/Claude/ZCode/Pi/ChatGPT，或显式指定 --agent",
+            ))
+        if not available_names and args.allow_missing:
+            available_names = [str(item["name"]) for item in hosts]
+        expanded: list[str] = []
+        for name in requested:
+            if name == "all":
+                for available in available_names:
+                    if available not in expanded:
+                        expanded.append(available)
+            elif name not in expanded:
+                expanded.append(name)
+        requested = expanded
+
+    selected: list[HostAdapter] = []
+    seen_adapters: set[str] = set()
+    for name in requested:
+        try:
+            adapter = get_adapter(name)
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+        if adapter.name in seen_adapters:
+            continue
+        seen_adapters.add(adapter.name)
+        detected = next(item for item in hosts if item["name"] == adapter.name)
+        if not detected["installed"] and not args.allow_missing:
+            raise CliError(_i18n_exc(
+                "agent.adapter_missing_allow_missing",
+                f"未检测到 {adapter.label}；如仍要写入项目入口，请加 --allow-missing",
+                label=adapter.label,
+            ))
+        selected.append(adapter)
+    return tuple(selected)
+
+
 def _command_agent_impl(
-    args: argparse.Namespace, *, progress: _CliProgress | None = None,
+    args: argparse.Namespace,
+    *,
+    progress: _CliProgress | None = None,
+    selected_adapters: tuple[HostAdapter, ...] | None = None,
 ) -> int:
     """发现并安装到宿主 AI；不启动宿主，也不执行审计。"""
     root = args.root.resolve()
@@ -763,53 +866,11 @@ def _command_agent_impl(
         return 0
     if command != "install":
         raise CliError(_i18n_exc("agent.unknown_agent_command", f"未知 Agent 命令: {command}", command=command))
-    raw_requested = []
-    for item in getattr(args, "agent", []):
-        for sub in str(item).split(","):
-            sub = sub.strip()
-            if sub:
-                raw_requested.append(sub)
-    requested = list(dict.fromkeys(raw_requested))
-    if not requested:
-        if args.non_interactive:
-            raise CliError(_i18n_exc("agent.non_interactive_agent_required", "非交互安装必须显式提供 --agent opencode/dsh/codex/cline/claude/zcode/workbuddy/pi/chatgpt/qoder/trea/funide"))
-        if not sys.stdin.isatty():
-            raise CliError(_i18n_exc("agent.non_tty_agent_required", "当前不是交互终端；请显式提供 --agent"))
-        requested = _prompt_for_hosts(hosts, root)
-    if "all" in requested:
-        available_names = [str(item["name"]) for item in hosts if item["installed"]]
-        if not available_names and not args.allow_missing:
-            raise CliError(_i18n_exc(
-                "plugin.no_agent_detected",
-                "没有检测到已安装的 AI Agent；请安装 OpenCode/Codex/Claude/ZCode/Pi/ChatGPT，"
-                "或显式指定 --agent",
-            ))
-        if not available_names and args.allow_missing:
-            available_names = [str(item["name"]) for item in hosts]
-        expanded = []
-        for name in requested:
-            if name == "all":
-                for av in available_names:
-                    if av not in expanded:
-                        expanded.append(av)
-            else:
-                if name not in expanded:
-                    expanded.append(name)
-        requested = expanded
-    selected = []
-    seen_adapters = set()
-    for name in requested:
-        try:
-            adapter = get_adapter(name)
-        except ValueError as exc:
-            raise CliError(str(exc)) from exc
-        if adapter.name in seen_adapters:
-            continue
-        seen_adapters.add(adapter.name)
-        detected = next(item for item in hosts if item["name"] == adapter.name)
-        if not detected["installed"] and not args.allow_missing:
-            raise CliError(_i18n_exc("agent.adapter_missing_allow_missing", f"未检测到 {adapter.label}；如仍要写入项目入口，请加 --allow-missing", label=adapter.label))
-        selected.append(adapter)
+    selected = list(
+        _select_install_adapters(args, root, hosts)
+        if selected_adapters is None
+        else selected_adapters
+    )
     if progress is not None:
         progress.update(10, "已确认安装目标")
 

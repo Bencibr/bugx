@@ -10,7 +10,8 @@
 flowchart TD
     P["core/prompts/"]
     P --> RT["路由与调度<br/>l0_router.md<br/>command_routing_zh.md<br/>command_routing_en.md<br/>codex_dialog_dispatch.md"]
-    P --> ST["阶段指导 (stages/)<br/>stage_gate.md (前置门禁)<br/>stage_explore.md (探索侦察)<br/>stage_mutate.md (模糊变异)<br/>stage_repair.md (防御修复)"]
+    P --> ST["阶段指导 (stages/)<br/>stage_gate.md (前置门禁)<br/>stage_explore.md (探索侦察)<br/>stage_verify.md / stage_verify.defensive.md (独立盲审验证)<br/>stage_mutate.md (模糊变异)<br/>stage_repair.md (防御修复)"]
+    P --> PL["策略配置 (policies/)<br/>prompt_policies.json (声明式模型策略与风控降级)"]
     P --> RL["防御规则 (rules/)<br/>anti_patterns.md (反模式特征)<br/>concurrency_rules.md (并发安全)<br/>memory_leak_rules.md (内存泄露)<br/>prompt_injection_defense.md (反注入)"]
 ```
 
@@ -25,7 +26,8 @@ flowchart TD
 | `command_routing_zh.md` | 中文自然语言意图到 BugX CLI 命令的高精度意图映射规则库 |
 | `l0_router.md` | L0 顶层意图分流器，识别用户意图属于常规审查、定向攻防、状态查看还是系统诊断 |
 | `rules/` | 防御与审查硬红线规则集，包含 `anti_patterns.md`、`concurrency_rules.md`、`memory_leak_rules.md` 与 `prompt_injection_defense.md` |
-| `stages/` | 攻防生命周期阶段指引模板库，涵盖 `stage_gate.md`、`stage_explore.md`、`stage_mutate.md` 与 `stage_repair.md` |
+| `stages/` | 攻防生命周期阶段指引模板库，涵盖 `stage_gate.md`、`stage_explore.md`、`stage_verify.md`、`stage_verify.defensive.md`、`stage_mutate.md` 与 `stage_repair.md` |
+| `policies/` | 声明式提示词策略配置目录（`prompt_policies.json`），定义 `standard` / `defensive_qa` / `strict_compliance`、模型路由与风控动态降级触发器 |
 
 ---
 

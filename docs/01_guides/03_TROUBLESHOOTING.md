@@ -463,7 +463,7 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
 | `cloud sync` | V2 knowledge records；`full/summary` 与 `block/redact/allow` 共同决定内容 | 每层 summary、SyncStore cursor/error/outbox/inbox/conflict/dead-letter、policy audit | 停止在 `UNVERIFIED`，不把 `ok` 或 0 当远端收敛 |
 | `cloud upload` | 指定 JSON bundle；`merge/local_authoritative` 还会影响基线采用 | bundle SHA-256、JSON response snapshot、上传后 status | 保存 bundle 和 response；无法确认 snapshot/收敛时 `RECOVERY_REQUIRED` |
 | `project sync` | 紧凑项目画像和代码指标，不是 knowledge ledger | `--json` 中 `status/project_id/synced/result`、绑定文件 | 不因绑定文件存在而报告已上传 |
-| `telemetry flush/upload` | 独立脱敏飞轮队列 | `telemetry inspect --latest --json`、本地 outbox/audit | 未明确 consent 或队列状态时不上传 |
+| `telemetry flush/upload` | 独立脱敏飞轮队列；普通 CLI 命令还会每日最多自动记录一次安装/心跳 | `telemetry inspect --latest --json`、本地 outbox/audit、flush 的 `sent/remaining` | 门禁关闭时不联网；启用但没有 2xx/audit 或服务端统计时标记 `UNVERIFIED`，不要把退出码 0 当接收成功 |
 | `cloud log-report` | 诊断日志尾部，默认 256 KB，可能含路径/上下文 | 上传前人工审查尾部、`--json` bytes/lines、退出码 | 无法脱敏就只保留本地日志 |
 | `cloud feedback` | lesson_id/outcome，最多 100 条 | `--dry-run --json` 预览和条目数 | 先 dry-run；空列表不联网 |
 
@@ -472,6 +472,40 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
 ### 终态
 
 报告中记录 consent、scope、detail mode、sensitive policy、网络验证状态、上传/同步退出码和冲突处理结果。网络不可用不是“本地已同步”，应标记为 `UNVERIFIED`/`BLOCKED`；存在 ACK pending、open conflict、dead-letter 或本地/远端 project identity 不一致时应标记 `RECOVERY_REQUIRED`。
+
+### 10.2 遥测默认开启、关闭或安装统计不增长
+
+#### 症状
+
+- 普通命令后出现了遥测安装/心跳事件，用户原本以为只有显式 `telemetry flush` 才会出网；
+- `telemetry flush/upload` 返回 0，但没有事件发送；
+- 已经运行 CLI，服务端“独立安装数/近 30 天活跃安装”仍没有变化；
+- 关闭遥测后仍能看到旧的本地审计行或 outbox 文件。
+
+#### 证据与判定
+
+```sh
+bugx telemetry inspect --latest --json
+bugx telemetry flush --batch-size 20
+bugx config set telemetry.data_sharing false
+BUGX_TELEMETRY_ENABLED=0 bugx telemetry flush --batch-size 20
+```
+
+- 未配置 `telemetry.data_sharing` 且未设置 `BUGX_TELEMETRY_ENABLED` 时，源码默认门禁为开启；普通 CLI 命令每天最多生成一次 `installed`（首次）或 `heartbeat`（后续）事件。
+- 关闭时应看到 `遥测已关闭，未执行网络上传。`，退出码 0 只表示安全跳过；`BUGX_TELEMETRY_ENABLED=0` 或非法值会关闭当前进程，持久化 `telemetry.data_sharing=false` 是硬关闭，不能用 `BUGX_TELEMETRY_ENABLED=1` 绕过。
+- 启用时，`flush` 输出中的 `sent`/`remaining`、`~/.bugx/telemetry/egress_audit.log` 的 HTTP 状态必须与服务端事件接收/安装统计一起判断。没有服务端 2xx 或管理端统计证据只能是 `UNVERIFIED`。
+- `~/.bugx/telemetry/installation-state.json` 是本地每日节流状态，不是服务端 receipt；旧 audit 行不会因关闭而消失。
+
+#### 恢复
+
+1. 如果用户不希望任何新遥测，保留 `telemetry.data_sharing=false`；需要只影响当前命令时使用 `BUGX_TELEMETRY_ENABLED=0`，不要删除身份密钥或手工修改 outbox。
+2. 如果用户明确重新启用，执行 `bugx config set telemetry.data_sharing true`，确认没有进程级 `BUGX_TELEMETRY_ENABLED=0`，再运行一次显式 `telemetry flush`；先保留 `inspect`、audit 和退出码。
+3. 如果队列持续 `remaining>0`，检查 `BUGX_TELEMETRY_ENDPOINT`/`BUGX_CLOUD_API_BASE`、TLS、网络和服务端 `/api/v1/agent/telemetry/flywheel`，不要连续盲目重试；网络失败时队列应保留，属于 `RECOVERY_REQUIRED` 或 `UNVERIFIED`。
+4. 如果服务端有事件但安装数不增长，检查事件是否包含格式合法且稳定的 `installation_id`，以及服务端 migration `00053_agent_installations.sql` 和管理权限；不要把每条事件数当成安装数。
+
+#### 必须停止
+
+遇到凭据/TLS/服务端 schema 错误、发送状态无法和 audit 对齐、需要扩大到 knowledge/profile/log/bundle 数据面，或用户没有授权新的网络动作时，停止在 `BLOCKED`/`UNVERIFIED`/`RECOVERY_REQUIRED`，只报告已收集证据和下一步，不删除队列、不重置安装身份、不伪造服务端统计。
 
 ## 11. Report 未认证、来源不对或浏览器打不开
 

@@ -569,6 +569,10 @@ def _defer_command_logging_until_authorized(args: argparse.Namespace) -> bool:
     not create/open the project log until authorization has succeeded.
     """
     command = getattr(args, "command", None)
+    if getattr(args, "dry_run", False) or command == "hosts":
+        return True
+    if command == "project" and getattr(args, "project_action", None) == "show":
+        return True
     if command == "completion":
         # Shell setup must be observationally read-only: emitting a script must
         # not create a project log merely because it was run from a repository.
@@ -599,14 +603,8 @@ def _defer_command_logging_until_authorized(args: argparse.Namespace) -> bool:
             and not getattr(args, "yes", False)
         )
     if command == "engine":
-        forwarded = list(getattr(args, "engine_args", []) or [])
-        if forwarded and forwarded[0] == "--":
-            forwarded = forwarded[1:]
-        # 裸 ``bugx engine`` 会被 command_engine 默认成 status，是真实调度，
-        # 必须留日志；只有转发里出现帮助词时引擎才只打印帮助、不碰运行态。
-        return bool(forwarded) and any(
-            token in ENGINE_HELP_TOKENS for token in forwarded
-        )
+        # Engine actions own their own logging after argument validation.
+        return True
     return False
 
 

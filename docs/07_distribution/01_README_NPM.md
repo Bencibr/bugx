@@ -2,11 +2,11 @@
   <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/bugx-hero-en.svg" alt="BugX — effortless audits of AI-written code" width="1000">
 </p>
 
-# BugX — AI Code Audit Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
+# BugX — AI Code Audit & Code Review Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
 
-BugX is an autonomous code-audit agent that runs inside your AI coding assistant or on the command line. It audits AI-written code end to end: it builds a coverage list of your project, dispatches concurrent audit workers, verifies every candidate finding with real executions, and produces a report where each finding ships with a command you can run yourself to reproduce it.
+BugX is an autonomous code-audit and automated code review agent that runs inside your AI coding assistant or on the command line. It audits AI-written code end to end: it builds a coverage list of your project, dispatches concurrent audit workers, verifies every candidate finding with real executions, and produces an actionable report where each finding ships with a command you can run yourself to reproduce it.
 
-If you use AI coding tools to write production code, BugX is the security audit and code review layer that checks what the model actually delivered — not what it claims to have delivered.
+If you use AI coding tools to write production code, BugX is the automated code review and security audit agent that checks what the model actually delivered — not what it claims to have delivered.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/npm/v/bugx-cli.svg?style=flat&color=0284c7&label=npm" alt="npm version"></a>
@@ -42,7 +42,8 @@ BugX counters this with a ledger and four hard rules: a per-unit coverage list (
 - **Functionality review** — a behavior diff: the same inputs go to your implementation and a reference implementation, and the differences are reported.
 - **Performance and memory checks** — performance and resource defects, plus dedicated memory inspection for native, Python, JVM, Electron, Android, and Apple targets.
 - **UI audit** — layout, contrast, keyboard paths, and design tokens on a running web page (`bugx probe ui`).
-- **Reproducible findings** — every vulnerability ships with a command or input you can run yourself; all three verification runs (two positive, one negative control) stay on record.
+- **Reproducible findings & blind verification** — every vulnerability is blind-reviewed by an independent verifier with a reproduction command or PoC; verified with AST negative control assertions; refuted cases are logged to the FP Ledger.
+- **Prompt Policy Engine** — declarative prompt profiles adapt to model-specific safety filters (e.g. OpenAI Cyber Risk / Daybreak) without losing code fidelity.
 - **Mutation-verified tests** — `bugx test-verify` mutates your code to check whether the tests actually catch the bugs.
 - **Patch bundles** — `bugx patch-forge` builds a patch with static checks and hands it to you for review; it never commits on its own.
 - **Lessons base and unattended runs** — `bugx lesson` / `bugx knowledge` accumulate project and global experience; `bugx autonomous` and `bugx goal` run end-to-end audits without supervision.
@@ -174,7 +175,10 @@ DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted
 An autonomous code-audit agent for AI-written code. It runs inside AI coding assistants (via MCP) or as a CLI, tracks audit coverage per unit, and verifies every finding by executing it.
 
 **How does BugX verify a vulnerability?**
-Every candidate runs through the engine's verification channel: the same attack input must reproduce the finding twice, and a clean input must produce nothing. All three executions are recorded with commands, exit codes, and artifact hashes.
+Rather than trusting the proposing model's self-report, findings are independently blind-reviewed: an attack input must reliably trigger the vulnerability twice, and a clean input must trigger zero times (two positive runs, one negative control) recorded with command, exit code, and artifact hashes, verified by AST syntax assertions. Refuted findings are recorded in the FP Ledger.
+
+**Does BugX trigger AI model cyber-security risk blocks?**
+BugX includes a declarative Prompt Policy Engine with adaptive prompt profiles (e.g., defensive QA phrasing for OpenAI Codex / GPT-4o) that prevents models from triggering platform Daybreak / Cyber Risk safety blocks, while preserving 100% of the underlying code and CWE details.
 
 **Does BugX send my code to the cloud?**
 The audit itself runs locally. Cloud sync of lessons and experience is an explicit opt-in; nothing is uploaded unless you run it.
@@ -187,7 +191,7 @@ Multi-language static and behavioral analysis (Python, JavaScript/TypeScript, Ja
 
 ### Keywords
 
-ai code audit · ai code review · code review agent · security audit · vulnerability scanner · sast · static analysis · mcp server · mcp security · claude code · openai codex · opencode · cline · roo code · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
+vibe coding · vibe coding security · pr review · pull request review · zero false positive · poc generator · mcp security · automated code audit · ai code audit · automated code review · code review agent · ai agent · security audit · vulnerability scanner · vulnerability mining · sast · static analysis · mcp server · claude code · openai codex · opencode · cline · roo code · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
 
 ---
 
@@ -195,9 +199,9 @@ ai code audit · ai code review · code review agent · security audit · vulner
 
 ### 什么是 BugX？
 
-BugX 是装进 AI 编程助手的代码审计 Agent。它对 AI 写出的代码做端到端审计：把项目拆成覆盖清单、派发并发审计 Worker、对每条候选漏洞做真实执行验证，最终产出一份报告——每条漏洞都附带一条你可以亲手运行的复现命令。
+BugX 是装进 AI 编程助手的**自动代码审计与自动化 Code Review 智能体（Agent）**。它对 AI 写出的代码做端到端自动化审计与代码审查：把项目拆成覆盖清单、派发并发审计 Worker、对每条候选漏洞做真实执行验证，最终产出一份详实的审计报告——每条漏洞都附带一条你可以亲手运行的复现命令。
 
-如果你的生产代码来自 AI 编程工具，BugX 就是那个安全审计与代码审查层：它核查模型**实际交付了什么**，而不是模型**声称交付了什么**。
+如果你的生产代码来自 AI 编程工具，BugX 就是那个专注于**自动代码审计**、**Code Review** 与安全加固的智能体层：它核查模型**实际交付了什么**，而不是模型**声称交付了什么**。
 
 ### 为什么 AI 代码需要审计
 
@@ -278,7 +282,7 @@ DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。�
 
 ### 关键词
 
-AI 代码审计 · AI 代码审查 · 代码审查 Agent · 安全审计 · 漏洞扫描 · 静态分析 · MCP 服务 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全
+自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
 
 ## License
 

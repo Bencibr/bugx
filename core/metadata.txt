@@ -1,4 +1,4 @@
-bugx_version: "0.1.1"
+bugx_version: "0.1.2"
 bugx_channel: "stable"
 bugx_marker: "stable"
-build_id: 8
+build_id: 11

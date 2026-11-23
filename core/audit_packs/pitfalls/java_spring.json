@@ -1,0 +1,64 @@
+{
+  "pack_id": "java_spring",
+  "schema_version": 1,
+  "description": "Java / Spring Boot 冷启动漏洞先验包（MyBatis / SpEL / Jackson / XXE）",
+  "pitfalls": [
+    {
+      "pitfall_id": "JAVA-MYBATIS-001",
+      "cwe": "CWE-89",
+      "severity": "critical",
+      "languages": ["java", "kotlin"],
+      "frameworks": ["spring", "springboot", "mybatis"],
+      "surfaces": ["http", "api", "database"],
+      "title": "MyBatis Mapper 中使用 ${...} 字符串插值导致 SQL 注入",
+      "anti_pattern_signals": ["${", "@Select(", "order by ${", "like '%${"],
+      "false_positive_guards": [
+        "使用预编译占位符 #{param}",
+        "${column} 传入前经过枚举/白名单映射"
+      ],
+      "poc_skeleton": "向 ORDER BY / LIKE 参数传入 SQL 注释或布尔表达式，对比响应差异"
+    },
+    {
+      "pitfall_id": "JAVA-SPEL-002",
+      "cwe": "CWE-917",
+      "severity": "critical",
+      "languages": ["java", "kotlin"],
+      "frameworks": ["spring", "springboot"],
+      "surfaces": ["http", "api", "expression"],
+      "title": "SpelExpressionParser 解析非受信表达式且使用 StandardEvaluationContext",
+      "anti_pattern_signals": ["SpelExpressionParser", "parseExpression(", "StandardEvaluationContext"],
+      "false_positive_guards": [
+        "使用 SimpleEvaluationContext.forReadOnlyDataBinding() 禁止类型/构造器解析"
+      ],
+      "poc_skeleton": "传入 `T(java.lang.Math).abs(-7)` 验证类型解析被求值为 7"
+    },
+    {
+      "pitfall_id": "JAVA-JACKSON-003",
+      "cwe": "CWE-502",
+      "severity": "critical",
+      "languages": ["java", "kotlin"],
+      "frameworks": ["spring", "springboot", "jackson"],
+      "surfaces": ["http", "api", "json"],
+      "title": "Jackson enableDefaultTyping / activateDefaultTyping(LaissezFaireSubTypeValidator) 多态反序列化",
+      "anti_pattern_signals": ["enableDefaultTyping(", "LaissezFaireSubTypeValidator", "@JsonTypeInfo"],
+      "false_positive_guards": [
+        "使用 BasicPolymorphicTypeValidator 显式限制允许基类/包白名单"
+      ],
+      "poc_skeleton": "提交包含非预期 `@class` 类型标签的 JSON，验证反序列化实例化任意类"
+    },
+    {
+      "pitfall_id": "JAVA-XXE-004",
+      "cwe": "CWE-611",
+      "severity": "high",
+      "languages": ["java", "kotlin"],
+      "frameworks": ["spring", "springboot", "jaxp"],
+      "surfaces": ["http", "api", "xml"],
+      "title": "DocumentBuilderFactory / SAXParserFactory 未禁用外部实体解析（XXE）",
+      "anti_pattern_signals": ["DocumentBuilderFactory.newInstance(", "SAXParserFactory.newInstance(", "XMLInputFactory.newInstance("],
+      "false_positive_guards": [
+        "显式设置 disallow-doctype-decl=true 与 external-general-entities=false"
+      ],
+      "poc_skeleton": "提交含本地无害实体声明的 DOCTYPE XML，验证解析器展开外部/内部实体"
+    }
+  ]
+}

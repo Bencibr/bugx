@@ -294,7 +294,7 @@ def _remove_owned_record(
     backup_dir: Path | None = None,
     force: bool = False,
 ) -> None:
-    """Remove a file only when its current bytes match BugX's recorded bytes (or force=True)."""
+    """Remove only recorded files unless the caller enables forced cleanup."""
     if not isinstance(record, dict):
         return
     relative = record.get("path")
@@ -377,7 +377,7 @@ def _sweep_unrecorded_host_entry(
     项目卸载的语义是"任何受支持的 IDE 进来都像新项目"。对 hosts.json
     没有记录的宿主（旧版本安装或登记丢失），入口文件内容与当前模板渲染
     逐字一致才认定为 BugX 自有并删除；有出入一律保留并报告，不冒充归属。
-    若 force=True，则对已识别的目标进行强制备份并删除。
+    启用 `--force` 后，才对已识别但内容已变化的目标进行强制备份并删除。
     """
     if adapter.name not in _SWEEPABLE_SKILL_ADAPTERS:
         return
@@ -2281,7 +2281,7 @@ def _remove_dsh_project_files(
     - 有记录但内容已被用户修改：保留文件并记入 preserved，不强行覆盖/删除；
     - 无记录：没有所有权证明，保留文件并记入 preserved；调用方若要清理必须
       先提供当前安装记录，禁止按文件名猜测归属。
-    - force=True：强制清理已备份的文件。
+    - `--force`：强制清理已备份的文件。
     """
     if not records and not force:
         for candidate in (

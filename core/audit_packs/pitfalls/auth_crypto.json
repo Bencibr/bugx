@@ -1,0 +1,64 @@
+{
+  "pack_id": "auth_crypto",
+  "schema_version": 1,
+  "description": "跨语言认证、鉴权与密码学冷启动漏洞先验包（JWT / HMAC / Session / 业务边界）",
+  "pitfalls": [
+    {
+      "pitfall_id": "AUTH-JWT-001",
+      "cwe": "CWE-347",
+      "severity": "critical",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["auth", "http", "api"],
+      "title": "JWT 校验允许 alg=none 或跳过签名验证（jwt.decode verify=False）",
+      "anti_pattern_signals": ["alg", "none", "verify_signature", "verify=False", "jwt.decode(", "urlsafe_b64decode"],
+      "false_positive_guards": [
+        "显式传入 algorithms=['HS256'] / ['RS256'] 白名单且强制验签",
+        "解析 header 后拒绝任何不在白名单内的 alg"
+      ],
+      "poc_skeleton": "构造 header `{\"alg\":\"none\"}` + 伪造 payload（sub=admin）+ 空签名段，验证是否通过校验"
+    },
+    {
+      "pitfall_id": "AUTH-TIMING-002",
+      "cwe": "CWE-208",
+      "severity": "medium",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["auth", "crypto", "api"],
+      "title": "使用普通字符串相等（== / !=）比对签名/API Token/Webhook MAC",
+      "anti_pattern_signals": ["signature ==", "token ==", "hmac", "secret ==", "digest =="],
+      "false_positive_guards": [
+        "使用常量时间比较：hmac.compare_digest / crypto.timingSafeEqual / subtle.ConstantTimeCompare"
+      ],
+      "poc_skeleton": "静态定位签名/密钥比对分支未调用常量时间比较原语"
+    },
+    {
+      "pitfall_id": "AUTH-WEAKRAND-003",
+      "cwe": "CWE-330",
+      "severity": "high",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["auth", "crypto", "token"],
+      "title": "使用非密码学随机数（random / Math.random / math/rand）生成 Token 或重置码",
+      "anti_pattern_signals": ["random.choice(", "random.randint(", "Math.random(", "math/rand"],
+      "false_positive_guards": [
+        "使用 secrets.token_urlsafe / crypto.randomBytes / crypto/rand"
+      ],
+      "poc_skeleton": "固定种子或检查调用点确认安全令牌来源于可预测 PRNG"
+    },
+    {
+      "pitfall_id": "BIZ-NEGVAL-004",
+      "cwe": "CWE-20",
+      "severity": "high",
+      "languages": ["*"],
+      "frameworks": ["*"],
+      "surfaces": ["billing", "payment", "api", "logic"],
+      "title": "金额/数量/折扣缺少非负或上界校验导致负数退款/余额篡改",
+      "anti_pattern_signals": ["quantity", "amount", "discount", "price", "balance", "refund"],
+      "false_positive_guards": [
+        "入口校验 quantity > 0 且 amount > 0 且 discount <= total"
+      ],
+      "poc_skeleton": "传入负数量（quantity=-5）或超大折扣，断言应付金额变为负数或余额反向增加"
+    }
+  ]
+}
