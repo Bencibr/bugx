@@ -60,48 +60,7 @@ INTAKE_CHANNEL = "intake"
 _KINDS = frozenset({"select", "confirm", "text", "secret"})
 _ACTION_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
-# [BEGIN DEV_ONLY: INTERACTION_PRESET]
-try:
-    from core.dev_harness.interaction_preset import (
-        resolve_preset_answer,
-        execute_preset_action,
-        get_preset_runtime_config,
-    )
-except ImportError:
-    resolve_preset_answer = None
-    execute_preset_action = None
-    get_preset_runtime_config = None
-
-
-def try_resolve_startup_gate_preset(
-    gate: str,
-    options: Sequence[Any],
-    root: Any = None,
-) -> tuple[bool, Any | None]:
-    """尝试匹配启动门禁预设；返回 (是否命中, 匹配选项)。"""
-    if resolve_preset_answer is None:
-        return False, None
-    from pathlib import Path
-    resolved_root = Path(root) if root is not None else None
-    matched = resolve_preset_answer(gate, options, root=resolved_root)
-    if matched is not None:
-        if execute_preset_action is not None and resolved_root is not None:
-            execute_preset_action(gate, matched, resolved_root)
-        return True, matched
-    return False, None
-
-
-def try_get_preset_runtime_config(root: Any = None) -> dict[str, Any]:
-    """尝试获取测试预设的运行时调度与环境参数；无预设或非测试通道返回空字典。"""
-    if get_preset_runtime_config is None:
-        return {}
-    from pathlib import Path
-    resolved_root = Path(root) if root is not None else None
-    try:
-        return get_preset_runtime_config(root=resolved_root)
-    except Exception:
-        return {}
-# [END DEV_ONLY: INTERACTION_PRESET]
+# (dev-only harness stripped for stable release)
 
 
 
@@ -461,12 +420,7 @@ def ask(
     if not isinstance(locale, str) or not locale:
         locale = _i18n.resolve_locale().resolved_locale if _i18n else "en-US"
 
-    # [BEGIN DEV_ONLY: INTERACTION_PRESET_ASK]
-    if resolve_preset_answer is not None and question.options:
-        preset_opt = resolve_preset_answer(question.question_id, question.options)
-        if preset_opt is not None:
-            return InteractionResult(ANSWERED, preset_opt.value, channel="preset")
-    # [END DEV_ONLY: INTERACTION_PRESET_ASK]
+    # (dev-only harness stripped for stable release)
 
     # 答案信箱：显式参数与测试预设之后、任何 TTY/原生通道之前。
     # 无 TTY 的宿主只能靠这条通道回灌答案，因此它必须在 blocked 短路上边。

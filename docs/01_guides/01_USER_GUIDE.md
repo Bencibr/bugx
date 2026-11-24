@@ -14,11 +14,11 @@ BugX 是面向 AI 辅助开发的证据驱动代码审计与缺陷挖掘工具�
 
 ## 0. 使用总览与流程图
 
-从第一次安装到最终报告，先按用户旅程图理解入口，再按生命周期图核对证据。图下方保留 Mermaid 源文件，后续修改流程时必须先改源图再重新导出。
-
-![BugX 用户主流程图](../06_diagrams/02_bugx-user-journey.svg)
-
-[用户主流程 Mermaid 源文件](../06_diagrams/02_bugx-user-journey.mmd)
+1. 安装 CLI，在目标仓库确认项目根和要接入的 AI 宿主。
+2. 登录 BugX 云账号，确认分享范围和敏感数据策略，初始化项目并验证首次同步。
+3. 安装宿主入口并重启会话，检查 MCP 和模型凭据，然后发起代码审查。
+4. 跟踪覆盖率、发现项和验证证据，按授权修复并复验，再查看收尾报告。
+5. 同步本轮产生或更新的错题和经验，检查同步状态。下一轮按模块、框架或故障症状检索相关知识。
 
 ![BugX 生命周期与证据闭环图](../06_diagrams/03_bugx-lifecycle-evidence.svg)
 
@@ -55,13 +55,13 @@ BUDGET_EXHAUSTED
 | 流程 | 前置条件与命令 | 预期输出与退出码 | 成功判定 | 本地/联网/目标代码副作用 | 失败恢复与停止条件 |
 |---|---|---|---|---|---|
 | 安装 Host 和全局引擎 | 已确认 `<ROOT>`、`<HOST>`、安装授权；`bugx install --root <ROOT> --agent <HOST> --non-interactive --json` | JSON 应包含安装结果、engine/Host 资产状态；退出码 0 只表示本次安装命令成功 | `hosts --json` 与 `doctor --strict --json` 显示目标 Host 的实际状态；ready、ACP、自治能力仍分别核对 | 写全局 `~/.bugx/`、项目注册/布局和 Host 配置；可能访问网络；可能要求重启 Host | 保留 stderr、JSON 和已有配置；先读 `doctor`/`log`；不要因为缺资产直接加 `--force`；出现 Host 入口不一致时标 `RESTART_REQUIRED` |
-| 初始化项目 | `<ROOT>` 已存在且授权写入；非交互必须选择同步范围：`bugx init --root <ROOT> --cloud-sync local` | 成功时 stdout 会报告“初始化完成”、运行目录和写入/保留数量；实现会写 `.bugx/manifest.json`、项目 state/ledger/生命状态，并在 `.bugx/logs/bugx.jsonl` 记录初始化事件；非交互缺少同步选择时返回 2 | `engine status --json` 不再是 `UNINITIALIZED`，manifest identity、布局和 engine 来源一致；不要把普通初始化日志当成生命周期 settlement receipt | 写项目 `.bugx/`、全局 engine/knowledge/缓存；`sync` 会联网，`local` 不等于撤销全局同意 | 先保存 stderr、stdout 和目录清单；不要先 `init --force`、reset 或手改 manifest；布局冲突时转排障手册 |
+| 初始化项目 | `<ROOT>` 已存在且授权写入；已授权账号全局和项目同步时执行 `bugx init --root <ROOT> --cloud-sync sync` | 成功时 stdout 会报告“初始化完成”、运行目录和写入/保留数量；实现会写 `.bugx/manifest.json`、项目 state/ledger/生命状态，并在 `.bugx/logs/bugx.jsonl` 记录初始化事件；非交互缺少同步选择时返回 2 | `engine status --json` 不再是 `UNINITIALIZED`，manifest identity、布局和 engine 来源一致；不要把普通初始化日志当成生命周期 settlement receipt | 写项目 `.bugx/`、全局 engine/knowledge/缓存；`sync` 会联网并记录用户级数据分享同意 | 先保存 stderr、stdout 和目录清单；不要先 `init --force`、reset 或手改 manifest；布局冲突时转排障手册 |
 | 源码 Dev 模式 | 必须是 BugX 真实源码 checkout；先确认 engine 来源；纯源码运行使用 `BUGX_DEV_MODE=1`，不要把它和 `--dev` 混为一谈 | `bugx engine --root <ROOT> path --name launch_bugx.py` 应输出 `<BUGX_CHECKOUT>/core/launch_bugx.py`；随后 `pre` 的退出码 0/2/3 分别表示门禁就绪/待交互/需重启 | 引擎路径指向当前 checkout 的 `core/`，且 `pre` 状态和 receipt 绑定同一 engine 来源；路径仍在 `~/.bugx/core` 时 Dev 未生效 | 环境变量只影响本进程；`pre --dev` 还会启用自动审查、自动修复、自动轮询和按轮次提交，写 `.bugx/`，可能改目标代码和 Git | 先检查 `BUGX_GLOBAL_ENGINE_ROOT`、`BUGX_ASSET_ROOT` 和 checkout 条件；路径不匹配立即停止；普通开发改用 `--fix-mode log-only --commit-policy manual` |
 | 普通生命周期 | 已初始化、Host/MCP 和预算门禁就绪；`bugx engine --root <ROOT> pre` | 0=启动门禁就绪；2=读取交互请求并等待选择；3=安装/加载 Host 后重启会话；其他非零=失败 | 只能判定进入下一阶段；还必须有 Worker、coverage、Finding、post 和 settlement receipt 才能交付 | 写 polling/lifecycle、快照、日志和 Supervisor 状态；后续 Worker 可能执行目标代码 | 读取状态、日志和 `BUGX_INTERACTION_REQUEST`；同一 gate 未改变前不重复重试；2/3 不得当作挖掘完成 |
 | Worker / MCP / ACP | 项目布局有效，Host 真实建立 MCP session；Host 先 start，Worker 再 claim | `claim` 返回 `execution_state=claimed`、`start_required=true`；接着必须有 `worker-start`、tool-call/heartbeat 和执行 receipt | 真实 session proof、runtime/Supervisor/Worker identity、tool-call、artifact SHA-256 和 checkpoint 全部可追溯；仅 tools/list/schema 不够 | 本地 stdio、租约、checkpoint、日志和 artifact；受控 probe 可能执行目标代码 | claim 后没有 worker-start、heartbeat 丢失、session proof 缺失时进入 recovery；不能把模型文本或协议模拟写成执行成功 |
 | Checkpoint / Coverage / Finding | Worker 已有 claim epoch；checkpoint 使用稳定 ID；Finding 由 Host 独立验证 | checkpoint receipt 必须绑定 coverage/evidence/findings；Finding 依次为 candidate → verify → confirmed/rejected | 每个 evidence 有 command、exit code、artifact path/SHA-256、target fingerprint 和 Worker/run/lease；open Finding 已处理 | 写 lifecycle 事件、coverage ledger、Finding 和验证 artifact；验证命令可能执行目标代码 | checkpoint 失败用同一 `checkpoint_id` 重试或 salvage；缺 verify receipt、coverage debt 或 open Finding 时只能 `INCOMPLETE` |
 | Post / Report | 生命周期已满足 finish gate；`bugx engine --root <ROOT> post`，再按需 `bugx report --root <ROOT> --source project --format both` | 应生成 `conclusion.json`、`report.md`、`integrity.json` 和 report-consumption 状态；报告可能是 `NOT ATTESTED` | `post`/settlement receipt、报告哈希、coverage/Finding/attestation 一致；报告文件存在或命令 0 不能单独证明完成 | 写报告和消费状态；`share/submit/log-report` 可能联网；报告可能包含目标代码摘要 | 先读 post/report receipt 和状态；分享失败标 `RECOVERY_REQUIRED`；不要重新生成报告覆盖原始证据 |
-| Cloud 同步和数据上传 | 先明确同意、scope、detail mode、sensitive policy；知识同步使用 `bugx cloud sync --root <ROOT> --scope project`，项目指标使用 `bugx project sync --root <ROOT> --json`，其他上传必须单独选择 | `cloud sync` 输出每个 scope 的 baseline/push/pull 摘要；`project sync --json` 应有 `status=ok`、`project_id`、`synced=true`；退出码 0 仍只代表该命令返回成功 | 读取 `cloud status --scope all --json`，确认目标 scope 的 cursor/error/pending/dead_letter/conflicts_open；同时核对本次实际网络动作，不把“本地状态已写入”当成远端成功 | 知识同步读写本地 SyncStore 并联网；`project sync` 上传紧凑项目画像/指标；`telemetry upload`、`cloud upload`、`feedback`、`log-report` 是不同的额外网络动作 | scope、同意、payload 或 TLS 不明确时停止；先保存 status/log/JSON，再按冲突、死信、ACK pending 或认证路径恢复，不要盲目重试或直接 purge |
+| Cloud 同步和数据上传 | 先明确同意、scope、detail mode、sensitive policy；知识同步使用 `bugx cloud sync --root <ROOT> --scope all`，项目指标使用 `bugx project sync --root <ROOT> --json`，其他上传必须单独选择 | `cloud sync` 输出每个 scope 的 baseline/push/pull 摘要；`project sync --json` 应有 `status=ok`、`project_id`、`synced=true`；退出码 0 仍只代表该命令返回成功 | 读取 `cloud status --scope all --json`，确认目标 scope 的 cursor/error/pending/dead_letter/conflicts_open；同时核对本次实际网络动作，不把“本地状态已写入”当成远端成功 | 知识同步读写本地 SyncStore 并联网；`project sync` 上传紧凑项目画像/指标；`telemetry upload`、`cloud upload`、`feedback`、`log-report` 是不同的额外网络动作 | scope、同意、payload 或 TLS 不明确时停止；先保存 status/log/JSON，再按冲突、死信、ACK pending 或认证路径恢复，不要盲目重试或直接 purge |
 | Reset / Uninstall / 恢复 | 先 dry-run、确认备份位置和活动 lease；例如 `bugx reset --scope project --root <ROOT> --dry-run --json` | dry-run 应列出目标、备份和拟删除项；实际动作必须有授权和可追溯结果 | 备份可读、目标范围与预期一致、状态进入明确终态；不是“目录消失”就算成功 | reset/uninstall 可能删除项目状态、全局资产或 Host 配置；purge 不可逆性更高 | 备份缺失、目标范围扩大或活动状态不明时立即停止；不要以 reset 绕过 gate，先走 `status/log/recover` |
 
 任何一行只完成了“命令返回 0”而没有达到“成功判定”列，都只能报告为 `UNVERIFIED` 或该流程的中间状态。
@@ -101,14 +101,20 @@ BugX 的项目根必须是已存在的目录。建议从要审计的仓库根目
 
 ## 3. 初始化项目
 
-最小的本地初始化路径：
+从目标仓库根运行。先确认要登录的 BugX 账号、云端地址、分享范围、详情粒度和敏感数据策略。首次登录采用浏览器设备授权，CLI 会登记设备。浏览器无法自动打开时，按终端提示使用验证地址和用户码。
 
+```sh
+bugx auth login --root .
+bugx auth status --root . --verify --json
 ```
-cd /path/to/project
-bugx init --root . --cloud-sync local
-bugx doctor --root . --strict
-bugx hosts --root . --json
-```
+
+看到正确账号且 `auth_verified: true` 后，按已确认的范围继续：
+
+- **账号全局知识和项目知识均已授权。** 全新项目可运行 `bugx init --root . --cloud-sync sync`，然后运行 `bugx cloud sync --root . --scope all`。初始化中的 `sync` 会记录用户级分享同意，并可能立即同步两层。首轮同步前先按[数据分享和敏感数据策略](#63-数据分享和敏感数据策略)核对设置。
+- **仅授权部分数据。** 标准云同步按全量范围执行，包含项目登记与画像、项目知识和账号全局知识。用户只授权其中一部分时，直接拒绝该同步请求。
+- **已有 Local 状态，或此前同步未完成。** 保留现有布局和账本，获得全量授权后运行 `bugx cloud sync --root . --scope all`。包含项目层的同步成功后会记录 `onboarding=done`。
+
+同步后执行 `bugx cloud status --root . --scope all --json`，核对项目绑定和已授权层的游标、错误、队列、冲突和死信，并与同一次同步的网络输出对应。初始化返回 0 或状态显示 `done`，均不足以证明本轮推拉成功。随后按[安装指定 Host](#51-安装指定-host)确认宿主入口、重启会话并自检，再走[完整生命周期](#8-从-pre-到-post-的完整生命周期)。
 
 初始化会：
 
@@ -117,15 +123,16 @@ bugx hosts --root . --json
 3. 注册项目身份；
 4. 准备全局 engine、CLI 入口和项目所需的静态材料；
 5. 创建本地知识、索引、日志和备份目录；
-6. 把可执行 engine 放在全局 BugX engine 根，项目只保存状态和配置。
+6. 把可执行 engine 放在全局 BugX engine 根。
+7. 把用户 Skill 安装到项目的 `.agents/skills/bugx-user/SKILL.md`。在支持该路径的宿主里调用 `$bugx-user`，可以继续上手、同步和排障。重复初始化会保留已有 Skill。显式传 `--force` 更新不同内容时，原文件备份到 `.bugx/backups/bugx-user/`，终端会打印备份路径。
 
-非交互 shell 中，`bugx init` 必须显式给出 `--cloud-sync local` 或 `--cloud-sync sync`，除非已有 preset 提供这个选择。`local` 不会把全局数据分享同意改成撤销；它表示这次初始化采用本地同步模式。要永久拒绝云端推送，使用：
+非交互 shell 中，`bugx init` 必须显式指定云同步策略，除非已有 preset 提供。仅在用户明确要求离线时才选 `--cloud-sync local`。`local` 不会把全局数据分享同意改成撤销；它表示这次初始化采用本地同步模式。要撤销用户级数据分享并阻断知识推拉，使用：
 
 ```
 bugx config set telemetry.data_sharing false
 ```
 
-`bugx init --force` 只用于更新受 BugX 管理的静态 Agent 文件，不等于覆盖运行态，也不等于确认云端同步。初始化可能清理旧的项目级 `.bugx/core` 可执行布局；布局迁移失败时应保留错误现场并按排障手册处理。
+`bugx init --force` 可以刷新静态安装资产和项目用户 Skill。运行态和云同步门禁仍由各自的初始化逻辑处理。初始化可能清理旧的项目级 `.bugx/core` 可执行布局；布局迁移失败时应保留错误现场并按排障手册处理。
 
 ## 4. 项目布局和作用域
 
@@ -267,7 +274,7 @@ bugx config set cloud.sync_scope_default all|project|global
 
 | 配置 | 作用 | 不能推断出的结论 |
 |---|---|---|
-| `cloud.sync_scope_default=all|project|global` | 未显式传 `cloud sync --scope` 时选择同步层；当前默认是 `all` | 不会限制 `onboard on` 或某些启动路径的全部行为；`pre` 仍需核对实际 onboarding 策略 |
+| `cloud.sync_scope_default=all|project|global` | 未显式传 `cloud sync --scope` 时选择同步层；配置缺失时用 `project` | 不会限制 `onboard on` 或某些启动路径的全部行为；`pre` 仍需核对实际 onboarding 策略 |
 | `cloud.sync_detail_mode=full|summary` | 控制知识记录的详细程度；`summary` 会去掉部分 pattern/incident 详情字段 | `summary` 不是脱敏保证，也不等于不上传业务内容 |
 | `cloud.sensitive_policy=block|redact|allow` | `block` 检测到敏感形状即拒绝，`redact` 替换后再扫描（配置缺失时的默认档），`allow` 按原内容发送（显式 opt-in） | `allow` 可能发送完整内容；`redact`/`summary` 也不能替代凭据轮换 |
 
@@ -341,7 +348,7 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
 
 #### 保留人工决策的源码开发
 
-如果只是验证当前源码，不希望自动修复和自动提交，不要使用 `--dev`：
+以下命令用于明确要求离线的源码验证，同时保留人工修复和提交决策。云端项目继续使用已授权的同步策略。
 
 ```sh
 env -u BUGX_GLOBAL_ENGINE_ROOT \
@@ -356,7 +363,7 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
 
 #### 明确接受自动化的极速开发
 
-只有在目标项目可丢弃、已有备份或已在授权的隔离分支中时，才使用：
+下面是显式选择离线的 Dev 示例。仅在目标项目可丢弃、已有备份或已在授权的隔离分支中时使用。
 
 ```sh
 env -u BUGX_GLOBAL_ENGINE_ROOT \
@@ -546,7 +553,7 @@ BUGX_AESTHETIC_VISUAL_DELIVERY_REPORT.html|md|pdf
 
 | 路径 | 命令 | 上传什么 | 是否双向 | 是否默认发生 |
 |---|---|---|---|---|
-| 知识同步 | `bugx cloud sync` | V2 知识记录：全局/项目的 pattern、incident、tool experience、consumption、tombstone 等；项目层还会过滤基线 seed 等本地初始化内容 | 是：baseline pull → push → post-push pull | 否；显式 `cloud sync` 才执行，但 `onboard on`、`init --cloud-sync sync` 或已持久化的启动策略可能在 `pre` 中触发 onboarding 同步 |
+| 知识同步 | `bugx cloud sync` | V2 知识记录：全局/项目的 pattern、incident、tool experience、consumption、tombstone 等；项目层还会过滤基线 seed 等本地初始化内容 | 是：baseline pull → push → post-push pull | 可用 `cloud sync` 主动同步。启用后，启动引导和满足条件的账本写入还可触发同步 |
 | 项目画像同步 | `bugx project sync` | 紧凑的项目画像和代码规模指标；完整画像仍保存在本地 | 否，单向 POST | 否，必须显式调用 |
 | 飞轮遥测 | 普通 CLI 命令会每日最多自动记录一次安装/心跳；`bugx telemetry flush` / `upload` 可显式排空队列 | 独立遥测 outbox 中的脱敏事件/指标，以及作用域化安装元数据；严格隐私模式会进一步收缩字段 | 否，发送成功后删除已发送队列项；失败项保留 | 默认开启；`telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0` 阻止本地入队和远程上传；不等于知识同步 |
 | 诊断日志报告 | `bugx cloud log-report` | 当前项目诊断日志尾部，默认最多 256 KB，`--tail-kb` 实际限制在 1..1024 KB；请求还带 device、client version、kind | 否 | 否，命令默认不上报 |
@@ -563,7 +570,7 @@ bugx cloud status --root <ROOT> --scope all --json
 bugx auth status --root <ROOT> --json
 bugx auth status --root <ROOT> --verify --json
 bugx cloud config --root <ROOT> --json
-bugx cloud onboard status --root <ROOT> --json
+bugx cloud onboard status --root <ROOT>
 ```
 
 这些命令的含义不同：
@@ -579,27 +586,26 @@ bugx cloud onboard status --root <ROOT> --json
 
 | 范围 | 本地状态位置 | 远端边界 | 操作注意 |
 |---|---|---|---|
-| `project` | `<ROOT>/.bugx/cloud-sync/state.sqlite3` | 当前账号下的项目知识空间；项目绑定在 `<ROOT>/.bugx/cloud-project.json` | 需要项目身份/绑定；适合只授权当前项目的同步 |
+| `project` | `<ROOT>/.bugx/cloud-sync/state.sqlite3` | 当前账号下的项目知识空间；项目绑定在 `<ROOT>/.bugx/cloud-project.json` | 需要项目身份和绑定。支持按该层查看同步状态 |
 | `global` | 默认 `~/.bugx/cloud-sync/state.sqlite3`；全局知识根被覆盖时跟随当前全局根 | 当前账号的跨项目知识空间 | 可能影响多个项目；不要因 project 同步成功就默认授权 global |
-| `all` | 上述两处 | global + project | `cloud sync` 未指定 scope 时，默认读取 `cloud.sync_scope_default`，缺省值是 `all` |
+| `all` | 上述两处 | global + project | `all` 需显式选择，或由已有 `cloud.sync_scope_default=all` 配置选中 |
 | 远端账号/项目 | 不属于 `<ROOT>` 的普通文件 | `BUGX_CLOUD_API_BASE` 或持久化 Base URL 指向的云端 | 这是网络目的地，不是本地 scope；必须单独核对账号、TLS 和权限 |
 
-`onboard on` 和启动 onboarding 可能固定执行 global + project；因此，执行完 `cloud sync --scope project` 后，不要无条件再执行 `engine pre` 并声称后续仍只同步项目。若用户只授权项目范围，遇到这种启动策略必须停在门禁，改用明确的 project-only 路径或重新确认授权。
+标准上手和恢复同步使用 `--scope all`。`onboard on` 和启动引导也可能同步 global + project。CLI 的分层参数用于描述单次调用范围，不能作为部分授权的上手或恢复方案。
 
 ### 12.2 知识同步：`cloud sync`
 
-典型的项目级命令：
+以下命令适用于已授权全量范围的同步。
 
 ```sh
 bugx cloud sync \
   --root <ROOT> \
-  --scope project \
-  --detail-mode summary
+  --scope all
 ```
 
 参数和默认值：
 
-- `--scope {project,global,all}`：显式范围；省略时读取用户级 `cloud.sync_scope_default`，配置缺失时默认为 `all`。
+- `--scope {project,global,all}`：显式范围；省略时读取用户级 `cloud.sync_scope_default`，配置缺失时默认为 `project`。
 - `--detail-mode {full,summary}`：省略时读取 `cloud.sync_detail_mode`，配置缺失时默认为 `full`。
 - `--calibrate`：只在状态显示可恢复的 cursor/baseline 不一致、或排障明确要求时使用；它会重置失效游标、修剪已收敛冲突并重新建立基线，不是通用“重试”按钮。
 - `--project-slug`：项目登记时使用的 slug；缺省按当前项目身份解析。
@@ -626,6 +632,18 @@ bugx cloud sync \
 - `cloud sync` 的实现返回 0 仅在汇总 `ok` 时成立；同步失败通常返回 1，参数/CLI 解析错误属于 2。`cloud status` 在本地 store 有读取错误时返回 1，否则通常返回 0；0 仍不证明远端健康。
 - `ACK` 失败可能返回 `ok=false, committed=true, ack_pending=true`：本地导入/cursor 已提交，但云端确认未完成。此时先保存状态和日志，不要盲目重复整个同步；先验证认证、网络和服务端 ACK 状态，再由下一次明确同步恢复。
 - 任何 `data_sharing_revoked`、认证失败、TLS 失败、project binding 不一致、快照校验失败或服务端拒绝，都标记为 `BLOCKED` 或 `RECOVERY_REQUIRED`，不能写成“本地同步成功”。
+
+### 将本轮错题与经验用于下一轮
+
+完成当前轮的审查和证据收尾。保留已确认的问题、原因、修复与复验结论，以及有证据的误判或工具经验。用 `bugx knowledge status --root .` 查看知识账本状态，再按记录类型查询。经确认可共享的记录写入账本后，符合条件时会后台调度同步。要确认本轮同步结果，主动运行一次原授权范围的 `cloud sync`，并核对各层返回和状态。
+
+| 要查的记录 | 在项目根执行 |
+|---|---|
+| 反复出现的缺陷模式或错题 | `bugx lesson retrieve --root . --query "故障症状或模块名" --json` |
+| 某一次故障的上下文与处理经验 | `bugx lesson incident-lookup --root . --query "故障症状" --json` |
+| 某类问题中用过的工具和效果 | `bugx lesson tool-lookup --root . --query "工具名或问题类型" --json` |
+
+下一轮启动会先处理云同步，再构建错题上下文。它可按项目画像和错误签名补充相关的云端经验。把召回结果用于定位要检查的代码和已知误判，最终依据当轮代码和验证证据判断。需要验收跨设备复用时，选一条已获授权的非种子记录。设备 A 保存账本中的记录 ID，设备 B 同步前先确认没有这个 ID。两台设备分别初始化自己的运行态，使用同一已提交的 `.bugx-project.json`，各自登录同一账号并核对 cloud project ID。全量范围已授权后先同步 A，再同步 B，核对项目层导入与 ACK。B 用相同类型的查询命令核对同一 ID 和预期内容。需要证明后续 Agent 实际使用了该记录时，再核对下一轮召回或消费证据。
 
 ### 12.3 本地 bundle 导出与显式上传
 
@@ -825,7 +843,7 @@ bugx uninstall --root . --agent opencode --yes --json
 - `BUGX_DEV_MODE=1` 只切换源码 engine 来源；`pre --dev` 不是只读模式，默认可能自动修复和按轮次提交，只能在隔离、可回滚且已授权的项目使用。
 - 不要同时保留来源不明的 `BUGX_GLOBAL_ENGINE_ROOT`、`BUGX_ASSET_ROOT` 和源码 Dev 设置；先用 `engine path --name launch_bugx.py` 确认实际来源。
 
-## 15. 最短交付检查清单
+## 15. 完整流程交付检查清单
 
 在把一次审计交给其他人之前，至少确认：
 
@@ -835,6 +853,6 @@ bugx uninstall --root . --agent opencode --yes --json
 4. Coverage 没有未解释的 `pending`、`partial`、`unverified`、`stale` 或 `blocked`；
 5. finish/post 已持久化 conclusion、report、integrity 和 report-consumption 状态；
 6. 报告明确显示 attestation 和任何 `INCOMPLETE`/`RECOVERY_REQUIRED` 原因；
-7. 若涉及 cloud，已记录 consent、scope、detail mode、sensitive policy 和实际网络结果。
+7. 已核对云账号、项目绑定、已批准的同步范围、敏感策略和本轮推拉结果。需要验证反哺时，还要核对下一轮或另一台设备对已知记录的检索结果。
 
 本手册本身的交付状态为 `DOCUMENTATION_UNVERIFIED`：源码契约和文档边界已对齐，但真实宿主 ACP、自治闭环、远端同步和跨平台安装仍需在目标环境中单独验收。

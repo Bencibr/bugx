@@ -53,6 +53,7 @@ from ..host_adapters import (
     HostAdapter,
     HOST_NAME_CLAUDE,
     HOST_NAME_FUNIDE,
+    HOST_NAME_KIMI,
     HOST_NAME_QODER,
     HOST_NAME_ZCODE,
 )
@@ -788,7 +789,8 @@ def _select_install_adapters(
         if args.non_interactive:
             raise CliError(_i18n_exc(
                 "agent.non_interactive_agent_required",
-                "非交互安装必须显式提供 --agent opencode/dsh/codex/cline/claude/zcode/workbuddy/pi/chatgpt/qoder/trea/funide",
+                "非交互安装必须显式提供 --agent "
+                + "/".join(adapter.name for adapter in HOST_ADAPTERS),
             ))
         if not sys.stdin.isatty():
             raise CliError(_i18n_exc(
@@ -1223,40 +1225,44 @@ def _command_agent_impl(
                     "to": str(root),
                 }
             host_mcp_configs[adapter.name] = host_info
-            if adapter.supports(CAP_USER_AGENT_REGISTRATION):
-                # User-level agent registrations share the install transaction;
-                # MCP files remain scoped to this project.
-                registered_user_agents = adapter.ensure_user_agents(
-                    root, source, locale=deployment_locale,
+        # User-level registrations are independent of project MCP writing.
+        # MiniMax Plugin V1 has no project MCP container: its package owns both
+        # the Agent manifests and servers.mcp.json under the user data root.
+        for adapter in selected:
+            if not adapter.supports(CAP_USER_AGENT_REGISTRATION):
+                continue
+            registered_user_agents = adapter.ensure_user_agents(
+                root, source, locale=deployment_locale,
+            )
+            if registered_user_agents is None:
+                raise CliError(
+                    f"{adapter.label} 声明支持用户级注册，但注册器没有返回结果；"
+                    "已阻断安装，避免报告成功但插件未生效。"
                 )
-                if registered_user_agents is not None:
-                    user_agents_by_host[adapter.name] = registered_user_agents
-                    if adapter.name == HOST_NAME_ZCODE:
-                        # ZCode 专属：用户级使用手册 Skill 与 agents 同事务部署
-                        # （全局层，跨项目可见；内容随 wheel 版本演进）。
-                        zcode_user_skill = _ensure_zcode_user_skill(root, source)
-                        user_agents_by_host[adapter.name]["user_skill"] = (
-                            zcode_user_skill
-                        )
-                        for item in zcode_user_skill["written"]:
-                            if item["status"] == "unchanged":
-                                continue
-                            host_mcp_changes.append((
-                                Path(str(item["path"])),
-                                Path(str(item["backup"])) if item["backup"] else None,
-                                bool(item["created"]),
-                            ))
-                        host_backups.extend(zcode_user_skill["backups"])
-                    for item in registered_user_agents["written"]:
-
-                        if item["status"] == "unchanged":
-                            continue
-                        host_mcp_changes.append((
-                            Path(str(item["path"])),
-                            Path(str(item["backup"])) if item["backup"] else None,
-                            bool(item["created"]),
-                        ))
-                    host_backups.extend(registered_user_agents["backups"])
+            user_agents_by_host[adapter.name] = registered_user_agents
+            if adapter.name == HOST_NAME_ZCODE:
+                # ZCode 专属：用户级使用手册 Skill 与 agents 同事务部署
+                # （全局层，跨项目可见；内容随 wheel 版本演进）。
+                zcode_user_skill = _ensure_zcode_user_skill(root, source)
+                user_agents_by_host[adapter.name]["user_skill"] = zcode_user_skill
+                for item in zcode_user_skill["written"]:
+                    if item["status"] == "unchanged":
+                        continue
+                    host_mcp_changes.append((
+                        Path(str(item["path"])),
+                        Path(str(item["backup"])) if item["backup"] else None,
+                        bool(item["created"]),
+                    ))
+                host_backups.extend(zcode_user_skill["backups"])
+            for item in registered_user_agents["written"]:
+                if item["status"] == "unchanged":
+                    continue
+                host_mcp_changes.append((
+                    Path(str(item["path"])),
+                    Path(str(item["backup"])) if item["backup"] else None,
+                    bool(item["created"]),
+                ))
+            host_backups.extend(registered_user_agents["backups"])
         for adapter in selected:
             if adapter.supports(CAP_GLOBAL_AGENT_LINK):
                 # global-agent-link 宿主（现仅 opencode）：用户级使用手册 Skill
@@ -1475,11 +1481,11 @@ def _command_agent_impl(
             status = str(info["status"])
             path = str(info["path"])
             if status == "created":
-                print(f"  {host_name} MCP 配置：已创建 {path}（host/worker 双通道）")
+                print(f"  {host_name} MCP 配置：已创建 {path}（host/worker 双通道，需重启宿主会话生效）")
             elif status == "unchanged":
                 print(f"  {host_name} MCP 配置：已是最新双通道配置，保持不变（{path}）")
             else:
-                print(f"  {host_name} MCP 配置：已备份并{status}双通道（{path}）")
+                print(f"  {host_name} MCP 配置：已备份并{status}双通道（{path}，需重启宿主会话生效）")
                 switched = info.get("root_switch")
                 if isinstance(switched, dict):
                     print(
@@ -1585,6 +1591,23 @@ def _command_agent_impl(
                     f"  Qoder 用户级资产：已是最新，保持不变"
                     f"（{qoder_user_agents['dir']}）"
                 )
+        if (kimi_user_agents := user_agents_by_host.get(HOST_NAME_KIMI)) is not None:
+            reported_user_agents.add(HOST_NAME_KIMI)
+            changed = [
+                item for item in kimi_user_agents["written"]
+                if item["status"] != "unchanged"
+            ]
+            if changed:
+                names = "、".join(Path(str(item["path"])).name for item in changed)
+                print(
+                    f"  Kimi 桌面端插件与徽标：已配置 {names}"
+                    f"（{kimi_user_agents['dir']}，免点击直接启用）"
+                )
+            else:
+                print(
+                    f"  Kimi 桌面端插件：已是最新并处于启用状态"
+                    f"（{kimi_user_agents['dir']}）"
+                )
         # 其余宿主的用户级注册结果统一汇报（标签来自插件/组件表，不写宿主名）。
         for host_name, payload in user_agents_by_host.items():
             if host_name in reported_user_agents:
@@ -1650,7 +1673,22 @@ def _command_agent_impl(
                     f"  DSH UI 插件：已暂存 {dsh_ui_plugin['root']}（{dsh_ui_plugin['detail']}）"
                 )
             print("  DSH Web 启动：dsh web（按当前 Session 工作区自动绑定；未选目录会明确提示）")
+        mcp_restart_targets: list[str] = []
+        for host_name, info in host_mcp_configs.items():
+            if info.get("session_restart_required"):
+                mcp_restart_targets.append(f"{host_name}: {info.get('path')}")
         if opencode_config_status in {"created", "merged"}:
+            mcp_restart_targets.append(f"OpenCode: {CONFIG_NAME}")
+
+        if mcp_restart_targets:
+            print("\n  ========================================================")
+            print("  ⚠【必须强制重启宿主会话】")
+            print("  项目 MCP 配置已新建/更新，宿主进程不支持动态热加载：")
+            for target_desc in mcp_restart_targets:
+                print(f"    - {target_desc}")
+            print("  请务必执行：【重载窗口 / 重启宿主会话】后再启动 BugX！")
+            print("  ========================================================\n")
+        elif opencode_config_status in {"created", "merged"}:
             print("  ⚠ OpenCode MCP 配置已变化；现有会话通常不会热加载。启动 BugX 时会先主动探活，"
                   "探活未命中时再提示重启 OpenCode 会话")
         _print_mcp_recommendations(mcp_recommendations)
@@ -1899,6 +1937,17 @@ def _deploy_dsh_ui_plugin() -> dict[str, object]:
             "status": "staged",
             "detail": "未发现可管理的 DSH web profile，保留包供 dsh plugin add 使用",
         }
+    if not _dsh_desktop_launcher_available(dsh):
+        return {
+            "root": str(plugin_root),
+            "mcp_root": None,  # 第三方 MCP bridge 已停用；通道由 profile patch 提供
+            "profile": str(profile_root),
+            "status": "staged",
+            "detail": (
+                "当前 dsh 是普通 CLI launcher；官方 CLI 不支持 plugin management，"
+                "已保留 UI 包，等待 Desktop launcher 注册"
+            ),
+        }
     try:
         result = subprocess.run(
             [dsh, "plugin", "--profile", "web", "add", str(plugin_root)],
@@ -2075,9 +2124,9 @@ def _deploy_dsh_preset(root: Path) -> None:
 
     preset_name = "BugX 深度审计"
     preset_desc = (
-        "你的自动化代码安全体检专家。深度排查项目中隐藏的逻辑漏洞、鉴权越界与并发隐患，"
-        "不仅找 Bug，更能自动生成复现验证与修复建议。"
-        "适合在项目提测发版前、安全合规体检或排查疑难缺陷时开启；日常开发与普通交流不打扰。"
+        "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，"
+        "减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；"
+        "确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。"
     )
     preset_order = 0
 
@@ -2139,10 +2188,69 @@ _DSH_PTC_WORKFLOW_PLUGIN = "@deepseek-ai/dsh-workflow-ptc"
 def _dsh_desktop_asar_candidates() -> list[Path]:
     """Return DSH Desktop ``app.asar`` paths that may carry the bundled runtime."""
     resources = Path("Contents", "Resources", "app.asar")
-    return [
+    candidates = [
         Path.home().resolve() / "Applications" / "DSH Desktop.app" / resources,
         Path("/Applications") / "DSH Desktop.app" / resources,
     ]
+    if os.name == "nt":
+        # DSH Desktop is an Electron app on Windows. Keep this list bounded to
+        # documented installation roots; never walk the drive looking for an
+        # app.asar file.
+        bases: list[Path] = []
+        for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432"):
+            value = os.environ.get(variable, "").strip()
+            if value:
+                bases.append(Path(value))
+        local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+        if not local_app_data:
+            bases.append(Path.home() / "AppData" / "Local")
+        for base in bases:
+            candidates.extend((
+                base / "Programs" / "DeepSeek Harness" / "resources" / "app.asar",
+                base / "Programs" / "DeepSeekHarness" / "resources" / "app.asar",
+                base / "DeepSeek Harness" / "resources" / "app.asar",
+                base / "DeepSeekHarness" / "resources" / "app.asar",
+            ))
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(os.path.normpath(str(candidate)))
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def _dsh_directory_exists(path: Path) -> bool:
+    """Check a DSH package directory, including a junction/symlink target."""
+    try:
+        return path.is_dir() or Path(os.path.realpath(path)).is_dir()
+    except OSError:
+        return False
+
+
+def _dsh_desktop_launcher_available(dsh: str) -> bool:
+    """Return whether ``dsh`` is the Desktop launcher allowed to manage plugins.
+
+    The official CLI documentation states that npm/Python launchers reject
+    plugin-management requests; only the Desktop-installed command may manage
+    the initialized Desktop profile. Calling the former on Windows can crash
+    the child process instead of returning a useful error, so path-gate the
+    operation before spawning it.
+    """
+    try:
+        launcher = Path(dsh).resolve()
+    except OSError:
+        launcher = Path(dsh)
+    for asar in _dsh_desktop_asar_candidates():
+        install_root = asar.parent.parent
+        try:
+            launcher.relative_to(install_root)
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 def _asar_lists_bundled_package(asar: Path, package: str) -> bool:
@@ -2166,6 +2274,9 @@ def _asar_lists_bundled_package(asar: Path, package: str) -> bool:
         return False
     # The asar header is a nested file tree, so the package path never appears
     # as one contiguous byte string; parse the JSON and walk the "files" maps.
+    # DSH Desktop currently nests the runtime below ``files/dsh`` rather than
+    # putting ``node_modules`` at the archive root, so do not assume one fixed
+    # number of parent directories.
     start = header.find(b'{"files":')
     if start < 0:
         return False
@@ -2175,12 +2286,22 @@ def _asar_lists_bundled_package(asar: Path, package: str) -> bool:
         )
     except (UnicodeDecodeError, json.JSONDecodeError):
         return False
-    node: Any = tree
-    for part in ("files", "node_modules", "files", "@deepseek-ai", "files", package):
+    stack: list[tuple[Any, tuple[str, ...]]] = [(tree, ())]
+    while stack:
+        node, path = stack.pop()
         if not isinstance(node, dict):
-            return False
-        node = node.get(part)
-    return isinstance(node, dict)
+            continue
+        files = node.get("files")
+        if not isinstance(files, dict):
+            continue
+        for name, child in files.items():
+            if not isinstance(name, str):
+                continue
+            child_path = path + (name,)
+            if child_path[-3:] == ("node_modules", "@deepseek-ai", package):
+                return True
+            stack.append((child, child_path))
+    return False
 
 
 def _dsh_desktop_runtime_names() -> tuple[str, str] | None:
@@ -2210,16 +2331,20 @@ def _dsh_runtime_plugin_names(home: Path) -> tuple[str, str]:
     内置在 app.asar 中，必须先探测 asar；其余 home 以
     ``profiles/node_modules`` 为准（那是其插件解析根）。
     """
-    if "dsh-desktop" in home.parts:
+    # On Windows Desktop and the regular CLI share ``%USERPROFILE%\.dsh``;
+    # the home path therefore does not identify the Desktop runtime. If a
+    # bundled Desktop app.asar is present, prefer its package names on every
+    # Windows home. macOS keeps the historical dedicated desktop-home guard.
+    if os.name == "nt" or "dsh-desktop" in home.parts:
         detected = _dsh_desktop_runtime_names()
         if detected is not None:
             return detected
     base = home / "profiles" / "node_modules" / "@deepseek-ai"
-    if (base / "dsh-agent-preset").is_dir():
+    if _dsh_directory_exists(base / "dsh-agent-preset"):
         preset_plugin = "@deepseek-ai/dsh-agent-preset"
     else:
         preset_plugin = "@deepseek-ai/dsh-agent-presets"
-    if (base / "dsh-workflow-ptc").is_dir():
+    if _dsh_directory_exists(base / "dsh-workflow-ptc"):
         workflow_plugin = _DSH_PTC_WORKFLOW_PLUGIN
     else:
         workflow_plugin = _DSH_LEGACY_WORKFLOW_PLUGIN
@@ -3174,22 +3299,22 @@ def _ensure_workbuddy_custom_expert(
         "---\n"
         "name: bugx\n"
         "description: >-\n"
-        "  BugX 代码审计专家：专注于代码质量与安全的自主审查，深入分析代码逻辑、发现隐蔽缺陷并自动编写 PoC 验证，提供确凿的证据闭环与修复方案。\n"
+        "  BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。\n"
         "description_zh: >-\n"
-        "  BugX 代码审计专家：专注于代码质量与安全的自主审查，深入分析代码逻辑、发现隐蔽缺陷并自动编写 PoC 验证，提供确凿的证据闭环与修复方案。\n"
+        "  BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。\n"
         "description_en: >-\n"
-        "  BugX Code Auditor: Autonomous code quality and security auditing expert. Specializes in deep defect hunting, adversarial testing, PoC reproduction, and verified remediation.\n"
+        "  BugX is an autonomous code review and testing agent designed to safeguard software delivery: it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; automates black-box, functional, and performance testing across complex edge cases for QA; and ensures software strictly meets functional requirements with rock-solid stability and resilience. By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people.\n"
         "tools: Bash,Read,Edit\n"
         "color: \"#08B7D4\"\n"
         "---\n\n"
-        "你是一位专业的代码质量与漏洞挖掘专家（BugX 代码审计专家）。你的核心使命是帮助开发者在代码合入、发布前或疑难故障排查时，进行深层次的代码审计、对抗性缺陷排查与自动化验证。\n\n"
+        "你是一个具备自主代码审查与测试能力的智能体。你的核心使命是严把代码交付关：帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能完全符合要求、在各种复杂环境下都能稳定运行、不崩溃不卡死，上线放心不翻车。\n\n"
         "## 核心工作原则\n"
-        "1. **证据驱动（Evidence-Driven）**：不凭空猜测 Bug，必须通过静态逻辑推演或最小复现测试（PoC）验证缺陷存在。\n"
+        "1. **证据驱动（Evidence-Driven）**：不凭空猜测 Bug，必须通过静态逻辑推演、黑盒测试或功能验证实测证据。\n"
         "2. **闭环验证（Verification Loop）**：缺陷发现后，优先编写自动化回归单测，验证失败；给出修复方案后重新运行测试验证通过。\n"
-        "3. **安全与质量并重**：涵盖业务逻辑越权、并发死锁/竞态条件、边界值溢出、资源泄漏、SQL注入、SSRF等安全与稳定性隐患。\n\n"
+        "3. **健壮与稳定并重**：涵盖业务逻辑完备性、并发死锁/竞态条件、边界值溢出、资源泄漏、异常与极端场景等稳定性隐患。\n\n"
         "## 协作流程\n"
-        "1. **审计准备**：读取目标文件、架构设计与历史提交记录，理清数据流向与契约约束。\n"
-        "2. **深入排查**：对输入校验、状态转移、异常处理、外部调用等关键节点进行对抗式推演。\n"
+        "1. **审查准备**：读取目标文件、架构设计与历史提交记录，理清数据流向与契约约束。\n"
+        "2. **深入排查**：对输入校验、状态转移、异常处理、极端边界等关键节点进行对抗式推演与自动化测试。\n"
         "3. **产出报告**：输出清晰的问题说明、触发条件、风险等级与最小修复代码。\n"
     )
     backup = _backup_host_resource(root, wb_name, agent_dest) if agent_dest.exists() else None
@@ -3213,26 +3338,26 @@ def _ensure_workbuddy_custom_expert(
             "en": "BugX"
         },
         "profession": {
-            "zh": "代码审计专家",
-            "en": "Code Audit Expert"
+            "zh": "自主代码审查与测试智能体",
+            "en": "Autonomous Code Review & Testing Agent"
         },
-        "description": "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑、发现隐蔽缺陷并自动编写 PoC 验证，提供确凿的证据闭环与修复方案。",
+        "description": "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。",
         "displayDescription": {
-            "zh": "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑、发现隐蔽缺陷并自动编写 PoC 验证，提供确凿的证据闭环与修复方案。",
-            "en": "Autonomous code quality and security auditing expert. Specializes in deep defect hunting, adversarial testing, PoC reproduction, and verified remediation."
+            "zh": "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。",
+            "en": "BugX is an autonomous code review and testing agent designed to safeguard software delivery: it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; automates black-box, functional, and performance testing across complex edge cases for QA; and ensures software strictly meets functional requirements with rock-solid stability and resilience. By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people."
         },
         "avatar": "avatars/expert.png",
         "category": "development",
         "categoryId": "01-Development",
         "tags": [
-            {"zh": "代码审计", "en": "Code Audit"},
-            {"zh": "漏洞挖掘", "en": "Vulnerability"},
-            {"zh": "自动化测试", "en": "Automated Testing"}
+            {"zh": "代码审查", "en": "Code Review"},
+            {"zh": "智能测试", "en": "Automated Testing"},
+            {"zh": "质量保障", "en": "Quality Assurance"}
         ],
         "quickPrompts": [
-            {"zh": "对当前代码库进行一次全面的代码审计与漏洞排查", "en": "Perform a comprehensive code audit and vulnerability check on the current codebase"},
-            {"zh": "排查最近提交的代码中潜在的并发与边界缺陷", "en": "Investigate potential concurrency and boundary defects in recent commits"},
-            {"zh": "针对已知 Bug 编写最小复现 PoC 并验证修复方案", "en": "Write a minimal reproduction PoC for an issue and verify the fix"}
+            {"zh": "对当前代码库进行全面的代码审查与深层 Bug 排查", "en": "Perform a comprehensive code review and deep bug inspection on the current codebase"},
+            {"zh": "自动化运行黑盒测试与功能验证，排查潜在边界缺陷", "en": "Run automated black-box tests and functional verification to catch edge-case bugs"},
+            {"zh": "对最近提交的代码进行性能测试与稳定性验证", "en": "Run performance and stability tests on recent commits to ensure rock-solid delivery"}
         ],
         "agents": ["./agents/bugx.md"],
         "skills": ["./skills/bugx"]

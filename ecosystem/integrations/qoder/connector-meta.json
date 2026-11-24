@@ -1,21 +1,21 @@
 {
   "name": "BugX",
-  "name_zh": "BugX 深度审计",
+  "name_zh": "BugX 代码审查与智能测试",
   "name_en": "BugX",
-  "description": "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。",
-  "description_zh": "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。",
-  "description_en": "An autonomous agent dedicated to code review, vulnerability hunting, and automated bug fixing. Built for deep investigations, BugX steps in when you are wrapping up a feature, opening a pull request, or hunting down an elusive bug. It analyzes code logic, automatically writes test cases to uncover and reproduce hidden flaws, and delivers verified patches that resolve root causes. Always safeguarding your code quality and security.",
+  "description": "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。",
+  "description_zh": "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。",
+  "description_en": "BugX is an autonomous code review and testing agent designed to safeguard software delivery: it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; automates black-box, functional, and performance testing across complex edge cases for QA; and ensures software strictly meets functional requirements with rock-solid stability and resilience. By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people.",
   "source": "bugx-agent",
   "type": "mcp-connector",
-  "version": "${BUGX_VERSION}",
+  "version": "0.1.3",
   "homepage": "https://bugx.dev",
   "website": "https://bugx.dev",
   "examples_zh": [
-    "在项目提测发版前进行代码安全体检与漏洞排查",
-    "深度排查鉴权、越界与并发等深层缺陷并生成复现验证"
+    "在项目提测发版前自动排查深层 Bug 与性能隐患",
+    "自动化运行黑盒测试与功能验证，确保上线稳定不翻车"
   ],
   "examples_en": [
-    "Audit this project for real security bugs and deep defects before release",
-    "Deeply investigate logic, auth, and concurrency flaws with PoC reproduction"
+    "Inspect code for deep bugs and performance bottlenecks before release",
+    "Run automated black-box and functional tests to ensure rock-solid stability"
   ]
 }

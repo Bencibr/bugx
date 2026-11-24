@@ -416,21 +416,7 @@ def emit_startup_gate(
     only an opaque business whitelist identifier. Requiring a value here
     prevents a future gate from falling back to label parsing in adapters.
     """
-    # [BEGIN DEV_ONLY: STARTUP_GATE_PRESET]
-    if (
-        gate not in CRITICAL_STARTUP_GATES
-        and _interaction is not None
-        and hasattr(_interaction, "try_resolve_startup_gate_preset")
-    ):
-        try:
-            resolved, _ = _interaction.try_resolve_startup_gate_preset(
-                gate, options, root=resolve_project_root()
-            )
-            if resolved:
-                return True
-        except Exception:
-            pass
-    # [END DEV_ONLY: STARTUP_GATE_PRESET]
+    # (dev-only harness stripped for stable release)
 
     environment = environment or detect_startup_environment()
     if _interaction is None:

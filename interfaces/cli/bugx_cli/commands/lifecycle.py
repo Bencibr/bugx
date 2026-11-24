@@ -602,49 +602,14 @@ def _purge_private_plugin_stores(root: Path, removed: list[str], preserved: list
             continue
         if manifest.get("private") is not True or manifest.get("autoload") is not False:
             continue
-        shutil.rmtree(plugin_path)
+        _rmtree_force(plugin_path)
         removed.append(str(plugin_path.relative_to(root)))
     _remove_empty_parents(root, removed)
 
 
 def _rmtree_force(path: Path) -> None:
-    """删除可能为**只读**的目录树（引擎载荷按不可变分发物安装）。
-
-    实测缺陷：`uninstall --self` 原先直接 ``shutil.rmtree(~/.bugx)``；当引擎目录
-    是 0o555/0o444 的只读载荷时抛 ``PermissionError: .bugx/core``，导致整个
-    自卸载失败（测试与真实用户同路径）。
-
-    关键点：删除条目需要**父目录**写权限，因此先自顶向下放开整棵树，再交给
-    ``rmtree``；仅对失败条目 chmod 是不够的（实测仍 EACCES）。
-    """
-    if path.is_symlink() or path.is_file():
-        path.unlink(missing_ok=True)
-        return
-    for root, _dirs, files in os.walk(path, topdown=True):
-        try:
-            os.chmod(root, 0o700)
-        except OSError:
-            pass
-        for name in files:
-            target = Path(root) / name
-            if target.is_symlink():
-                continue
-            try:
-                os.chmod(target, 0o600)
-            except OSError:
-                pass
-
-    def _on_error(func, target, _exc):  # noqa: ANN001 - stdlib 回调签名
-        try:
-            os.chmod(Path(target).parent, 0o700)
-        except OSError:
-            pass
-        func(target)
-
-    try:
-        shutil.rmtree(path, onexc=_on_error)
-    except TypeError:  # Python < 3.12
-        shutil.rmtree(path, onerror=_on_error)
+    """删除已完成安全校验、但可能包含只读条目的目录树。"""
+    _remove_tree_force(path)
 
 
 def _self_home_dir(*parts: str) -> Path:
@@ -967,7 +932,7 @@ def _self_remove_qoder_user_assets(
     cache_dir = _qoder_user_plugin_cache_dir()
     if cache_dir.is_dir() and not cache_dir.is_symlink():
         try:
-            shutil.rmtree(cache_dir)
+            _rmtree_force(cache_dir)
             removed.append(f"{cache_dir}（已移除插件缓存）")
         except OSError as exc:
             preserved.append(f"{cache_dir}（删除失败：{exc}）")
@@ -1216,7 +1181,7 @@ def _self_uninstall_pi_skill(
             if owned_copy:
                 if backup_root is not None:
                     _backup_tree_external(p_dir, backup_root / p_dir.name)
-                shutil.rmtree(p_dir)
+                _rmtree_force(p_dir)
                 removed.append(f"{label}（全局 skill 副本）")
             else:
                 preserved.append(f"{label}（不是 BugX 副本或内容已变化，保留）")
@@ -1227,7 +1192,7 @@ def _self_uninstall_pi_skill(
     if agents_skill_dir.is_dir():
         if backup_root is not None:
             _backup_tree_external(agents_skill_dir, backup_root / "pi-global-skill")
-        shutil.rmtree(agents_skill_dir)
+        _rmtree_force(agents_skill_dir)
         removed.append("~/.agents/skills/bugx（全局 skill 实体）")
     elif agents_skill_dir.exists():
         preserved.append("~/.agents/skills/bugx（不是安全目录，保留）")
@@ -1241,7 +1206,7 @@ def _self_uninstall_dsh_preset(
         return
     if backup_root is not None:
         _backup_tree_external(preset_dir, backup_root / "dsh-agent-presets")
-    shutil.rmtree(preset_dir)
+    _rmtree_force(preset_dir)
     removed.append("~/.dsh/.agent-presets/bugx（全局预设）")
 
 
@@ -1274,7 +1239,7 @@ def _self_uninstall_dsh_ui_plugin(
         return
     if backup_root is not None:
         _backup_tree_external(plugin_root, backup_root / "dsh-ui-plugin")
-    shutil.rmtree(plugin_root)
+    _rmtree_force(plugin_root)
     removed.append(f"{plugin_root}（DSH UI 插件）")
 
 
@@ -1344,7 +1309,7 @@ def _self_uninstall_workbuddy_skill(
                     backup_root / "workbuddy-custom-expert" / config_root.name / "bugx",
                 )
             try:
-                shutil.rmtree(expert_dir)
+                _rmtree_force(expert_dir)
                 removed.append(f"{expert_dir}（WorkBuddy 自定义专家）")
             except OSError as exc:
                 preserved.append(f"{expert_dir}（删除失败：{exc}）")
@@ -2377,14 +2342,14 @@ def command_uninstall(args: argparse.Namespace) -> int:
             for handler in list(logger.handlers):
                 handler.close()
                 logger.removeHandler(handler)
-            shutil.rmtree(bugx_root)
+            _rmtree_force(bugx_root)
             # 与 --dry-run 预览保持一致：项目运行态被清掉必须在 removed 里可查，
             # 否则用户只能靠 ls 猜（removed 为空时会误以为没清干净）。
             removed.append(".bugx/（项目运行态、报告、证据与共享资源）")
         if args.purge_global_data and global_root.exists():
             if global_root.is_symlink():
                 raise CliError(_i18n_exc("lifecycle.clean_global_knowledge_symlink_refused", "拒绝清理符号链接全局错题集目录"))
-            shutil.rmtree(global_root)
+            _rmtree_force(global_root)
             removed.append("~/.bugx/knowledge/（全局错题集与经验集）")
     _remove_empty_parents(root, removed)
     payload = {
@@ -2425,6 +2390,43 @@ def _assert_writable(directory: Path, label: str) -> None:
         probe.unlink()
     except OSError as exc:
         raise CliError(f"{label}不可写：{directory}: {exc}") from exc
+
+
+_PROJECT_USER_SKILL = Path(".agents/skills/bugx-user/SKILL.md")
+
+
+def _read_project_user_skill(root: Path, source: Path) -> bytes:
+    """Validate the required bundled Skill and its project destination before init writes."""
+    target = root / _PROJECT_USER_SKILL
+    _assert_no_symlink_components(target)
+    for parent in target.parents:
+        if parent == root:
+            break
+        if parent.exists() and not parent.is_dir():
+            raise CliError(f"项目 Skill 父路径不是目录：{parent}")
+    if target.exists() and not target.is_file():
+        raise CliError(f"项目 Skill 目标不是普通文件：{target}")
+
+    template = source.parent / "skills" / "platform" / "bugx-user" / "SKILL.md"
+    _assert_no_symlink_components(template)
+    if not template.is_file():
+        raise CliError(f"安装包缺少 BugX 用户 Skill：{template}。请重新安装完整的 bugx-cli。")
+    try:
+        content = template.read_bytes()
+    except OSError as exc:
+        raise CliError(f"无法读取 BugX 用户 Skill：{template}: {exc}") from exc
+    if not content.strip():
+        raise CliError(f"安装包中的 BugX 用户 Skill 为空：{template}。请重新安装完整的 bugx-cli。")
+    return content
+
+
+def _install_project_user_skill(root: Path, content: bytes, *, force: bool) -> Path | None:
+    target = root / _PROJECT_USER_SKILL
+    _assert_no_symlink_components(target)
+    if target.is_file() and not force:
+        return None
+    _, _, backup = _write_host_resource(root, target, content, "bugx-user")
+    return backup
 
 
 def _precheck_initialization(root: Path, source: Path) -> None:
@@ -2581,6 +2583,7 @@ def command_init(args: argparse.Namespace) -> int:
     # F-L0-04 整改（commit-or-nothing）：所有**已知**失败路径都必须在写盘前阻断。
     # ---- B 预检阶段（零落盘）------------------------------------------------
     _precheck_initialization(root, source)
+    user_skill = _read_project_user_skill(root, source)
 
     # ---- A 决策阶段（零落盘）：云端同步决策必须在任何写盘之前解析完成 --------
     onboarding_path = root / ".bugx" / "cloud-onboard.json"
@@ -2628,12 +2631,13 @@ def command_init(args: argparse.Namespace) -> int:
             _ensure_core_importable()
             from core.runtime.session_profile import save_commit_policy
             profile_file_ = save_commit_policy(commit_policy_, root=root)
+        skill_backup_ = _install_project_user_skill(root, user_skill, force=args.force)
         _apply_cloud_onboarding_plan(root, onboarding_plan, preset_data)
         return {
             "removed": removed, "copied": copied_, "skipped": skipped_,
             "layout": layout_, "inherited": inherited_,
             "life_created": life_created_, "profile_file": profile_file_,
-            "commit_policy": commit_policy_,
+            "commit_policy": commit_policy_, "skill_backup": skill_backup_,
         }
 
     committed = _commit_with_self_heal(_commit_project_state)
@@ -2682,6 +2686,9 @@ def command_init(args: argparse.Namespace) -> int:
     if removed_legacy_core:
         print(f"  已直接删除旧项目引擎入口：{removed_legacy_core}")
     print(f"  运行目录：{layout.root}")
+    print(f"  用户 Skill：{_PROJECT_USER_SKILL.as_posix()}")
+    if committed["skill_backup"] is not None:
+        print(f"  用户 Skill 备份：{committed['skill_backup']}")
     print(f"  写入 {copied} 个文件，保留 {skipped} 个已有文件")
     if life_created:
         print("  已创建 .bugx 当前生命周期生命状态（1 条初始寿命）")

@@ -132,11 +132,11 @@ bugx engine --root <ROOT> status --json
 | `BUGX_GLOBAL_ENGINE_ROOT` 已设置 | 显式全局 engine 覆盖 Dev engine | 仅在本次纯源码验证中用 `env -u BUGX_GLOBAL_ENGINE_ROOT`，不要覆盖用户长期配置 |
 | `BUGX_ASSET_ROOT` 已设置且来自另一份安装 | 资产候选混用 | 保存原值；确认目标后再用 `env -u BUGX_ASSET_ROOT` 做一次纯源码诊断 |
 | `BUGX_DEV_MODE` 值不是精确的 `1` | 开关未生效 | 改为 `BUGX_DEV_MODE=1`，或旧脚本使用 `BUGX_DEV_ASSET_ROOT=1`；二选一即可 |
-| `path` 已指向 checkout，但 `pre --dev` 行为超出预期 | `--dev` 默认 `fix=auto`、`commit=round`、`polling=auto`、`strategy=approve` | 不要再用 `--dev`；改用 `--fix-mode log-only --commit-policy manual --cloud-sync local` |
+| `path` 已指向 checkout，但 `pre --dev` 行为超出预期 | `--dev` 默认 `fix=auto`、`commit=round`、`polling=auto`、`strategy=approve` | 取消 `--dev`，按需明确 `--fix-mode log-only --commit-policy manual`，保留已有云同步授权 |
 | Dev 预期 local 但进入 cloud onboarding | 显式 `--cloud-sync` 或 profile cloud policy 优先于 Dev local 缺省 | 读取 profile、`cloud status` 和 consent；没有联网授权时停止，不要设置 `BUGX_ACCEPT_DATA_SHARING=1` |
 | 资源目录缺 `bugx.md` 或 `launch_bugx.py` | 资产不完整或安装来源不一致 | 恢复到完整受信资源目录或重新安装正确版本；不要用 `--force` 覆盖未知目录 |
 
-安全的源码验证命令是：
+仅在用户明确要求离线核对源码时，使用以下命令。在已启用云端的项目中，按实际 onboarding 状态和授权处理。
 
 ```sh
 env -u BUGX_GLOBAL_ENGINE_ROOT \
@@ -147,7 +147,7 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
     --cloud-sync local
 ```
 
-只有用户明确授权在隔离项目中进行自动修复和按轮次提交时，才使用：
+下例仅用于用户明确选择离线，且授权在隔离项目中自动修复和按轮次提交的情形。
 
 ```sh
 env -u BUGX_GLOBAL_ENGINE_ROOT \
@@ -191,21 +191,21 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
 
     pwd
     test -d . && echo project-root-ok
-    bugx init --root . --cloud-sync local
+    bugx engine --root . status --json
     bugx doctor --root . --installation-only --json
-    bugx project show --root . --json
+    bugx cloud status --root . --scope project --json
 
 ### 处置
 
 1. 在真实项目根执行，并显式指定 --root。
-2. 非 TTY 明确选择 --cloud-sync local 或 --cloud-sync sync；不要用空值猜测。
+2. 确认是全新项目时，按[初始化项目](01_USER_GUIDE.md#3-初始化项目)登录并按范围初始化。已有账本或项目云状态时先诊断再恢复。仅明确要求离线才选择 Local。
 3. 不要手工删除 .bugx/core、manifest 或 state。先保存错误，确认是否需要项目 rebind 或 init 迁移。
 4. 身份已经绑定错误根目录时，使用：
 
        bugx project rebind --root . --json
 
    只有明确需要迁移并已确认目标时才使用 --migrate。
-5. init --force 只更新受管理的静态 Agent 文件，不是万能修复。
+5. `init` 报用户 Skill 缺失时，检查当前 CLI 的安装来源，重新安装包含该资产的版本。若报目标路径不安全，检查 `.agents/skills/bugx-user/SKILL.md` 的父目录和目标类型。`--force` 适用于刷新已有的普通 Skill 文件，刷新前会备份。
 
 ### 终态
 
@@ -401,7 +401,7 @@ Worker 自报不能确认 Finding。Host verify 需要两条独立正向用例�
 
 ### 处置
 
-Model 名称不是凭据。先确认 Provider、Host 和认证来源，再按需要执行：
+先看报错来自宿主 Provider 还是 BugX 云端。对于宿主返回的 429，按该 Provider 的等待窗口处理。下面的认证命令用于已确认的 BugX 云端登录问题：
 
     bugx auth login
     bugx auth set-key --api-key '<key>'
@@ -413,6 +413,16 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
 认证状态为 valid、Provider window 不再阻塞、Host 具备对应能力，并且一次真实 tool/checkpoint receipt 成功。仅有 model 字符串时仍是 BLOCKED/UNVERIFIED。
 
 ## 10. Cloud sync、scope 或网络失败
+
+同步完成却搜不到时，从源端记录 ID 开始查，依次确认账本入账、过滤、push、远端确认、接收端导入和 ACK、检索类型。相似标题、报告存在、旧 `done` 状态都不足以证明本轮该记录已同步。接收端已有目标记录且最终仍报告 ACK 失败时，保留本地记录和游标，先恢复对应错误，再用已授权的全量同步复核。若同一次命令已自愈，最终推拉和 ACK 成功且状态错误已清除，直接核对目标记录。
+
+### 已进入 Local，或同步完成后找不到经验
+
+先用 `bugx cloud status --root . --scope all --json` 核对 `onboarding`、绑定和目标层，用 `bugx auth status --root . --verify --json` 核对登录。排查最近的 `init` 或 `pre` 参数、项目 profile/preset 和日志。当前源码会在 `pre --dev` 无显式或 profile 策略，以及自治项目仍处于 `pending` 且无策略时选择 Local。未登录、没有终端交互且 `pending` 的普通启动也可能把状态写成 Local。全新项目以交互终端执行 `init` 时，省略策略也会落到 Local。
+
+日志出现“已标记 sync_pending”时，应视为本轮云同步未完成。已开启同步的项目在一些网络故障下会继续本地执行并尝试后台恢复，项目仍可能显示 `done`。日志里的 `report_policy=local` 是单独的报告分享设置。项目知识同步以 onboarding 和本轮推拉结果为准。
+
+需要恢复云同步时，保留状态与账本，登录正确账号后直接执行已授权范围的 `bugx cloud sync --root . --scope <SCOPE>`。包含项目层的同步成功会把 onboarding 置为 `done`。若同步显示成功但搜不到卡片，先确认记录已写入账本、记录属于所选层、项目绑定一致，且记录未被过滤或拒绝。用 `bugx lesson retrieve --root . --query "<关键字>" --json` 查同一条已知记录。已有队列但网络、认证或冲突尚未恢复时，按下节处理。
 
 ### 症状
 
@@ -429,12 +439,12 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
     bugx auth status --verify
     bugx cloud conflicts list --scope all --json
     bugx cloud dead-letter list --scope all --json
-    bugx cloud onboard status --root . --json
+    bugx cloud onboard status --root .
 
 ### 处置
 
 1. `cloud status` 是本地只读状态，不等于网络验证；`auth status --verify` 才是网络认证检查。先保存两者的 JSON、退出码和 `.bugx/logs/bugx.jsonl` 相关错误。
-2. 核对 `telemetry.data_sharing`、`cloud.sync_scope_default`、`cloud.sync_detail_mode`、`cloud.sensitive_policy`，并记录本次真实 scope。缺省 `cloud sync` scope 读取配置，配置缺失时是 `all`；`onboard on` 和启动 onboarding 可能直接同步 global + project。
+2. 核对 `telemetry.data_sharing`、`cloud.sync_scope_default`、`cloud.sync_detail_mode`、`cloud.sensitive_policy`，并记录本次真实 scope。缺省 `cloud sync` scope 读取配置，配置缺失时是 `project`；`onboard on` 和启动 onboarding 可能直接同步 global + project。
 3. 显式拒绝状态会在网络和 SyncStore 变更前硬阻断 push/pull；不要通过删配置或换 scope 绕过。`--cloud-sync local` 只影响当前启动策略，不会撤销用户级同意。
 4. 先用本地导出检查边界，不会联网：
 
@@ -448,11 +458,7 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
 6. `project sync` 是另一条网络路径，只上传紧凑项目画像/指标；`telemetry flush/upload` 是独立的飞轮 outbox；`log-report` 上传诊断日志尾部；非 dry-run `feedback` 上传 lesson feedback。它们不能互相替代，也不能用一条路径的成功证明另一条路径成功。
 7. conflict `resolve --side remote` 会联网拉取远端权威内容，`local` 主要是本地决议；dead-letter `purge` 先 list，再确认 reason、范围和归档路径。不要以 `cloud status` 的本地 pending=0 推断远端已经可见。
 8. 如果出现 `ack_pending=true`，按“本地导入/游标可能已提交、云端 ACK 未完成”处理：不要先 reset、删除 SQLite 或重复 upload，先恢复认证/网络，再做一次同 scope 的明确同步。
-9. 只有在错误明确属于可恢复 cursor/baseline 失配时才使用：
-
-       bugx cloud sync --scope project --calibrate
-
-   普通 TLS、认证、权限、payload 拒绝或项目绑定错误不能靠 `--calibrate` 修复。
+9. 错误明确属于可恢复 cursor/baseline 失配时，按命令参考核对受影响的范围和 `--calibrate` 的副作用，获得对应修复授权后再执行。TLS、认证、权限、payload 拒绝和项目绑定错误均应先处理各自根因。
 
 ### 10.1 数据上传边界
 
@@ -467,7 +473,7 @@ auth status 只显示 presence 和状态；--verify 可能访问网络。provide
 | `cloud log-report` | 诊断日志尾部，默认 256 KB，可能含路径/上下文 | 上传前人工审查尾部、`--json` bytes/lines、退出码 | 无法脱敏就只保留本地日志 |
 | `cloud feedback` | lesson_id/outcome，最多 100 条 | `--dry-run --json` 预览和条目数 | 先 dry-run；空列表不联网 |
 
-`summary` 不是“不会上传业务内容”，`redact` 不是凭据轮换，`telemetry` 也不是 cloud knowledge。用户只授权项目范围时，任何可能触及 global 的 onboarding 路径必须停止并重新确认。
+`summary` 不是“不会上传业务内容”，`redact` 不是凭据轮换，`telemetry` 也不是 cloud knowledge。用户只授权部分范围时，拒绝该同步请求。标准恢复路径需要完整授权。
 
 ### 终态
 
@@ -648,7 +654,7 @@ JSON 明确给出 scope、backup、recreated、preserved、removed 和状态。�
 
 ### 证据和处置
 
-    bugx knowledge status --root . --json
+    bugx knowledge status --root .
     bugx lesson validate --root . --deep --json
     bugx skill list --root . --json
     bugx skill status --root . --skill web-audit --json

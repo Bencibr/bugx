@@ -551,14 +551,14 @@ def _mcp_runtime_doctor_payload(root: Path, runtime_root: Path,
     from ..common import _python_environment
     result = subprocess.run(
         [sys.executable, str(_script(root, "mcp_runtime.py")), *script_args],
-        cwd=root, capture_output=True, text=True, check=False,
+        cwd=root, capture_output=True, encoding="utf-8", errors="replace", check=False,
         env=_python_environment(), timeout=120,
     )
     if result.returncode != 0 and "--fast" in script_args and "unrecognized arguments: --fast" in (result.stderr or ""):
         script_args_fallback = [a for a in script_args if a != "--fast"]
         result = subprocess.run(
             [sys.executable, str(_script(root, "mcp_runtime.py")), *script_args_fallback],
-            cwd=root, capture_output=True, text=True, check=False,
+            cwd=root, capture_output=True, encoding="utf-8", errors="replace", check=False,
             env=_python_environment(), timeout=120,
         )
     try:

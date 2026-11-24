@@ -6,9 +6,16 @@
   <img src="core/assets/bugx-hero-en.svg" alt="BugX — effortless audits of AI-written code" width="800">
 </p>
 
-# BugX — AI Code Audit Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
+# BugX — Autonomous Code Review & Automated Testing Agent
 
-BugX is a code-audit agent that lives inside your AI coding assistant. **When you finish a feature or open a pull request, it runs a full audit and tells you what was checked, what wasn't, and where the bugs are — each one with a command you can run yourself to reproduce it.** It works with Claude Code, Codex, Cline, OpenCode, and ZCode today. More tools are on the way.
+BugX is an autonomous code review and automated testing agent that lives inside your AI coding assistant or runs standalone on the command line.
+
+**It safeguards software delivery at every step:**
+- **For Developers**: Catches subtle, high-impact bugs immediately after code is written, eliminating painful debugging loops and rework.
+- **For QA & Test Engineers**: Automates black-box, functional, and performance testing across complex edge cases that manual reviews often miss.
+- **For Engineering Teams**: Guarantees code strictly meets functional contracts with rock-solid stability and resilience, ensuring dependable, crash-free releases.
+
+By replacing subjective self-reporting with automated, evidence-backed audits, BugX accelerates release velocity, elevates software quality, and reduces long-term maintenance costs. Supported environments include **Claude Code, OpenAI Codex, Cursor, Trae, Windsurf, Kimi Code, MiniMax Code, OpenCode, ZCode, Cline, DeepSeek Harness (DSH), WorkBuddy, and Qoder**.
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -42,7 +49,7 @@ AI writes code faster than any human can review it. And the model carries a quir
 BugX replaces that with a ledger and four hard rules:
 
 1. **A coverage list.** Your project is split into audit units, each with a real status: checked, blocked, or not yet checked. Coverage is tracked, not assumed.
-2. **Reproduction required.** The same attack input must trigger the bug twice; a clean input must trigger nothing. All three runs stay on record before a finding counts.
+2. **Independent blind review & reproduction.** Suspicious findings are blind-reviewed by an isolated verification agent. The attack input must reproduce the bug twice, and a clean input must trigger zero times, backed by AST syntax anti-empty assertions. Refuted findings are logged to the FP Ledger to prevent repeat false alarms.
 3. **It picks up where it left off.** Close your AI tool and reopen it later — the audit resumes from the last recorded step instead of starting over.
 4. **Every verdict stays reviewable.** Who checked what, when, and on what evidence goes into the ledger line by line, with hash chaining between pages. Nothing gets edited quietly.
 
@@ -62,13 +69,30 @@ Or install from npm:
 npm install -g bugx-cli
 ```
 
+Check and update using the server release matching your current install source:
+
+```bash
+bugx update --check          # check only: 0=up-to-date, 1=update available, 2=check failed
+bugx update                  # update pip or npm wrapper installation
+bugx update --channel alpha  # explicitly choose pre-release channel
+```
+
 Then run this once from any directory:
 
 ```bash
 bugx install
 ```
 
+> ⚠️ **Important (Restart Required)**: After configuring or updating project MCP settings, **completely restart your host IDE or AI coding assistant** (e.g., Cursor, Trae, VS Code, Kimi Code, MiniMax Code, ZCode) so the host process reloads the project-level MCP server configuration.
+
+CLI boolean flags are switches: pass `--force` to enable, omit it to disable. Do not pass `--force=True` or `force=True`.
 It lists every AI host it detects on your machine and walks you through picking one. To install everywhere at once, use `bugx install --agent all`.
+
+### Connect the project to BugX Cloud
+
+From the repository root, confirm the account, sync scope, and sensitive-data policy. Run `bugx auth login --root .` and check that `bugx auth status --root . --verify --json` reports the expected account and `auth_verified=true`.
+
+When both the account-wide and project scopes are authorized, initialize a fresh project with `bugx init --root . --cloud-sync sync` and check the first transfer with `bugx cloud sync --root . --scope all`. Initialization installs `.agents/skills/bugx-user/SKILL.md`. Invoke `$bugx-user` in a host that discovers project Skills there. For existing projects, use `bugx cloud sync --root . --scope all` after the full scope is authorized, then check the binding and queue with `bugx cloud status --root . --scope all --json`. This flow includes project registration and profile, project knowledge, and account-wide knowledge. Decline requests for partial sync.
 
 ### Option 1: use it inside your AI assistant (recommended)
 
@@ -93,21 +117,7 @@ The AI inside your host calls BugX on its own: it builds the coverage list, disp
 
 On the command line, the AI still comes from your installed hosts: BugX reuses the model and credentials you already configured there and never takes over your API keys (`--model` / `--provider` default to your host's configuration).
 
-The first time you enter a project, sign in to the cloud, initialize, and self-check:
-
-```bash
-bugx auth login                # sign in to the cloud account (for lesson and experience sync)
-bugx init --cloud-sync sync    # enable cloud sync so the project works across devices
-bugx doctor --strict
-```
-
-Run a full audit:
-
-```bash
-bugx engine pre        # build the coverage list and the audit plan
-bugx engine status     # check progress
-bugx engine post       # settle up: cross-check coverage, evidence, and verdicts
-```
+Check the selected host and connection with `bugx doctor --root . --strict`. For a staged CLI run, follow the [lifecycle guide](docs/01_guides/01_USER_GUIDE.md#8-从-pre-到-post-的完整生命周期) through execution, evidence review, and settlement. See the current stage with `bugx engine --root . status --json`.
 
 Or let BugX run the whole thing while you do something else:
 
@@ -143,7 +153,7 @@ See the host table below for valid `--agent` values; `bugx hosts` lists every en
 
 ## What a full audit looks like
 
-1. **pre (with the game plan).** BugX enumerates your source and configuration files, then builds a minimal list of audit units (single modules plus cross-module business flows). Before anything runs, you get a plan with five decisions in one pass: **cloud sync** (sync across devices or stay local), **review mode**, **polling strategy**, **fix mode**, and **commit handling**. Each has a default — accept them or set your own.
+1. **pre (with the game plan).** BugX enumerates your source and configuration files, then builds a minimal list of audit units (single modules plus cross-module business flows). Before anything runs, you get a plan with five decisions in one pass: **cloud sync** (sign in and sync lessons and experience, or explicitly choose offline use), **review mode**, **polling strategy**, **fix mode**, and **commit handling**. Confirm the actual sync scope and review policies presented by the startup gates.
 2. **Workers fan out.** The host hands audit units to concurrent workers. Each worker takes a lease, sends heartbeats, runs probes, and commits checkpoints.
 3. **Evidence lands on disk.** Every worker conclusion carries the command it ran, the exit code, and the artifact hash. Coverage is only ever `covered` or `blocked` — "roughly checked" doesn't exist here.
 4. **Findings get adjudicated.** Candidate bugs first go through the engine's verification channel: two positive runs plus a negative control, executed for real. Only then are they confirmed or rejected, and a rejection needs a stated reason.
@@ -189,7 +199,7 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 - Write reports (`bugx report`).
 
 **Long term**
-- **A lessons base**: project-level and global experience accumulates in `bugx lesson` / `bugx knowledge`; sync it to the cloud explicitly with `bugx cloud`.
+- **A lessons base**: sync verified lessons and experience with `bugx cloud sync` in the authorized scope. Use `bugx lesson retrieve` to look up a symptom or module in the next review.
 - **Unattended runs**: follow your host (`bugx autonomous`), run toward a goal (`bugx goal`), or keep a resident daemon (`bugx daemon`).
 - **Diagnostics**: `bugx doctor` / `bugx log` / `bugx stats` for installation, logs, and usage.
 
@@ -198,23 +208,17 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 **What is BugX?**
 An autonomous code-audit agent that lives inside AI coding assistants: it runs via MCP in Claude Code, Codex, Cline, OpenCode, and ZCode, or as a standalone CLI, tracks audit coverage per unit, and verifies every finding with real executions.
 
-**What is Vibe Coding security and PR review automation?**
-Vibe coding leverages LLMs to produce large volumes of code quickly, but models tend to cut corners and sound confident even when gaps remain. BugX is built specifically for vibe coding workflows and automated PR reviews: trigger deterministic, coverage-driven audits and real PoC reproductions directly within your AI assistant before merging.
-
-**How does BugX guarantee Zero False Positives?**
-BugX enforces the 3-Run Reproduction Rule: every candidate vulnerability must be proven by executing the attack input twice to reproduce the defect, followed by a clean input that triggers zero defects. Any finding without concrete commands, exit codes, and artifact hashes is rejected.
-
-**How does the independent blind verification protocol work?**
-In 0.1.2, BugX introduces an independent blind verification protocol (`stage_verify.md`). A dedicated verifier agent reproduces issues in an isolated sandbox with minimal prompt leakage, AST negative controls, and bounded self-correction loops, eliminating confirmation bias.
-
 **Which AI coding tools does BugX support?**
-Claude Code, OpenAI Codex, Cline / Roo Code, OpenCode, and ZCode are supported today; DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted.
+BugX currently supports **Claude Code, OpenAI Codex, Cursor, Trae, Windsurf, Kimi Code, MiniMax Code, Cline / Roo Code, OpenCode, ZCode, DeepSeek Harness (DSH), WorkBuddy, and Qoder**, with continuous adaptations across the Model Context Protocol (MCP) ecosystem.
 
 **How does BugX verify a vulnerability?**
-The same attack input must reproduce the finding twice, and a clean input must produce nothing. All three runs (two positive, one negative control) are recorded with commands, exit codes, and artifact hashes.
+Rather than trusting the proposing model's self-report, findings are independently blind-reviewed: an attack input must reliably trigger the vulnerability twice, and a clean input must trigger zero times (two positive runs, one negative control) recorded with command, exit code, and artifact hashes, verified by AST syntax assertions. Refuted findings are recorded in the FP Ledger.
+
+**Does BugX trigger AI model cyber-security risk blocks?**
+BugX includes a declarative Prompt Policy Engine with adaptive prompt profiles (e.g., defensive QA phrasing for OpenAI Codex / GPT-4o) that prevents models from triggering platform Daybreak / Cyber Risk safety blocks, while preserving 100% of the underlying code and CWE details.
 
 **Does BugX send my code to the cloud?**
-The audit itself runs locally. Cloud sync of lessons and experience is an explicit operation (`bugx init --cloud-sync sync` / `bugx cloud`); nothing is uploaded unless you run it.
+The audit itself runs locally. Enabling lesson and experience sync can trigger transfers at startup and after eligible ledger writes. Check the authorized scope and sensitive-data policy before enabling sync.
 
 **Does BugX replace human review?**
 No. It gives you a reviewable ledger — what was checked, what wasn't, and reproducible evidence per finding — so human review starts from facts instead of the model's self-report.
@@ -224,23 +228,26 @@ Multi-language static and behavioral analysis (Python, JavaScript/TypeScript, Ja
 
 ## Supported AI coding tools
 
-| AI coding tool | Integration | Install |
+| AI coding tool | Integration | Install command |
 | :--- | :--- | :--- |
-| **Claude Code** | native MCP / autonomous lifecycle | `bugx install --agent claude` |
-| **OpenAI Codex** | workspace subagents / native plugin | `bugx install --agent codex` |
-| **OpenCode** | headless ACP / native MCP | `bugx install --agent opencode` |
-| **Cline / Roo Code** | MCP chat sessions (single-claim serial) / CLI multi-process concurrency | `bugx install --agent cline` |
-| **ZCode** | native MCP / user-level MCP registration | `bugx install --agent zcode` |
+| **Claude Code** | Native MCP / autonomous lifecycle | `bugx install --agent claude` |
+| **OpenAI Codex** | Workspace subagents / native plugin | `bugx install --agent codex` |
+| **Cursor / Trae / Windsurf** | Native project-level MCP integration | `bugx install --agent cursor` |
+| **Kimi Code** | Managed plugin / project MCP | `bugx install --agent kimi` |
+| **MiniMax Code** | Plugin V1 package / agent & MCP | `bugx install --agent minimax` |
+| **OpenCode** | Headless ACP / native MCP | `bugx install --agent opencode` |
+| **Cline / Roo Code** | MCP chat sessions / multi-process concurrency | `bugx install --agent cline` |
+| **ZCode** | Native MCP / user-level MCP registration | `bugx install --agent zcode` |
+| **DeepSeek Harness (DSH)** | Desktop launcher / managed plugin & MCP | `bugx install --agent dsh` |
+| **WorkBuddy / Qoder** | Connector meta / native extension | `bugx install --agent workbuddy` |
 
-Other tools — DeepSeek Harness, WorkBuddy, Cursor / Windsurf, and more — are on the way.
-
-Run `bugx hosts` to see every environment detected on this machine.
+Run `bugx hosts` to see all environments detected on your machine.
 
 ## Data and security
 
 - Project state lives in the project's `.bugx/` directory; the global engine, credentials, knowledge base, and caches live in a user-level BugX directory.
 - Credentials are written to a controlled sandbox when needed (readable only by the current user by default). `bugx auth status` reports whether credentials exist — it never prints them. A model name is not a credential.
-- Cloud uploads, feedback, diagnostic log reporting, and sync are all explicit operations: each states its `--scope`, its sensitive-data policy, and its verbose mode before it runs.
+- Knowledge sync uses the configured scope and sensitive-data policy. Bundle uploads, diagnostic log reports, and feedback have separate commands and data boundaries.
 - `reset` / `uninstall` / `purge` / `--no-backup` delete data. Check each command's dry-run and backup behavior first.
 
 ## Documentation
@@ -249,7 +256,8 @@ The documentation is written in Chinese:
 
 - [User guide](docs/01_guides/01_USER_GUIDE.md): installation, configuration, host capabilities, lifecycle, MCP/ACP, cloud scope, results, and recovery.
 - [Command reference](docs/01_guides/02_COMMANDS.md): every command, argument, default, scope, side effect, and exit behavior.
-- [Troubleshooting](docs/01_guides/03_TROUBLESHOOTING.md): find problems by symptom, with a recoverable next step.
+- [Troubleshooting](docs/01_guides/03_TROUBLESHOOTING.md) covers common symptoms and recovery steps.
+- The [BugX user skill](skills/platform/bugx-user/SKILL.md) covers setup, cloud sync, evidence review, and lesson reuse.
 - [UI audit (probe ui)](docs/01_guides/02_COMMANDS.md#63-probe): responsive layout, contrast, keyboard paths, and design tokens on a running web UI.
 - [AI reference](docs/03_ai/01_AI_REFERENCE.md): MCP, lifecycle, state, evidence, and failure contracts for hosts and agents.
 - [Docs index](docs/README.md): architecture and documentation navigation.

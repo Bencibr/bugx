@@ -1068,7 +1068,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         except (OSError, ValueError):
             payload = None
         version = payload.get("bugx_version") if isinstance(payload, dict) else None
-        if version == "${BUGX_VERSION}":
+        if version == "0.1.3":
             version = os.environ.get("BUGX_VERSION", __version__)
         if isinstance(version, str) and version.strip():
             return _full_engine_version(version.strip(), destination)
@@ -1081,7 +1081,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         match = re.search(r'bugx_version:\s*"([^"]+)"', content)
         if match:
             version = match.group(1)
-            if version == "${BUGX_VERSION}":
+            if version == "0.1.3":
                 version = os.environ.get("BUGX_VERSION", __version__)
             return _full_engine_version(version, destination)
     return None
@@ -1801,7 +1801,7 @@ def _version_marker(path: Path, pattern: re.Pattern[str], *, allow_symlink: bool
     except (OSError, UnicodeError, CliError):
         return None
     value = match.group(1) if match else None
-    if value == "${BUGX_VERSION}":
+    if value == "0.1.3":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if value and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
@@ -1815,7 +1815,7 @@ def _json_version_marker(path: Path, key: str) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError, CliError):
         return None
     value = payload.get(key) if isinstance(payload, dict) else None
-    if value == "${BUGX_VERSION}":
+    if value == "0.1.3":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if isinstance(value, str) and _CONTRACT_VERSION_RE.fullmatch(value) else None
 

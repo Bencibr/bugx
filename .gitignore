@@ -91,3 +91,6 @@ plugins/bugx/
 
 # tests 内运行态残留（self-heal 探针误写）
 tests/.bugx/
+
+# 内部草稿与宣传视频生成工作区（非源码资产）
+/docs/08_internal/drafts/

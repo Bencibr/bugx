@@ -12,6 +12,14 @@ import sys
 import typing
 from pathlib import Path
 
+# 确保在管道重定向或非 UTF-8 环境（如 Windows GBK/cp936 控制台）下输出非 ASCII 符号（如 ✓、✗）不触发 UnicodeEncodeError
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # 兼容低版本启动环境：若当前解释器 < 3.11，优先尝试全系统多源自举重拉
 if sys.version_info < (3, 11):
     try:
@@ -718,6 +726,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     probe.add_argument("--root", type=Path, default=Path.cwd(),
                        help="项目根（默认当前目录）")
+    probe.add_argument(
+        "--timeout-seconds", type=_parse_probe_timeout, default=None,
+        help=(
+            "BugX 外层探针看护超时（默认 120 秒，最大 1800 秒；"
+            "可放在探针类型前或后）"
+        ),
+    )
     probe.add_argument("probe_args", nargs=argparse.REMAINDER,
                        help="透传给探针的参数（如 check --json --strict）")
 

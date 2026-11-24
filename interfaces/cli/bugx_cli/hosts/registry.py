@@ -288,7 +288,7 @@ def engine_worker_entry_dir(name: str) -> str:
 #: 进程池执行器）自动追加，不进本表。这不是第二份宿主事实：宿主身份仍在
 #: 插件/``SUPPORTED_HOSTS``，本表只说「CLI 的 host 选项按什么顺序出现」。
 AUTONOMOUS_HOST_BASELINE: tuple[str, ...] = (
-    "claude", "codex", "opencode", "dsh", "pi",
+    "claude", "codex", "opencode", "dsh", "pi", "kimi",
 )
 
 
@@ -375,7 +375,9 @@ def _component_from_plugin(name: str) -> HostComponent:
 #: 本清单只用于**定位/枚举插件**，不含任何宿主事实（不复制 label、路径、能力）。
 #: 它随纵切推进增长；全部宿主迁移完成后本清单与 ``HOST_COMPONENTS`` 的本地字面量
 #: 会一起消失。
-PLUGIN_BACKED_HOSTS: tuple[str, ...] = ("cline", "codex", "claude", "pi", "zcode")
+PLUGIN_BACKED_HOSTS: tuple[str, ...] = (
+    "cline", "codex", "claude", "pi", "zcode", "kimi", "minimax",
+)
 
 
 def plugin_backed_components() -> tuple[HostComponent, ...]:

@@ -95,6 +95,8 @@ const env = { ...process.env };
 env.BUGX_ASSET_ROOT = env.BUGX_ASSET_ROOT || join(pkgRoot, 'core');
 env.BUGX_PYTHON = pythonCmd;
 env.BUGX_CLI_SOURCE = 'npm';
+env.PYTHONUTF8 = env.PYTHONUTF8 || '1';
+env.PYTHONIOENCODING = env.PYTHONIOENCODING || 'utf-8';
 const cliDir = existsSync(join(pkgRoot, 'interfaces', 'cli'))
   ? join(pkgRoot, 'interfaces', 'cli')
   : join(pkgRoot, 'src');

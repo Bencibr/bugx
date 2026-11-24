@@ -2,11 +2,16 @@
   <img src="https://raw.githubusercontent.com/Bencibr/bugx/main/core/assets/bugx-hero-en.svg" alt="BugX — effortless audits of AI-written code" width="1000">
 </p>
 
-# BugX — AI Code Audit & Code Review Agent for Claude Code, Codex, Cline, OpenCode, and ZCode
+# BugX — Autonomous Code Review & Automated Testing Agent
 
-BugX is an autonomous code-audit and automated code review agent that runs inside your AI coding assistant or on the command line. It audits AI-written code end to end: it builds a coverage list of your project, dispatches concurrent audit workers, verifies every candidate finding with real executions, and produces an actionable report where each finding ships with a command you can run yourself to reproduce it.
+BugX is an autonomous code review and automated testing agent that lives inside your AI coding assistant or runs standalone on the command line.
 
-If you use AI coding tools to write production code, BugX is the automated code review and security audit agent that checks what the model actually delivered — not what it claims to have delivered.
+**It safeguards software delivery at every step:**
+- **For Developers**: Catches subtle, high-impact bugs immediately after code is written, eliminating painful debugging loops and rework.
+- **For QA & Test Engineers**: Automates black-box, functional, and performance testing across complex edge cases that manual reviews often miss.
+- **For Engineering Teams**: Guarantees code strictly meets functional contracts with rock-solid stability and resilience, ensuring dependable, crash-free releases.
+
+By replacing subjective self-reporting with automated, evidence-backed audits, BugX accelerates release velocity, elevates software quality, and reduces long-term maintenance costs. Supported environments include **Claude Code, OpenAI Codex, Cursor, Trae, Windsurf, Kimi Code, MiniMax Code, OpenCode, ZCode, Cline, DeepSeek Harness (DSH), WorkBuddy, and Qoder**.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/bugx-cli"><img src="https://img.shields.io/npm/v/bugx-cli.svg?style=flat&color=0284c7&label=npm" alt="npm version"></a>
@@ -73,12 +78,10 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 
 Requires Node.js `>=18`. Python `>=3.11` is detected and managed by the wrapper.
 
-**Run without installing (zero-config):**
+**Check the CLI without a global install:**
 
 ```bash
-npx bugx-cli doctor --strict    # check system readiness and AI tool connectivity
-npx bugx-cli init               # initialize the current repository (.bugx/)
-npx bugx-cli install            # register local AI assistants
+npx bugx-cli --version
 ```
 
 **Or install globally** (pick your package manager):
@@ -90,14 +93,20 @@ npm install -g bugx-cli
 # bun add -g bugx-cli
 ```
 
-After installing, run this once from any directory:
+After installing, run this from the repository you want to use:
 
 ```bash
 bugx install          # lists detected AI hosts and registers the BugX MCP servers
 bugx doctor --strict  # health diagnostics
 ```
 
+> ⚠️ **Important (Restart Required)**: After configuring or updating project MCP settings, **completely restart your host IDE or AI coding assistant** (e.g., Cursor, Trae, VS Code, Kimi Code, MiniMax Code, ZCode) so the host process reloads the project-level MCP server configuration.
+
 To install everywhere at once: `bugx install --agent all`.
+
+Sign in with `bugx auth login --root .`, then check the expected account and `auth_verified=true` with `bugx auth status --root . --verify --json`. Confirm which data may sync before enabling the project. If both the account-wide and project scopes are authorized, initialize a fresh project with `bugx init --root . --cloud-sync sync` and verify the transfer with `bugx cloud sync --root . --scope all`. Decline partial-sync requests. For existing projects and sync errors, see the [user guide](https://github.com/Bencibr/bugx/blob/main/docs/01_guides/01_USER_GUIDE.md#3-初始化项目).
+
+Use `bugx engine --root . status --json` to check the current stage. After review and settlement, sync newly recorded lessons and experience in the same scope and check `bugx cloud status --root . --scope all --json`.
 
 **Option 1 — inside your AI assistant (recommended).** Open Claude Code, Codex, Cline, OpenCode, or ZCode in any project and just tell it what to check:
 
@@ -117,13 +126,6 @@ To install everywhere at once: `bugx install --agent all`.
 **Option 2 — from the terminal.** The AI still comes from your installed hosts: BugX reuses the model and credentials you already configured there and never takes over your API keys.
 
 ```bash
-bugx auth login                # sign in to the cloud account (lesson and experience sync)
-bugx init --cloud-sync sync    # enable cloud sync so the project works across devices
-
-bugx engine pre                # build the coverage list and audit plan
-bugx engine status             # follow progress
-bugx engine post               # settle: cross-check coverage, evidence, and verdicts
-
 bugx autonomous --host opencode    # full audit without supervision
 bugx goal --host opencode "audit this project's login and payment flows"
 
@@ -166,7 +168,7 @@ DeepSeek Harness (DSH), WorkBuddy, Cursor / Windsurf, and more are being adapted
 
 - Project state lives in the project's `.bugx/` directory; the global engine, credentials, knowledge base, and caches live in a user-level BugX directory.
 - Credentials are written to a controlled sandbox when needed (readable only by the current user by default). `bugx auth status` reports whether credentials exist — it never prints them.
-- Cloud uploads, feedback, diagnostic log reporting, and sync are all explicit operations: each states its `--scope` before it runs.
+- Knowledge sync uses the configured scope and sensitive-data policy. Bundle uploads, diagnostic log reports, and feedback have separate commands and data boundaries.
 - `reset` / `uninstall` / `purge` / `--no-backup` delete data. Check each command's dry-run and backup behavior first.
 
 ### FAQ
@@ -181,7 +183,7 @@ Rather than trusting the proposing model's self-report, findings are independent
 BugX includes a declarative Prompt Policy Engine with adaptive prompt profiles (e.g., defensive QA phrasing for OpenAI Codex / GPT-4o) that prevents models from triggering platform Daybreak / Cyber Risk safety blocks, while preserving 100% of the underlying code and CWE details.
 
 **Does BugX send my code to the cloud?**
-The audit itself runs locally. Cloud sync of lessons and experience is an explicit opt-in; nothing is uploaded unless you run it.
+The audit runs locally. When you enable lesson and experience sync, startup and eligible ledger writes can trigger cloud transfers. The authorized scope and sensitive-data policy govern the records sent.
 
 **Does BugX replace human review?**
 No. It gives you a reviewable ledger — what was checked, what wasn't, and reproducible evidence per finding — so human review starts from facts instead of the model's self-report.
@@ -217,12 +219,10 @@ BugX 用一本账和四条硬规矩对抗这件事：逐单元覆盖清单（查
 
 要求 Node.js `>=18`；Python `>=3.11` 由包装器自动检测管理。
 
-**免安装直接执行：**
+**免全局安装，先检查 CLI：**
 
 ```bash
-npx bugx-cli doctor --strict    # 检查系统就绪与 AI 工具连通
-npx bugx-cli init               # 初始化当前仓库（.bugx/）
-npx bugx-cli install            # 注册本地 AI 助手
+npx bugx-cli --version
 ```
 
 **或全局安装：**
@@ -231,7 +231,7 @@ npx bugx-cli install            # 注册本地 AI 助手
 npm install -g bugx-cli
 ```
 
-装好后任意目录跑一次：
+装好后在目标仓库运行：
 
 ```bash
 bugx install          # 列出检测到的 AI 宿主并注册 BugX MCP 服务
@@ -239,6 +239,10 @@ bugx doctor --strict  # 健康自检
 ```
 
 一次装全所有宿主：`bugx install --agent all`。
+
+在目标仓库运行 `bugx auth login --root .`，再用 `bugx auth status --root . --verify --json` 核对账号和 `auth_verified=true`。确认同步范围和敏感数据策略后再开启同步。两层都已授权且为全新项目时，用 `bugx init --root . --cloud-sync sync` 初始化，然后用 `bugx cloud sync --root . --scope all` 验证首次推拉。只授权部分数据时停止同步。已有项目或同步失败时，参照[用户指南](https://github.com/Bencibr/bugx/blob/main/docs/01_guides/01_USER_GUIDE.md#3-初始化项目)。
+
+用 `bugx engine --root . status --json` 查看当前阶段。审查收尾后，按同一授权范围同步本轮录入的错题和经验，再用 `bugx cloud status --root . --scope all --json` 核对绑定与同步状态。
 
 **方式一：在 AI 助手里用（推荐）。** 在任意项目里打开 Claude Code、Codex、Cline、OpenCode 或 ZCode，直接说：
 
@@ -250,13 +254,6 @@ bugx doctor --strict  # 健康自检
 **方式二：命令行直接跑。** AI 同样来自你已装好的宿主——模型和凭据直接复用，不接管你的 Key。
 
 ```bash
-bugx auth login                # 登录云端账号（错题/经验同步用）
-bugx init --cloud-sync sync    # 开启云端同步
-
-bugx engine pre                # 建立覆盖清单与审计计划
-bugx engine status             # 看进度
-bugx engine post               # 结账：核对覆盖、证据与裁决
-
 bugx autonomous --host opencode    # 无人值守完整审计
 bugx report serve                  # 实时 Web 报告 http://127.0.0.1:8080
 ```

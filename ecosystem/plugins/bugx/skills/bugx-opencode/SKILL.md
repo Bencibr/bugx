@@ -1,6 +1,6 @@
 ---
 name: bugx-opencode
-description: "BugX 对抗审计在 OpenCode 宿主的操作手册。当宿主发起/执行 BugX 漏洞挖掘、代码审计、对抗测试，或遇到 bugx engine pre 门禁、MCP 会话冲突（session_occupied）、Worker 派发（bugx-worker subagent）、headless/ACP 验收、判读式审计（judge）、findings 确认协议、post 结算封存等问题时使用。触发词：bugx 审计、漏洞挖掘、pre 门禁、session_occupied、bugx-worker、judge collect、post --final。"
+description: "BugX 自主代码审查与智能测试在 OpenCode 宿主的操作手册。当宿主发起/执行 BugX 代码审查、智能测试、深度缺陷排查，或遇到 bugx engine pre 门禁、MCP 会话冲突（session_occupied）、Worker 派发（bugx-worker subagent）、headless/ACP 验收、判读式审计（judge）、findings 确认协议、post 结算封存等问题时使用。触发词：bugx 审查、智能测试、pre 门禁、session_occupied、bugx-worker、judge collect、post --final。"
 ---
 
 # BugX × OpenCode 使用手册（实战复盘版）

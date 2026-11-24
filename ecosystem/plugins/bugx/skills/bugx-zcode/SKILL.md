@@ -1,6 +1,6 @@
 ---
 name: bugx-zcode
-description: BugX 漏洞挖掘引擎在 ZCode 宿主下的专属使用手册——新环境快速接入（构建/安装/doctor）、启动挖掘标准流程（pre 启动门禁→workers→checkpoint→post）、本机实证过的坑位与对策（MCP root 漂移、worker 误回收、findings 格式、死锁链、token 上报、云端面板、重置）。当用户要在 ZCode 里启动/排障/重置 BugX 审计、配置新环境、解释 BugX 报错或 token/报告不更新时使用本 skill。
+description: BugX 自主代码审查与智能测试在 ZCode 宿主下的专属使用手册——新环境快速接入（构建/安装/doctor）、启动流程（pre 启动门禁→workers→checkpoint→post）、本机实证过的坑位与对策（MCP root 漂移、worker 误回收、findings 格式、死锁链、token 上报、云端面板、重置）。当用户要在 ZCode 里启动/排障/重置 BugX 审查与测试、配置新环境、解释 BugX 报错或 token/报告不更新时使用本 skill。
 ---
 
 # BugX × ZCode 使用手册（实战复盘版）

@@ -15,25 +15,26 @@ if TYPE_CHECKING:
 
 # 宿主入口 frontmatter 触发文案与 Worker 描述
 AGENT_DESCRIPTION_EN = (
-    "An autonomous agent dedicated to code review, vulnerability hunting, and automated bug fixing. "
-    "Built for deep investigations, BugX steps in when you are wrapping up a feature, opening a pull request, or hunting down an elusive bug. "
-    "It analyzes code logic, automatically writes test cases to uncover and reproduce hidden flaws, and delivers verified patches that resolve root causes. "
-    "Always safeguarding your code quality and security."
+    "An autonomous code review and testing agent designed to safeguard software delivery. "
+    "It surfaces hidden bugs for developers to eliminate painful debugging and rework, "
+    "while automating black-box, functional, and performance testing across complex edge cases for QA. "
+    "Ensures code runs reliably, meets all requirements, and frees engineers to focus on what matters."
 )
 
 AGENT_DESCRIPTION_ZH = (
-    "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，"
-    "它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。"
+    "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，"
+    "减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；"
+    "确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。"
 )
 
 BUGX_WORKER_DESCRIPTION_ZH = (
-    "BugX 并发审查 Worker。由 BugX 主智能体并发调度，负责具体代码模块的深度审查、缺陷挖掘与可复现用例验证；"
+    "BugX 并发测试审查 Worker。由 BugX 主智能体并发调度，负责具体代码模块的审查、缺陷排查与自动化测试验证；"
     "仅作为子智能体工作节点协同运行。"
 )
 
 BUGX_WORKER_DESCRIPTION_EN = (
-    "A concurrent audit worker dispatched in parallel by the primary BugX agent to inspect assigned modules, "
-    "hunt vulnerabilities, and verify defect reproduction as a collaborative subagent."
+    "A concurrent test and review worker dispatched by BugX to inspect assigned modules, "
+    "uncover deep bugs, and run automated verification as a collaborative subagent."
 )
 
 AGENT_DESCRIPTION = AGENT_DESCRIPTION_ZH
@@ -43,6 +44,12 @@ BUGX_WORKER_DESCRIPTION = BUGX_WORKER_DESCRIPTION_ZH
 def get_agent_description(locale: str | None = None) -> str:
     """Return the localized host agent description (fallback to en-US)."""
     loc = (locale or "").strip()
+    if not loc:
+        try:
+            import core.i18n as i18n
+            loc = i18n.resolve_locale().resolved_locale
+        except Exception:
+            pass
     if loc.startswith("zh"):
         return AGENT_DESCRIPTION_ZH
     return AGENT_DESCRIPTION_EN
@@ -51,6 +58,12 @@ def get_agent_description(locale: str | None = None) -> str:
 def get_worker_description(locale: str | None = None) -> str:
     """Return the localized concurrent worker description (fallback to en-US)."""
     loc = (locale or "").strip()
+    if not loc:
+        try:
+            import core.i18n as i18n
+            loc = i18n.resolve_locale().resolved_locale
+        except Exception:
+            pass
     if loc.startswith("zh"):
         return BUGX_WORKER_DESCRIPTION_ZH
     return BUGX_WORKER_DESCRIPTION_EN
@@ -58,9 +71,16 @@ def get_worker_description(locale: str | None = None) -> str:
 
 def add_locale_marker(content: str, locale: str | None) -> str:
     """Record the selected locale without invalidating YAML frontmatter."""
-    if not locale:
+    loc = (locale or "").strip()
+    if not loc:
+        try:
+            import core.i18n as i18n
+            loc = i18n.resolve_locale().resolved_locale
+        except Exception:
+            pass
+    if not loc:
         return content
-    normalized = str(locale).strip() or "en-US"
+    normalized = loc or "en-US"
     marker = f"<!-- bugx-locale: {normalized} -->\n"
     if content.startswith("---\n"):
         closing = content.find("\n---", 4)

@@ -34,8 +34,7 @@ PLAYWRIGHT_MCP_VERSION = "0.0.79"
 PLAYWRIGHT_BROWSER_VERSION = "1.63.0-alpha-2026-08-05"
 AGENT_TTY_VERSION = "0.5.0"
 PEXPECT_VERSION = "4.9.0"
-NODE_MIN_MAJOR = 24
-NODE_MAX_MAJOR = 27
+NODE_MIN_MAJOR = 20
 
 
 def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -54,10 +53,9 @@ def node_ok() -> tuple[bool, str]:
         major = int(version.lstrip("v").split(".", 1)[0])
     except ValueError:
         return False, f"node 版本无法解析: {version}"
-    if not NODE_MIN_MAJOR <= major < NODE_MAX_MAJOR:
+    if major < NODE_MIN_MAJOR:
         return False, (
-            f"node {version} 不兼容（固定工具链要求 "
-            f">={NODE_MIN_MAJOR}, <{NODE_MAX_MAJOR}）"
+            f"node {version} 不兼容（固定工具链要求 >={NODE_MIN_MAJOR}）"
         )
     return True, f"node {version}"
 
@@ -141,8 +139,7 @@ def install() -> int:
     print("=" * 52)
     if not node_ok()[0]:
         print(
-            f"✗ Node.js 版本不兼容，请安装 >= {NODE_MIN_MAJOR} 且 "
-            f"< {NODE_MAX_MAJOR}（https://nodejs.org）"
+            f"✗ Node.js 版本不兼容，请安装 >= {NODE_MIN_MAJOR}（https://nodejs.org）"
         )
         return 1
     npx = shutil.which("npx")

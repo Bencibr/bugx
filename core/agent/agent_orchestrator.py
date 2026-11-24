@@ -48,6 +48,8 @@ try:
 except ImportError:
     from core import secure_atomic
 
+from .agent_workspace import AgentWorkspace
+
 
 SCHEMA_VERSION = 1
 MAX_ATTEMPTS = 3
@@ -1268,6 +1270,7 @@ class AgentOrchestrator:
         for process_id in process_ids:
             self._terminate_check_process(process_id)
         if self.workspace.exists() and not self.workspace.is_symlink():
+            AgentWorkspace._make_tree_removable(self.workspace)
             shutil.rmtree(self.workspace)
         return {"graph_id": self.graph_id, "status": "cancelled", "cancelled": True}
 

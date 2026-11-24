@@ -1,6 +1,6 @@
 # BugX AI 命令选路与使用手册
 
-> **版本**：0.1.2+build.11 ｜ **更新日期**：2026-11-23
+> **版本**：0.1.3 ｜ **更新日期**：2026-11-24
 > 本手册按当前仓库 CLI 解析器整理，覆盖 42 个顶层命令及分组 leaf。宿主和全局引擎可能独立升级；当前安装版的安全帮助入口、命令分发源码与本手册共同确定语法。完整参数表见 [02_COMMANDS.md](../../docs/01_guides/02_COMMANDS.md)，生命周期与协议细节见 [01_AI_REFERENCE.md](01_AI_REFERENCE.md)。
 
 ## AI 选命令的固定步骤
@@ -68,7 +68,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 
 | 命令 | 什么时候用 | 常见调用与边界 |
 | --- | --- | --- |
-| `cloud` | 查看同步状态、治理冲突或同步云端知识 | 先用 `status --scope <...> --json`；直接同步时显式指定 `sync --scope project|global|all`。未配置时缺省 `project`。`onboard on`、`init --cloud-sync sync` 和已持久化 sync 决策后的 `engine pre` 会走 onboarding 默认路径，可能同步 global + project；它们不等价于 `cloud sync --scope project`。 |
+| `cloud` | 查看同步状态、治理冲突或同步云端知识 | 先用 `status --scope <...> --json`；标准同步获得全量授权后显式指定 `sync --scope all`。未配置时缺省 `project`。`onboard on`、`init --cloud-sync sync` 和已持久化 sync 决策后的 `engine pre` 会走 onboarding 默认路径，可能同步 global + project；它们不等价于 `cloud sync --scope project`。 |
 | `auth` | 管理 BugX 云端登录态 | `status` 只读；`login` 会打开授权流程；`set-key/logout` 修改或清除凭据。禁止打印/保存密钥到报告。 |
 | `telemetry` | 查看、导出或发送脱敏飞轮数据 | `inspect` 本地查看；`export` 生成本地包；`flush/upload` 会在门禁开启时联网并处理队列。未配置时遥测默认开启，普通 CLI 命令每日最多自动记录/发送一次 `installed` 或 `heartbeat`；显式 `flush/upload` 仍需先确认数据面和用户意图。关闭使用 `bugx config set telemetry.data_sharing false` 或当前进程的 `BUGX_TELEMETRY_ENABLED=0`。 |
 | `knowledge` | 查看或治理候选知识、项目/全局知识包 | `status/export` 查看或导出；`approve/import/rollback` 会改知识库。此命令本身不会自动同步云端。 |
@@ -138,8 +138,8 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | --- | --- |
 | `cloud config` | 查/改云端 API 地址或版本检查设置；写配置，不含登录凭据。 |
 | `cloud status` | 查询同步 cursor、队列、失败和冲突；按 `project|global|all` 缩小只读范围。 |
-| `cloud sync` | 立即上传/拉取知识；CLI 允许省略 `--scope`，但 AI 为避免隐式扩大范围应显式写 `--scope project|global|all`。省略时读取配置，配置缺失默认 `project`；`summary` 降低部分详情粒度，但仍是联网传输。 |
-| `cloud onboard status` / `on` / `off` | 查看、启用或停用项目云同步。`on` 在当前 CLI 会立即同步 global + project；不要拿它代替项目专用 `cloud sync --scope project`。 |
+| `cloud sync` | 立即上传/拉取知识；CLI 允许省略 `--scope`，AI 应先确认全量授权，再显式写 `--scope all`。省略时读取配置，配置缺失默认 `project`；`summary` 降低部分详情粒度，但仍是联网传输。 |
+| `cloud onboard status` / `on` / `off` | 查看、启用或停用项目云同步。`on` 在当前 CLI 会立即同步 global + project；与标准全量同步的授权范围一致。 |
 | `cloud conflicts list` / `resolve` | 查看冲突或按 local/remote 决议解决；`local` 主要本地处理，`remote` 会联网拉取权威内容，失败时冲突保持 open。 |
 | `cloud dead-letter list` / `purge` | 查询或清理失败同步死信；purge 删除队列项，先检查内容和恢复方案。 |
 | `cloud projects list` / `add` | 查看云项目或创建/绑定项目身份；`add` 联网并写 `<ROOT>/.bugx/cloud-project.json`。Git commit 需用户另行明确授权。绑定文件存在不等于 knowledge/profile 已上传。 |
@@ -275,7 +275,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | 验证 BugX 源码但保留人工策略 | `env -u BUGX_GLOBAL_ENGINE_ROOT BUGX_DEV_MODE=1 bugx engine --root <ROOT> path --name launch_bugx.py` → 确认输出为 `<BUGX_CHECKOUT>/core/launch_bugx.py` → `bugx engine --root <ROOT> pre --fix-mode log-only --commit-policy manual --cloud-sync local`。路径不匹配立即停止。 |
 | 隔离项目中的极速 Dev 生命周期 | 先按上行验证 engine 来源 → `env -u BUGX_GLOBAL_ENGINE_ROOT -u BUGX_ASSET_ROOT BUGX_DEV_MODE=1 bugx engine --root <ROOT> pre --dev --cloud-sync local` → 读取真实 Worker/Finding/post receipt。`--dev` 默认自动修复、自动轮询、按轮次提交，不能在未授权或不可回滚项目使用。 |
 | `FATAL_BLOCKED` / layout 不匹配 | `engine status --json` + `doctor` + `log --errors` → 保留状态 → 找出缺失/版本来源 → 只执行明确授权的窄修复；禁止 init/reset/force 猜修。 |
-| 项目云同步 | `cloud status --scope project` → 明确联网授权 → `cloud sync --scope project` → 对比远端/本地状态。同步后不要默认执行 `pre`：若启动 onboarding 已持久化为 sync，`pre` 可能再次同步 global + project。 |
+| 项目云同步 | `cloud status --scope all --json` → 确认全量授权 → `cloud sync --scope all` → 对比两层推拉结果和本地状态。 |
 | 初始化缺失经验账本 | 仅当 layout 有效且 seed、SQLite DB、manifest 都缺失时 `lesson init` → `lesson validate`；若 SQLite marker/manifest 存在但 DB 缺失，先备份/恢复，不能 rebuild。 |
 | 单元漏洞验证 | 定点代码读取 → `test-audit` 或 `test-generate` → 用户授权后运行 `test-verify verify` / 最小 PoC → 保存完整命令、退出码、断言和证据。 |
 | 已有审计产物出报告 | `report formal|visual|both --root <ROOT>` → 核对产物清单/哈希；报告不会证明漏洞扫描已执行。 |
@@ -304,8 +304,8 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 ## 交互 action 到命令的映射
 
 - 通用规则：先读 question/action 的 label、description、detail，再对照当前源码/CLI；内部 `action` 名不是可直接运行的命令或参数。运行命令前确认其 scope 与用户选择的 scope 完全一致。
-- 当前引擎在 `question_id=cloud_sync` 的“立即登录并同步”选项上曾输出 `value=sync`, `action=cloud_sync_all`，但可见说明写“同步本项目”；`engine pre` 随后会调用 onboarding 的默认 `sync_layers`，实际 push/pull global + project。若用户仅授权当前项目同步，这个 action 与范围不一致，必须停下确认，不能用 `cloud sync --scope project` 成功后就假定后续 `pre` 不会再同步全局层。
-- 用户明确批准**项目范围直接同步**且现有账本有效时：`bugx cloud sync --root <ROOT> --scope project`。省略 `--scope` 且无持久化范围时，默认 `project`；`cloud sync --scope project` 的成功不证明后续 `engine pre` 会保持 project-only。
+- `cloud_sync_all` 会走全量同步。展示实际项目登记与画像、项目知识和账号全局知识范围。
+- 用户若只授权一部分数据，拒绝同步请求。CLI `--scope` 枚举仅描述单次调用能力。
 - `project_identity_missing` 选择 `create_project_identity`：`bugx cloud projects add --root <ROOT>` 会联网登记并写 `<ROOT>/.bugx/cloud-project.json`；不会提交文件。只有用户明确选“创建并提交”时才 stage/commit 此单文件，并复核 cached file list 恰好只有 `.bugx/cloud-project.json`。
 - layout 有效但全新的项目账本文件、SQLite DB 和 `knowledge/manifest.json` 都不存在时：`bugx lesson init --root <ROOT> --json` 创建账本，再 `bugx lesson validate --root <ROOT> --json` 验证。marker 已存在但 DB 缺失时不要执行 init/rebuild。
 - 启动返回 `install_supervisor_mcp`：只有用户选“安装”后才执行 `bugx install --root <ROOT> --agent <HOST> --allow-missing --non-interactive`。该命令修改宿主配置并要求按门禁提示重启；`bugx supervisor install` 是不同操作，不能代替。

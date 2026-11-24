@@ -6,9 +6,9 @@
   中文 · <a href="README_EN.md">English</a>
 </p>
 
-# BugX — AI 代码审计 Agent（AI Code Audit Agent）
+# BugX — 自主代码审查与智能测试智能体（Autonomous Code Review & Automated Testing Agent）
 
-BugX 是一款装在 AI 编程助手里的代码审计 Agent。**写完功能或提 PR 时让它跑一遍，它会自动完成审计，然后告诉你：查了哪些地方、哪些还没查、哪有漏洞——每个漏洞都附一条你能亲手复现的命令。** 目前已适配宿主：Claude Code、Codex、Cline、OpenCode、ZCode；其余宿主持续适配中。 静态分析、行为差分、内存检查与 UI 无障碍审计全部本地执行；通过 MCP 接入宿主，审计过程可断点续跑、逐条可复查。
+BugX 是一款装在 AI 编程助手里的**自主代码审查与自主测试智能体（Agent）**，严把代码交付关：**它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能完全符合要求、在各种复杂环境下都能稳定运行、不崩溃不卡死，上线放心不翻车。** 目前已适配宿主：Claude Code、Codex、Cursor、Trae、Windsurf、Cline、OpenCode、Kimi Code、ZCode、MiniMax Code、DSH、WorkBuddy、Qoder；其余宿主持续适配中。静态分析、行为差分、内存检查与 UI 测试全部自动化执行；通过 MCP 协议接入宿主，测试审查过程断点可续、透明可查。
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -43,7 +43,7 @@ AI 写代码的速度，早就超过人眼审代码的速度。更麻烦的是�
 Bugx的审计能依靠账本和四条规矩实现：
 
 1. **代码覆盖清单** 项目拆成一个个审计单元，每个都有明确状态：查完了、卡住了、还没查。达到全面覆盖。
-2. **漏洞问题复现** 同一段攻击输入跑两次，两次都能真的把漏洞触发出来；换成正常输入再跑一次，什么也触发不出。这三份记录都留在案，漏洞才算数。
+2. **独立盲审与真实复现** 发现的疑点由隔离的独立验证员盲审，同一段攻击输入实跑两次触发漏洞、正常输入一次零触发，三份真实记录在案才算数；证伪案例入误报账本不再骚扰。
 3. **排查可以续杯** 退出AI工具后再次打开可以接着干之前的活儿。
 4. **记录全部可查** 谁、什么时候、凭什么下的结论，一笔一笔记进账本，每页盖骑缝章（哈希链），谁也改不了，逐条可查。
 
@@ -55,18 +55,68 @@ Pip安装
 # 任选其一
 python -m pip install bugx-cli
 ```
-NMP安装
+npm 安装
 ```bash
 npm install -g bugx-cli
 ```
 
-装好后，任意目录跑一次：
+检查与更新使用当前安装来源对应的服务端制品：
+
+```bash
+bugx update --check          # 只检查；0=无需更新，1=有更新，2=检查失败
+bugx update                  # pip 或 npm wrapper 的实际全局更新
+bugx update --channel alpha  # 明确选择预发布通道
+```
+
+更新会联网下载并校验服务端返回的 `release_id`、SHA-256 和制品类型，随后刷新全局 BugX 引擎、已登记宿主并执行安装诊断。源码 checkout 或 editable 安装不会被自动覆盖；更新失败时请先查看 `~/.bugx/update/receipts/` 和 `bugx doctor --installation-only`，不要用 `--force` 掩盖未知状态。启动阶段的版本提示可用 `BUGX_DISABLE_VERSION_CHECK=1` 临时关闭，但不影响显式 `bugx update --check`。
+
+装好后，在目标仓库运行：
 
 ```bash
 bugx install
 ```
 
+> ⚠️ **重要提示（配置生效必须重启）**：配置或更新项目 MCP 后，**必须完全退出并重启宿主 IDE / AI 编程助手**（如 Cursor、Trae、VSCode、Kimi Code、MiniMax Code、ZCode 等），宿主进程重新加载项目级 MCP 服务配置后方可识别并调用 BugX 工具。
+
+命令行里的布尔选项都是开关：启用时直接写 `--force`、`--json` 等选项，关闭时删除该选项；不要写 `--force=True`、`--json=False` 或 `force=True`。
+
 它会列出本机检测到的 AI 宿主，按提示选择即可；想跳过选择一次全装，用 `bugx install --agent all`。
+安装事务只检查共享 `.bugx` 和本次选中的宿主目录；用户目录里其他宿主的符号链接不会阻断安装。
+需要明确工作区时可传 `bugx install --agent dsh --root <项目目录>`。
+
+Kimi Code 会自动注册到当前 Kimi Code 数据根：默认是 `~/.kimi-code`，也可以用
+`KIMI_CODE_HOME` 指定。插件文件位于 `plugins/managed/bugx`，启用状态位于
+`plugins/installed.json`；Windows、macOS、Linux 使用同一契约，不需要手动复制旧的
+`daimon-share` 目录。
+
+MiniMax Code 会自动注册当前 MiniMax Plugin V1 包：默认数据根为
+%USERPROFILE%\\.minimax，插件目录为 plugins/bugx，包含 agents/bugx.md、
+agents/bugx-worker.md、skills/bugx/SKILL.md、servers.mcp.json 和 icon.png 主图标。
+Agents 列表中的主入口统一显示为 `BugX`；插件清单和 Agent 的内部名称仍为小写
+`bugx`，供宿主调用和 MCP 路由使用。
+可用 MINIMAX_DATA_DIR 指定受控数据根做隔离安装。MiniMax Code 当前按桌面 Agent/MCP
+插件接入；headless 和标准 ACP 入口未宣称支持，宿主重载后的真实 MCP 调用仍需现场验收。
+
+DSH 有一条额外的安全边界：安装器始终先把 BugX UI 包暂存到
+`~/.dsh/plugins/bugx-ui`。只有能确认是 DSH Desktop 自带的 launcher 时，才会调用
+`dsh plugin --profile web add` 注册 Web UI；普通 npm/Python `dsh` CLI 不支持该插件管理
+操作，安装器会保持 `staged` 而不会启动它，避免 Windows 宿主进程崩溃。DSH 的 Agent、
+Skill、MCP 和 preset 不依赖这个可选 UI 包，仍可正常使用。
+Windows Desktop 的 `app.asar` 运行时包名会在有界安装候选中递归读取 ASAR 文件树，
+兼容当前 `files/dsh/files/node_modules` 的嵌套布局；不做全盘扫描。
+
+用 `bugx help install` 或 `bugx supervisor install --help` 查看用法。发现安装资源缺失时，CLI 会报告错误，需要修复时单独运行 `bugx update --repair-assets`。
+
+### 首次使用，先接通云端
+
+进入目标仓库，确认要登录的 BugX 云账号、同步范围和敏感数据策略，然后登录并核验账号：
+
+```bash
+bugx auth login --root .
+bugx auth status --root . --verify --json
+```
+
+确认 `auth_verified=true`。如果账号全局知识和当前项目知识均已授权，新项目执行 `bugx init --root . --cloud-sync sync`，随后用 `bugx cloud sync --root . --scope all` 验证首次推拉。`bugx init` 会把用户 Skill 安装到项目的 `.agents/skills/bugx-user/SKILL.md`，可在支持该目录的宿主里调用 `$bugx-user`。已有项目在授权全量范围后直接用 `bugx cloud sync --root . --scope all`，并用 `bugx cloud status --root . --scope all --json` 核对绑定和状态。全量范围包含项目登记与画像、项目知识和账号全局知识。只授权部分数据时停止同步。
 
 ### 方式一：在 AI 编程助手里用（推荐）
 
@@ -91,21 +141,7 @@ bugx install
 
 命令行方式的 AI 同样来自你已装好的宿主——模型和凭据用宿主里自己配好的，BugX 直接复用，不接管你的 Key（`--model` / `--provider` 缺省自动读取宿主配置）。
 
-首次进入项目，登录云端、初始化并自检：
-
-```bash
-bugx auth login                # 登录云端账号（云端错题/经验同步用）
-bugx init --cloud-sync sync    # 开启云端同步，跨设备可用
-bugx doctor --strict
-```
-
-跑一次完整审计：
-
-```bash
-bugx engine pre        # 建立覆盖清单与审计计划
-bugx engine status     # 看进度
-bugx engine post       # 结账：核对覆盖、证据与裁决是否自洽
-```
+先用 `bugx doctor --root . --strict` 核对当前项目的宿主和连接。走分阶段 CLI 时，按[完整生命周期](docs/01_guides/01_USER_GUIDE.md#8-从-pre-到-post-的完整生命周期)从准备、执行和核查一直到收尾。用 `bugx engine --root . status --json` 查看当前进度和下一步。
 
 也可以让 BugX 自己跑完全程，不用守在终端：
 
@@ -141,7 +177,7 @@ bugx report both --format html --out report.html
 
 ## 一次完整审计长什么样
 
-1. **pre（含作战方案）**：枚举源码与配置资产，生成最小审计单元清单（内部单元 + 跨模块业务链路）。开跑前先给你一份作战方案，五个选择一次定：**云同步**（sync 跨设备可用 / local 纯本地）、**审查方式**、**轮询策略**、**修复方式**、**提交方式**——都给出默认值，也可以跳过让默认值生效。
+1. **pre（含作战方案）**：枚举源码与配置资产，生成最小审计单元清单（内部单元 + 跨模块业务链路）。开跑前先给你一份作战方案，五个选择一次定：**云同步**（登录后同步错题和经验，离线运行需明确选择）、**审查方式**、**轮询策略**、**修复方式**、**提交方式**。按启动门禁确认本轮的同步范围和执行策略。
 2. **派发 Worker**：宿主把审计单元派给并发 Worker；每个 Worker 领租约、发心跳、跑探针、提交 checkpoint。
 3. **证据落盘**：Worker 的每条结论都带命令、退出码、artifact 哈希；覆盖状态只能是 `covered / blocked`，没有"大概查了"。
 4. **Finding 裁决**：候选漏洞先由引擎验证通道实跑双正例 + 负对照，再进入确认/驳回；驳回需要理由。
@@ -178,8 +214,10 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 - **UI 审计**：对运行中的网页做布局、对比度、键盘路径与设计 Token 检查（`bugx probe ui`）。
 
 **复现与验证**
-- 每个漏洞都给一条你能亲手复现的命令或输入：同一段坏数据跑两次都出事，再换正常数据跑一次没事，三份记录留案。
-- 测试用例的战斗力也能验：`bugx test-verify` 用代码变异检验测试真的抓得住 Bug。
+- **独立盲审与真实复现**：每个漏洞都由独立验证员执行隔离盲审与环境验证，给出你能亲手运行的 PoC 验证命令。同一段坏数据跑两次都出事，换正常数据跑一次零触发，外加 AST 语法反空壳断言，三份真实记录留案才算数。
+- **误报账本学习**：实跑被证伪的假阳性案例自动沉淀入误报账本（FP Ledger），代码未改动前不再重复报假警；文件被修改后自动解除过时守卫。
+- **模型风控自适应**：内置声明式提示词策略引擎，针对 OpenAI 等模型自动切换防御性 QA 视角，解决漏洞审查触发平台 `cyber policy` / Daybreak 拦截的痛点。
+- **测试变异检验**：测试用例的战斗力也能验：`bugx test-verify` 用代码变异检验测试真的抓得住 Bug。
 
 **修复与产出**
 - 自动生成 AAA 测试用例或自包含 PoC（`bugx test-generate`）。
@@ -187,32 +225,23 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 - 输出报告（`bugx report`）。
 
 **长期使用**
-- **错题集**：项目级与全局经验积累（`bugx lesson` / `bugx knowledge`），需要时可显式同步云端（`bugx cloud`）。
+- **错题集**：将本轮核实后写入账本的错题和经验按授权范围推拉到云端（`bugx cloud sync`）。下一轮可用 `bugx lesson retrieve` 按故障症状或模块检索。
 - **无人值守**：跟着宿主跑（`bugx autonomous`）、带目标长跑（`bugx goal`）、常驻守护（`bugx daemon`）。
 - **诊断**：`bugx doctor` / `bugx log` / `bugx stats` 查安装、日志与消耗。
 
 ## 常见问题
 
 **BugX 是什么？**
-一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
-
-**什么是 Vibe Coding（氛围编程）安全审计？**
-Vibe Coding 借助大模型自然语言交互大幅提高了代码产出速度，但也带来了大量未经充分验证的隐蔽漏洞。BugX 专为 Vibe Coding 与 PR 自动审查设计，写完代码无需离开 AI 工具，一句话即可启动覆盖率驱动的攻防审计与真实复现，守住代码安全底线。
-
-**BugX 如何做到“零误报”（Zero False Positives）？**
-BugX 确立了严格的“真实 PoC 复现与负对照”法则：所有漏洞必须在独立沙箱中通过 3 次真实执行验证（同一攻击输入两次复现危害，一段正常输入零触发）。无法提供确定性复现命令与产物哈希的猜测一律驳回，杜绝传统 SAST 工具的报警疲劳。
-
-**BugX 的独立盲审自纠错机制是如何运作的？**
-在 0.1.2 中，BugX 引入了独立盲审验证协议（Blind Verification Protocol）。验证员智能体在隔离沙箱环境中基于最小信息差复现缺陷，彻底消除初审模型的认知偏见与幻觉自洽；同时配合 AST 语法树负对照与最多 3 次报错自纠错，确保 PoC 质量。
+一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode、MiniMax Code 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
 
 **支持哪些 AI 编程工具？**
-Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。
+Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode、MiniMax Code 已适配；DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。
 
 **如何验证一个漏洞？**
-同一段攻击输入必须两次复现该漏洞，一段正常输入必须零触发；三次执行（两正例一负对照）连同命令、退出码与产物哈希全部记录在案。
+不靠首发模型的自说自话，由独立的验证员执行盲审验证：一段攻击输入必须两次成功触发该漏洞，一段正常输入必须零触发；三次执行（两正例一负对照）连同命令、退出码与产物哈希全部记录在案，并通过 AST 语法断言防止空壳测试。
 
 **我的代码会被上传到云端吗？**
-审计全程本地执行。错题与经验的云端同步是显式操作（`bugx init --cloud-sync sync` / `bugx cloud`），不运行就不上传。
+目标代码和审计执行仍在本地完成；知识同步、项目画像、诊断日志、反馈和 bundle 仍是各自的显式网络路径。另有独立的安装/心跳遥测：遥测门禁未配置时默认开启，普通 CLI 命令每天最多记录一次并尽力发送脱敏的安装元数据。若不希望产生任何新遥测，先执行 `bugx config set telemetry.data_sharing false`，或对当前命令设置 `BUGX_TELEMETRY_ENABLED=0`。安装遥测不包含用户名、主机名、项目绝对路径、凭据或安装密钥；是否真正到达服务端仍以 HTTP 2xx 和服务端统计为准。
 
 **BugX 能替代人工审查吗？**
 不能。它提供一份可复查的账本——查了什么、没查什么、每条发现的复现证据——让人工审查从事实开始，而不是从模型的自述开始。
@@ -228,7 +257,9 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；Dee
 | **OpenAI Codex** | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
 | **OpenCode** | Headless ACP / 原生 MCP | `bugx install --agent opencode` |
 | **Cline / Roo Code** | MCP 交互会话（单 Claim 串行）/ CLI 多进程池并发 | `bugx install --agent cline` |
+| **Kimi Code** | Headless ACP / 原生 MCP | `bugx install --agent kimi` |
 | **ZCode** | 原生 MCP / 用户级 MCP 注册 | `bugx install --agent zcode` |
+| **MiniMax Code** | Plugin V1：主 Agent / Worker Agent / Skill / MCP / 明暗图标 | bugx install --agent minimax |
 
 其余宿主（DeepSeek Harness、WorkBuddy、Cursor / Windsurf 等）持续适配中。
 
@@ -239,14 +270,15 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode 已适配；Dee
 
 - 项目状态存放在项目内的 `.bugx/` 目录；全局引擎、凭据、知识库、缓存使用用户级 BugX 目录。
 - 凭据按需写入受控沙箱（默认仅当前用户可读）；`bugx auth status` 只报告凭据是否存在，不输出内容。模型名不等于凭据。
-- 云端上传、反馈、诊断日志上报和同步都是显式操作：执行前会明确 `--scope`、敏感数据策略与详细模式。
+- 知识同步、项目画像、反馈、诊断日志和 bundle 上传都是显式操作；独立安装/心跳遥测默认开启，可用 `telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0` 关闭。任何网络动作都应按实际数据面核对 scope、敏感数据策略、详细模式和服务端证据。
 - `reset / uninstall / purge / --no-backup` 会删除数据，请留意各自的 dry-run 与备份行为。
 
 ## 文档
 
 - [用户指南](docs/01_guides/01_USER_GUIDE.md)：安装、配置、宿主能力、生命周期、MCP/ACP、云端范围、结果与恢复。
 - [命令参考](docs/01_guides/02_COMMANDS.md)：全部命令、参数、默认值、作用域、副作用与退出行为。
-- [故障排查](docs/01_guides/03_TROUBLESHOOTING.md)：按症状定位问题与可恢复的下一步。
+- [故障排查](docs/01_guides/03_TROUBLESHOOTING.md)按症状定位问题与可恢复的下一步。
+- [BugX 用户 Skill](skills/platform/bugx-user/SKILL.md)覆盖安装、云同步、审查收尾、经验复用和常见故障。
 - [UI 审计（probe ui）](docs/01_guides/02_COMMANDS.md#63-probe)：对运行中的 Web UI 做响应式布局、对比度、键盘路径与设计 Token 审计。
 - [AI 参考](docs/03_ai/01_AI_REFERENCE.md)：面向宿主/Agent 的 MCP、生命周期、状态、证据与失败契约。
 - [文档索引](docs/README.md)：架构与文档导航。

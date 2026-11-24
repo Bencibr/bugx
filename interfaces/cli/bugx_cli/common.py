@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -633,9 +634,9 @@ def _ensure_project_readme(root: Path, source: Path) -> None:
 def _run_script(root: Path, name: str, arguments: list[str], timeout: float | None = None) -> int:
     """运行 core 脚本并透传退出码。
 
-    ``timeout``（P3a）：lesson/knowledge/probe/self-audit 类调用传 300 秒，
-    防止失控脚本永久挂起；mcp serve 与 mcp-runtime start 需要长驻/直通
-    stdio，保持 None（不设超时）。
+    ``timeout`` 由调用方提供。``bugx probe`` 使用有界的 120 秒默认看护
+    （CLI 可显式调整到 1800 秒以内），以防失控脚本永久挂起；mcp serve
+    与 mcp-runtime start 需要长驻/直通 stdio，保持 None（不设超时）。
     """
     _ensure_core_importable()
     try:
@@ -683,6 +684,69 @@ def _run_script(root: Path, name: str, arguments: list[str], timeout: float | No
             logging_module.log_event(logger, "core_script_failed", str(exc),
                                       level=40, script=name, exc_info=True)
         raise CliError(_i18n_exc("common.script_run_failed", f"无法运行 {name}: {exc}", name=name, exc=exc)) from exc
+
+
+def _remove_tree_force(path: Path) -> None:
+    """Remove an already-validated BugX-owned path despite read-only bits.
+
+    Windows refuses to unlink read-only files even when their parent directory
+    is writable.  The helper validates the parent path components before
+    changing permissions and never follows symlinks while doing so.  Callers
+    still remain responsible for the higher-level ownership decision.
+    """
+    path = Path(path)
+    _assert_no_symlink_components(path.parent)
+    if path.is_symlink():
+        path.unlink(missing_ok=True)
+        return
+    if path.is_file():
+        try:
+            path.unlink()
+        except PermissionError:
+            parent = path.parent
+            if not parent.is_symlink():
+                os.chmod(parent, stat.S_IMODE(parent.stat().st_mode) | 0o700)
+            os.chmod(path, stat.S_IMODE(path.stat().st_mode) | stat.S_IWUSR)
+            path.unlink()
+        return
+    if not path.exists():
+        return
+
+    for current, _directories, files in os.walk(path, topdown=True, followlinks=False):
+        current_path = Path(current)
+        try:
+            os.chmod(current_path, stat.S_IMODE(current_path.stat().st_mode) | 0o700)
+        except OSError:
+            pass
+        for name in files:
+            target = current_path / name
+            if target.is_symlink():
+                continue
+            try:
+                os.chmod(target, stat.S_IMODE(target.stat().st_mode) | stat.S_IWUSR)
+            except OSError:
+                pass
+
+    def _on_error(func, target, _exc):  # noqa: ANN001 - stdlib callback signature
+        target_path = Path(target)
+        try:
+            if not target_path.is_symlink():
+                os.chmod(
+                    target_path,
+                    stat.S_IMODE(target_path.stat().st_mode)
+                    | (stat.S_IWUSR if target_path.is_file() else 0o700),
+                )
+            parent = target_path.parent
+            if parent != target_path and not parent.is_symlink():
+                os.chmod(parent, stat.S_IMODE(parent.stat().st_mode) | 0o700)
+        except OSError:
+            pass
+        func(target)
+
+    try:
+        shutil.rmtree(path, onexc=_on_error)
+    except TypeError:  # Python < 3.12
+        shutil.rmtree(path, onerror=_on_error)
 
 
 def _run_script_json(
@@ -751,6 +815,8 @@ def _python_environment(overrides: dict[str, str] | None = None) -> dict[str, st
                 continue
     environment["PATH"] = os.pathsep.join(entries)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     if "BUGX_PYTHON" not in environment and sys.executable:
         environment["BUGX_PYTHON"] = sys.executable
     if overrides:
@@ -892,11 +958,34 @@ def get_build_id() -> int | None:
     return None
 
 
+def is_dev_mode() -> bool:
+    """是否处于 dev / alpha 开发模式。正式版（Stable）返回 False。"""
+    if os.environ.get("BUGX_DEV") in ("1", "true", "yes", "on"):
+        return True
+    env = os.environ.get("BUGX_ENV", "").strip().lower()
+    if env in ("dev", "development", "local", "test"):
+        return True
+    try:
+        from core.infra.client_metadata import release_channel, client_marker
+        channel = release_channel()
+        marker = client_marker()
+        if channel != "stable" or marker in ("dev", "alpha"):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def get_full_version() -> str:
-    """返回标准版本与 Build ID 组合字符串，例如 0.1.1+build.627。"""
-    bid = get_build_id()
-    if bid is not None:
-        return f"{__version__}+build.{bid}"
+    """返回标准版本展示字符串。
+
+    正式版（Stable / Release）输出纯语义版本（如 0.1.3，不带 Build ID）；
+    只有 dev / alpha 模式才携带（如 0.1.3+build.1）。
+    """
+    if is_dev_mode():
+        bid = get_build_id()
+        if bid is not None:
+            return f"{__version__}+build.{bid}"
     return __version__
 
 

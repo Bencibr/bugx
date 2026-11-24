@@ -8,6 +8,7 @@ import hashlib
 import importlib.metadata
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -48,6 +49,9 @@ _STABLE_AGENT_PYPI_HOST = "pypi.org"
 _STABLE_AGENT_FILES_HOST = "files.pythonhosted.org"
 _MAX_PYPI_METADATA_BYTES = 4 * 1024 * 1024
 _MAX_PYPI_WHEEL_BYTES = 128 * 1024 * 1024
+
+DEFAULT_PROBE_TIMEOUT_SECONDS = 120.0
+MAX_PROBE_TIMEOUT_SECONDS = 1800.0
 
 
 def completion_tree(parser: argparse.ArgumentParser) -> dict[str, tuple[str, ...]]:
@@ -2364,18 +2368,74 @@ def command_engine(args: argparse.Namespace) -> int:
     )
 
 
+def _parse_probe_timeout(raw: object) -> float:
+    """Parse the bounded outer watchdog used by ``bugx probe``."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("--timeout-seconds 必须是数字") from exc
+    if not math.isfinite(value) or value <= 0 or value > MAX_PROBE_TIMEOUT_SECONDS:
+        raise argparse.ArgumentTypeError(
+            f"--timeout-seconds 必须在 0 和 {MAX_PROBE_TIMEOUT_SECONDS:g} 秒之间"
+        )
+    return value
+
+
+def _extract_probe_timeout(
+    args: argparse.Namespace, actual_extra: list[str],
+) -> tuple[list[str], float]:
+    """Extract the outer timeout without forwarding it to the probe script.
+
+    ``probe_args`` uses ``argparse.REMAINDER``, so users may put the option
+    after the probe kind as well as before it.  Keeping the extraction here
+    makes both forms equivalent and prevents ``ui_audit.py`` from seeing a
+    BugX wrapper option it does not own.
+    """
+    configured = getattr(args, "timeout_seconds", None)
+    forwarded: list[str] = []
+    forwarded_timeout: float | None = None
+    index = 0
+    while index < len(actual_extra):
+        token = actual_extra[index]
+        if token == "--timeout-seconds":
+            if forwarded_timeout is not None or index + 1 >= len(actual_extra):
+                raise CliError("--timeout-seconds 只能指定一次并且必须带值")
+            try:
+                forwarded_timeout = _parse_probe_timeout(actual_extra[index + 1])
+            except argparse.ArgumentTypeError as exc:
+                raise CliError(str(exc)) from exc
+            index += 2
+            continue
+        if token.startswith("--timeout-seconds="):
+            if forwarded_timeout is not None:
+                raise CliError("--timeout-seconds 只能指定一次")
+            try:
+                forwarded_timeout = _parse_probe_timeout(token.split("=", 1)[1])
+            except argparse.ArgumentTypeError as exc:
+                raise CliError(str(exc)) from exc
+            index += 1
+            continue
+        forwarded.append(token)
+        index += 1
+
+    if configured is not None and forwarded_timeout is not None:
+        raise CliError("--timeout-seconds 只能指定一次")
+    timeout = configured if configured is not None else forwarded_timeout
+    return forwarded, _parse_probe_timeout(
+        DEFAULT_PROBE_TIMEOUT_SECONDS if timeout is None else timeout
+    )
+
+
 def command_probe(args: argparse.Namespace, extra_args: list[str] | None = None) -> int:
     """运行探针包装命令，透传选定 probe 的参数。"""
     root = args.root.resolve()
     script_name = PROBE_SCRIPTS[args.probe_kind]
-    forward_args: list[str] = []
     actual_extra = extra_args if extra_args is not None else getattr(args, "probe_args", [])
-    if actual_extra:
-        forward_args.extend(actual_extra)
+    forward_args, timeout = _extract_probe_timeout(args, list(actual_extra))
     if args.probe_kind not in PROBES_WITHOUT_ROOT_ARGUMENT \
             and "--root" not in forward_args and "-r" not in forward_args:
         forward_args.extend(["--root", str(root)])
-    return _run_script(root, script_name, forward_args, timeout=300)
+    return _run_script(root, script_name, forward_args, timeout=timeout)
 
 
 def command_mcp_prune(args: argparse.Namespace) -> int:

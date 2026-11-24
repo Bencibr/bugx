@@ -1,6 +1,6 @@
-# BugX 0.1.2+build.11 System Architecture & Design Specification
+# BugX 0.1.3 System Architecture & Design Specification
 
-> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
+> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
 > 🔒 **内部管理资产**：本文档为 BugX 系统内部底层实现契约、历史缺陷审定修复记录与自动化验证门禁总卷，仅供核心研发团队与系统维护者查阅。  
 > 最终用户请参阅面向用户的公开文档：[用户指南 (01_USER_GUIDE.md)](../../docs/01_guides/01_USER_GUIDE.md)、[命令手册 (02_COMMANDS.md)](../../docs/01_guides/02_COMMANDS.md)、[架构总览 (01_ARCHITECTURE.md)](01_ARCHITECTURE.md) 与 [核心流程 (03_BUGX_AUDIT_FLOW.md)](03_BUGX_AUDIT_FLOW.md)。  
 > 历史提案与测试执行记录只作审计留痕，不代表当前仓库仍保留对应文件；当前资产边界以本节和 `AGENTS.md` 为准。
@@ -11,6 +11,77 @@
 生成的目标项目中执行，验证完成后删除过程文件。`verification/` 下的基准、沙箱、补丁和
 验收脚本是长期证据资产，不得误删；评测目录的规范路径是 `verification/evals/`。发布构建
 唯一入口是 `scripts/package_dist.py`，Jenkins 不再复制打包逻辑。
+
+## Kimi Code 与宿主跨平台注册契约（2026-11-24，AUDITED_OK）
+
+### 设计目标与边界
+
+Kimi Code 1.4.x 的插件发现真值来自 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）下的
+`plugins/managed/<id>` 与 `plugins/installed.json`。BugX 安装器只维护 `bugx` 这一个条目，
+只写当前协议字段，并拒绝把旧 macOS `daimon-share`、`plugin-meta.json` 或个人市场目录
+当作兼容回退。`KIMI_CODE_HOME`、宿主配置、Windows 逻辑盘固定候选和运行中进程是允许的
+平台发现边界；不允许全盘扫描。Kimi 的桌面 managed 注册由 `plugin_kimi.py` 专用注册器
+完成，不得声明或触发 ZCode 专用的 `distribution-plugin` 分支。
+
+### 逐宿主对抗审计结论
+
+| 方案 | 已确认问题 | 反例/失败路径 | 结论 |
+| --- | --- | --- | --- |
+| Kimi Code 当前注册面 | 旧实现把当前 Windows 数据根误判为不存在并写入旧 `daimon-share` | Kimi 根不存在、`installed.json` 坏 JSON、`plugins` 非数组、`KIMI_CODE_HOME` 为空 | `AUDITED_OK`：抛 `CliError`，不报告成功 |
+| Kimi Code 三平台路径 | Windows 实际 `E:\\Program Files\\Kimi Code\\Kimi Code.exe` 不在原候选；CLI 后缀只查无扩展名；六面插件层漏查非系统盘 | 自定义数据根、Windows 逻辑驱动器 `.exe/.cmd/.bat`、macOS/Linux 应用候选 | `AUDITED_OK`：环境变量优先，候选有界，插件层与 CLI 层一致 |
+| Claude / Trae Windows 发现 | 逻辑盘候选缺少 `Program Files` 子路径；Trae CN 文件名未被变体识别 | 自定义盘符、Trae/Trae CN 只有 GUI 路径 | `AUDITED_OK`：补齐候选并按大小写不敏感路径判定 |
+| ZCode Windows 配置 | `storage.dir` 只接受 POSIX `/`，Windows 绝对路径会静默回默认根 | `C:\\...`/`D:\\...`、相对路径、损坏配置 | `AUDITED_OK`：仅接受 `Path.is_absolute()`，不猜相对路径 |
+| 其他宿主注册回执 | 可选用户注册器返回 `None` 时安装主流程仍可能成功 | Cline/Qoder/FunIDE/Kimi 任一注册器漏返回 | `AUDITED_OK`：能力声明与空回执不相容，统一阻断 |
+
+### 验证判定
+
+仓库外临时回归必须同时断言：Kimi managed 文件、installed registry 的 `enabled/root`、坏根
+阻断、Windows CLI 后缀、Claude/Trae/Kimi 盘符候选、ZCode Windows `storage.dir` 解析和受影响
+Python 文件编译；临时文件在进程退出时删除。当前轮 Windows 事实验证通过（含真实 Kimi
+managed/installed 注册和 E: 盘应用识别），macOS/Linux 真机
+宿主加载仍标记 `UNVERIFIED`，不能由静态分支覆盖冒充闭环。
+
+## MiniMax Code Plugin V1 与 Agent 注册契约（2026-11-24，AUDITED_OK）
+
+### 设计目标与边界
+
+MiniMax Code 3.1.0 的 Electron 包内置 local-plugin-v1、PluginSystem、MCP 和 Plugin
+subagent 契约。BugX 不把 MiniMax API provider 配置当成宿主插件配置，也不复用 Kimi
+的 installed.json 或 manifest；安装器只在 MiniMax 数据根的 plugins/bugx 下生成一个
+自包含的 Plugin V1 包。默认数据根为用户目录下的 .minimax，MINIMAX_DATA_DIR 只作为
+BugX 的受控隔离/测试覆盖入口。
+
+| 方案 | 已确认问题 | 反例/失败路径 | 结论 |
+| --- | --- | --- | --- |
+| MiniMax Plugin V1 包 | 原适配器完全没有 minimax 宿主，也没有 plugin.json、agents 或 servers.mcp.json | 数据根不存在、目标目录是符号链接、目标 manifest 属于其他插件、Skill/PNG 缺失 | AUDITED_OK：安装前阻断，返回结构化 receipt |
+| Agent 与 Worker | MiniMax Agent 只接受小写原生 tools，skills 预加载使用 Skill 名 | 使用 Kimi 的大写 tools、把 Skill 文件路径写进 Agent、Worker 再委派子 Agent | AUDITED_OK：写入主 Agent/Worker，Worker 明确禁止二次委派 |
+| MCP | MiniMax V1 只加载 schemaVersion + mcpServers，stdio command 不得含路径分隔符 | 写入不存在的项目 MCP、写入 Kimi/ZCode 容器键、把 bugx 可执行路径硬编码进 manifest | AUDITED_OK：插件拥有 servers.mcp.json，command 保持 PATH 名 bugx |
+| 图标 | manifest 的 icon 必须指向包内 PNG，darkIcon 可选 | 只写 URL、只写 Kimi interface.iconUrl、引用包外文件或伪造暗色图标 | AUDITED_OK：复制并校验 icon.png，未声明未经确认的 darkIcon |
+| 运行通道 | 已确认桌面 Plugin/MCP/Agent 面，未确认 headless/标准 ACP | 伪造 mcode flags 或把 MCP 文件存在当作真实会话健康 | AUDITED_OK：headless/ACP 显式 fail-closed；真实重载为 UNVERIFIED |
+
+### MiniMax 安装时序
+
+    sequenceDiagram
+        participant I as BugX Installer
+        participant D as MINIMAX_DATA_DIR
+        participant P as Plugin V1 package
+        participant M as MiniMax Code
+        I->>D: resolve default ~/.minimax or controlled override
+        I->>P: write .minimax-plugin/plugin.json
+        I->>P: write agents, skills, servers.mcp.json, icon.png
+        I-->>I: validate paths, schema, owned target and structured receipt
+        M->>D: discover plugins/bugx
+        M->>P: load Agent/Worker, Skill, MCP and logo
+        M-->>I: real MCP/tool reachability remains a separate host reload gate
+
+### 验证判定
+
+模块级验证必须断言 core/hosts/minimax.py、core/host_acp/minimax.py、
+host_runtime 注册、CLI alias、Plugin V1 manifest、Agent frontmatter、MCP schema 和
+PNG 文件均来自当前源码/当前 MiniMax 包体；包体回归必须在仓库外临时数据根执行并清理。
+真实 MiniMax Code 桌面会话必须另行完成 reload → loaded → callable → healthy 以及至少一轮
+claim → worker-start → tool_call/heartbeat → checkpoint → post；缺任何一步都只能报告
+UNVERIFIED。
 
 ## 版本检查与自更新发布契约（2026-11-21）
 
@@ -43,6 +114,20 @@ Go 服务模块测试、CLI 语法/临时制品合约检查和管理端类型检
 真实 Jenkins 发布、远程服务端下载、pip/npm 全局安装、宿主 ACP/MCP 或跨平台运行证据时，
 状态必须保持 `UNVERIFIED`，不得把版本检查成功、CLI 退出 0、模型文本或工具列表当成
 BugX 审计生命周期完成。
+
+### GitHub Releases 与缺陷闭环发布门禁契约（DOC-003）
+
+为确保生产交付质量与开源协作状态同步，BugX 正式版（Stable）发布建立强先决门禁与 Releases 规范：
+
+1. **缺陷闭环与零遗留门禁（`scripts/check_release_issues.py`）**：
+   - 发布前必须通过 GitHub CLI 检索目标仓库（`Bencibr/bugx`）所有 Open 状态工单；
+   - 自动分类缺陷（Bug/Defect/Crash/Regression）与特性建议；
+   - 对未解决的真实缺陷直接阻断发版（退出码 1）；
+   - 对代码中已修复但 GitHub Issue 仍为 Open 的工单同样阻断，要求先完成自动化回归验证并在 GitHub 上正式关单（`gh issue close <id> --reason completed`），确保 Issue Tracker 与代码基线 100% 契约一致。
+2. **GitHub Releases 资产挂载契约**：
+   - 必须通过 `gh release create v<X.Y.Z>` 关联目标 Git tag 并挂载 Release Notes（`docs/05_release-notes/RELEASE_NOTES_<X.Y.Z>.md`）；
+   - 必须全量挂载双包分发资产：Python wheel（`dist/bugx_cli-<X.Y.Z>-py3-none-any.whl`）与 NPM tgz（`dist/bugx-cli-<npm-version>.tgz`）；
+   - 遵循 `AGENTS.md` 边界：向 GitHub 推送 tag 与创建 Release 必须由用户在当轮明确授权。
 
 ## CLI 参数与副作用边界
 
@@ -783,6 +868,7 @@ Codex 的完成门不能挂在 ACP 探针上，也不能因为 ACP 探针 `BLOCK
 
 - **CLI 多选与参数对齐**：`bugx install --agent all` 与交互式菜单第 10 项对齐，支持一次性配置当前环境所有可用宿主；同时支持逗号分隔列表（如 `--agent opencode,dsh`）；
 - **显式语言切换**：新增 `--locale <zh-CN|en-US>` 选项，允许绕过当前环境变量（`LANG=C.UTF-8`）直接生成指定语言的宿主提示词与配置；
+- **系统级国际化自适应探测（DOC-002，AUDITED_OK）**：解耦 POSIX 中立占位符（`C`、`POSIX`、`C.UTF-8`）与语言绑定，不再将仅声明 UTF-8 字符编码而未指定语言的环境粗暴认定为美国英语；当环境变量未显式指定时，自动探查 macOS 原生系统偏好（`AppleLanguages`、`AppleLocale`）、Python 系统 locale 及 CST/UTC+8 时区信号，实现开箱即用的准确母语识别；宿主生成函数（如 `render_qoder_agent_entry` / `template_engine`）在 `locale` 为空时统一接入 `resolve_locale()` 动态解析。
 - **配置强制卸载防漂移**：`bugx uninstall --force` 支持对内容被修改或版本漂移的历史宿主配置文件执行备份重命名（`.bak.<timestamp>`）并清理，确保跨版本重装干净无残留；
    - **自举开发环境基线隔离**：在 `bug-hunter` 开发仓执行 `bugx install` 时，自动识别源仓环境（`_is_bugx_source_repo`），保护镜像声明版本（`VERSION` 文件），防止预发布版本（如 `1.0.0a10`）污染 Git 跟踪的基线声明；
 - **引擎资产来源隔离与自愈（BX-ENGINE-08）**：`asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资产；项目源码树 `core/` 绝不隐式成为运行时或安装源。仅显式设置 `BUGX_DEV_ASSET_ROOT=1` 或经安全校验的 `BUGX_ASSET_ROOT=<path>` 才能选择开发资产。默认安装载荷缺失/不完整时抛出带 `repairable` 属性的 `MissingAgentAssetError`；普通命令报告错误。仅真实 CLI 控制台显式执行 `bugx update --repair-assets` 才进入资源恢复。直接解析当前非 editable distribution 的 dist-info 原始 wheel `RECORD`（不依赖会在安装文件缺失时漏项的 `distribution.files`），只有全局引擎 Build ID 与当前 CLI 相同、且每个引擎文件的 SHA-256 和大小都逐项匹配 `RECORD` 时，才在安装数据目录同级暂存后原子恢复并复验；身份、哈希、路径、暂存或复验任一条件不满足则不使用该副本。离线恢复不可用时，再使用已通过自身完整性校验的全局引擎，优先从固定官方 stable 发行 API `https://bugx.dev` 查询/下载；仅 API 不可用时，才从官方 PyPI `bugx-cli` 查询未撤回的 stable wheel。在线恢复不采用云端知识同步配置、设备路由或其他镜像。PyPI 路径固定请求 `pypi.org` JSON 和 `files.pythonhosted.org` wheel，拒绝重定向、sdist、预发布、yanked 文件、版本降级和不匹配 SHA-256；wheel 仍通过发行名、`py3-none-any` 纯 Python 标签、CLI/现有 asset/共享引擎 Build ID 下限、完整核心清单和安装后非 editable 状态校验，再重启原命令一次。显式 `CloudClient(base_url=...)` 不解析无关云端配置；为兼容已安装的旧全局引擎，恢复入口只在构造客户端时临时覆盖 `BUGX_CLOUD_API_BASE` 并无论成功或异常都恢复。`pyproject.toml` 按 core 子目录映射 wheel 数据文件；Jenkins 在改写 staged 版本、通道和云端地址后重签 core manifest，并在上传前逐项核对 wheel 清单文件哈希及 CLI/core Build ID。显式覆盖、开发模式、项目布局和 runtime 门禁均不触发 pip；只读 `bugx update --check` 也不安装，且不能与 `--repair-assets` 组合；恢复条件不满足时 fail-closed。`bugx update --repair-assets` 只执行资源恢复；仅当 CLI 与 asset 自身一致且 Build ID 不低于共享引擎时直接结束；若默认安装资源完整但已落后于共享引擎，则从合格官方 stable 来源获取满足最大 Build ID 下限的 wheel，下载后、pip 前在共享引擎安装锁内复核，安装后核对实际 CLI/asset Build ID。恢复后重启并校验后不继续普通版本升级。editable 安装不改变源码隔离规则。`bugx install` 始终只读使用 `source = asset_root()`，不会因项目位于 BugX 源码仓库而覆盖 venv/site-packages 资产；从识别出的源码树安装共享引擎还必须显式 `--force`。
@@ -1403,8 +1489,14 @@ DSH 同样不假定固定安装盘符或 Node 版本：标准 preset 从 `dsh` �
 并明确提示选择工作区，不猜测或创建临时审计目录。兼容启动器 `bugx dsh` 仍可从当前目录向上
 发现 `.bugx/manifest.json` 或 `.git`，为首个 Web Session 设置默认 `DSH_CWD`；业务项目、Skill、
 launcher 与证据输出不得从 DSH checkout、`DSH_HOME` 或宿主启动目录推断。
-macOS 检测到 DSH Desktop harness 时，安装器会把预设、UI 插件和会话 MCP 插件同步到 CLI 与 Desktop
-配置根；MCP bundle 通过 `cordis.patch.yml` 注册，并兼容新版 `callTool` 与旧版 `request` 调用方式。
+当检测到 DSH Desktop harness 时，安装器会把预设、UI 插件和会话 MCP 插件同步到 CLI 与 Desktop
+配置根；仅 Desktop launcher 允许执行 Web profile 的 `dsh plugin --profile web add`，普通
+npm/Python launcher 只保留 UI 包为 `staged`，不启动会导致 Windows 访问冲突的插件管理子进程。
+MCP bundle 通过 `cordis.patch.yml` 注册，并兼容新版 `callTool` 与旧版 `request` 调用方式。
+Windows Desktop 的 `app.asar` 只从固定系统安装根探测，preset 命名优先以 asar 头部内置包为准，
+头部按文件树递归匹配 `node_modules/@deepseek-ai/<package>`，覆盖当前
+`files/dsh/files/node_modules` 嵌套结构，
+不因 `DSH_HOME` 下的断链 junction 误判运行时版本。
 
 Cline 与 ZCode 的 MCP 配置分别写入当前项目的 `.cline/mcp.json` 与 `.zcode/mcp.json`，
 配置只读取这两个项目级位置，不迁移或回退到旧用户级 MCP 配置。OpenCode 继续使用项目级
@@ -2145,6 +2237,7 @@ project-root/
 ├── .opencode/agents/bugx.md      # OpenCode Agent Entry (if selected)
 ├── .claude/agents/bugx.md        # Claude Code Subagent Entry (if selected)
 ├── .agents/skills/bugx/SKILL.md   # Codex Skill Entry (if selected, DOC-169)
+├── .agents/skills/bugx-user/SKILL.md # User Skill installed by bugx init
 ├── .cline/skills/bugx/SKILL.md   # Cline Skill Entry (if selected)
 ├── .pi/skills/bugx/SKILL.md      # Pi Skill Entry (if selected)
 ├── .dsh/skills/bugx/SKILL.md     # DeepSeek Harness Entry (if selected)
@@ -3967,7 +4060,8 @@ flowchart TD
 ```
 
 ### 49.3 核心实现与契约落地
-- **四维初始化健康门禁**：在 `interfaces/cli/bugx_cli/commands/doctor.py` 中将项目初始化检查强化为四维校验（manifest、cloud-onboard、project identity、startup-todo）；在 `--repair-assets` 中补全 `startup-todo.md` 自愈逻辑。
+- **四维初始化健康门禁**：在 `interfaces/cli/bugx_cli/commands/doctor.py` 中将项目初始化检查强化为四维校验（manifest、cloud-onboard、project identity、startup-todo）；在 `--repair-assets` 中补全 `startup-todo.md` 与缺失 `cloud-onboard.json` 本地模式（`state: local`）的就地自愈逻辑，避免用户在 `engine status` 非 UNINITIALIZED 时误用 init/reset 破坏运行态。
+- **CLI 输出编码与子进程防御**：在 `interfaces/bin/bugx.js` 注入 `PYTHONUTF8: 1` 与 `PYTHONIOENCODING: utf-8`；在 `interfaces/cli/bugx_cli/cli.py` 与 `core/supervisor/cli.py` 顶层统一执行 `sys.stdout/stderr.reconfigure(encoding="utf-8", errors="replace")`，并在 `_python_environment()` 默认注入 UTF-8 环境，彻底免疫 Windows/重定向管道下 `UnicodeEncodeError: 'gbk' codec` 崩溃；同时在 `core/runtime/setup_ui_env.py` 中将 UI/浏览器挖掘环境的 Node.js 最低版本要求放宽至 Node >= 20。
 - **嵌套工作树卫生探针**：在 `doctor.py` 增加工作树卫生检查，排查 `.git` 指向文件但未被 `.gitignore` 忽略的嵌套目录。
 - **Init 契约落地与审计留痕**：在 `interfaces/cli/bugx_cli/commands/lifecycle.py` 中落地 `_ensure_project_startup_todo`，初始化即生成基线待办清单；记录 `lifecycle_initialized` 正式生命周期审计事件；严禁未传参时静默将云同步设为 `local`。
 - **提示词防逃逸清肃**：全面移除 `core/locales/` 中关于“若缺少 manifest 先运行 bugx init”的误导性提示；在 `bugx-worker.md` 中增加 `[UNSUPERVISED_WORKER_DISPATCH]` 强阻断。

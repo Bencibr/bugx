@@ -479,27 +479,7 @@ def ensure_supervisor(allow_serial: bool = False,
     if allow_serial and not isinstance(serial_reason, str) or \
             allow_serial and not serial_reason.strip():
         raise ValueError("允许串行时必须提供非空 --serial-reason")
-    # [BEGIN DEV_ONLY: FAST_VERIFICATION_BUDGET]
-    effective_budget_override = dict(budget_override or {})
-    try:
-        from core.runtime.interaction import try_get_preset_runtime_config
-    except ImportError:
-        try:
-            from core.runtime.interaction import try_get_preset_runtime_config
-        except ImportError:
-            try_get_preset_runtime_config = None
-    if try_get_preset_runtime_config is not None:
-        preset_cfg = try_get_preset_runtime_config(resolve_project_root() if uses_project_layout() else None)
-        if preset_cfg.get("round_duration_seconds") is not None:
-            effective_budget_override["max_round_wall_seconds"] = int(preset_cfg["round_duration_seconds"])
-        if preset_cfg.get("max_rounds") is not None:
-            effective_budget_override["max_rounds"] = int(preset_cfg["max_rounds"])
-        if preset_cfg.get("max_total_wall_seconds") is not None:
-            effective_budget_override["max_wall_seconds"] = int(preset_cfg["max_total_wall_seconds"])
-        if preset_cfg.get("max_worker_concurrency") is not None:
-            effective_budget_override["max_concurrency"] = int(preset_cfg["max_worker_concurrency"])
-    budget_override = effective_budget_override
-    # [END DEV_ONLY: FAST_VERIFICATION_BUDGET]
+    # (dev-only harness stripped for stable release)
     expected_run_id = _expected_supervisor_run_id(lifecycle_id, session_id)
     project_id = None
     if uses_project_layout():
@@ -1056,42 +1036,21 @@ def supervisor_mcp_gate(*, review_mode: str | None,
       * ``"restart_required"`` —— 配置已写入/已存在但当前宿主未加载 ⇒ 必须重启宿主；
       * ``"blocked"`` —— 需要用户/宿主决策或安装未完成。
     """
+    # (dev-only harness stripped for stable release)
+
+    status = _supervisor_mcp_status()
+    # 强制重启门禁：若项目已配置 Supervisor MCP 但当前宿主会话未加载该工具链（stale），
+    # 宿主进程无法动态感知新配置，探活绝不能替代重启，必须阻断并强制要求重启宿主。
+    if status is not None and _mcp_session_is_stale(status):
+        host = str(status.get("host") or "当前宿主")
+        print(f"[launch_bugx] ✗ 必须强制重启宿主：{host} 已配置 Supervisor MCP，但当前会话尚未加载该 MCP 工具链。")
+        print("  宿主进程（IDE/终端）不支持动态热重载配置，必须【重载窗口 / 重启宿主会话】后再启动 BugX。")
+        return "restart_required"
+
     if review_mode != "mcp-auto":
         return "ok"
-    # [BEGIN DEV_ONLY: FAST_VERIFICATION_MCP_GATE]
-    try:
-        from core.runtime.interaction import try_get_preset_runtime_config
-    except ImportError:
-        try:
-            from core.runtime.interaction import try_get_preset_runtime_config
-        except ImportError:
-            try_get_preset_runtime_config = None
-    if try_get_preset_runtime_config is not None:
-        preset_cfg = try_get_preset_runtime_config(resolve_project_root() if uses_project_layout() else None)
-        if preset_cfg.get("supervisor_mcp") in {"manual", "skip"}:
-            return "ok"
-    # [END DEV_ONLY: FAST_VERIFICATION_MCP_GATE]
-    status = _supervisor_mcp_status()
+
     if status is None:
-        return "ok"
-    # A configured-but-not-loaded session is handled by the final
-    # ``startup_action`` gate below.  Do not present the older install/manual
-    # gate here, otherwise the host can silently choose manual review and move
-    # on to the polling question (the bug this gate is meant to prevent).
-    if _mcp_session_is_stale(status):
-        # 尝试快速 stdio 活体探活（A1 自愈机制）
-        try:
-            from core.supervisor import supervisor_host
-            probe_result = supervisor_host.probe_builtin_mcp_session(resolve_project_root(), deadline=None)
-            if not probe_result.get("error"):
-                os.environ[supervisor_host.MCP_SESSION_PROOF_ENV] = json.dumps(probe_result, ensure_ascii=False)
-                return "ok"
-        except Exception:
-            pass
-        if autonomous:
-            print("[launch_bugx] ✗ 需要重启宿主：Supervisor MCP 已配置但当前宿主未加载且探活未通过；"
-                  "支持使用 stdio JSON-RPC 等效通道驱动，或重启宿主会话后重试。")
-            return "restart_required"
         return "ok"
     if autonomous:
         # The installer is already constrained to the BugX-managed host
@@ -1100,7 +1059,7 @@ def supervisor_mcp_gate(*, review_mode: str | None,
         if not _install_supervisor_mcp(status):
             print("[launch_bugx] 自治模式已停止：Supervisor MCP 安装失败（需宿主重启后重试）。")
             return "restart_required"
-        print("[launch_bugx] Supervisor MCP 配置已写入；需要宿主重新启动后才能加载。")
+        print("[launch_bugx] ✗ 必须强制重启宿主：Supervisor MCP 配置已写入；宿主重新启动后才能加载。")
         return "restart_required"
     choice = _prompt_supervisor_mcp(status, allow_manual=False)
     if choice is None:
@@ -1133,7 +1092,7 @@ def supervisor_mcp_gate(*, review_mode: str | None,
         return "blocked"
     if choice == "install":
         _install_supervisor_mcp(status)
-        print("[launch_bugx] Supervisor MCP 配置已写入；需要宿主重新启动后才能加载。")
+        print("[launch_bugx] ✗ 必须强制重启宿主：Supervisor MCP 配置已写入；宿主重新启动后才能加载。")
         return "restart_required"
     if choice == "later":
         print("[launch_bugx] Supervisor MCP 安装已延后，本轮启动停止。")

@@ -1,8 +1,8 @@
 # BugX 审计流程
 
-> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
+> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
 > 本文是 BugX 全生命周期审计时序、状态流转与门禁判定依据。面向人类工程师与系统架构师。
-> **当前基线**：0.1.2 / Build 11　|　**更新日期**: 2026-11-23　|　**读者**：使用 BugX 的项目维护者
+> **当前基线**：0.1.3 / Build 1　|　**更新日期**: 2026-11-24　|　**读者**：使用 BugX 的项目维护者
 
 本文按首次接入、启动预飞、审查执行和结果处理，说明一轮 BugX 审计如何走完。安装细节见 [01_USER_GUIDE.md](../../docs/01_guides/01_USER_GUIDE.md)，系统分层见 [01_ARCHITECTURE.md](01_ARCHITECTURE.md)，宿主命令契约见 [01_AI_REFERENCE.md](../../docs/03_ai/01_AI_REFERENCE.md)。
 
@@ -343,6 +343,20 @@ sequenceDiagram
 
 ---
 
+## 项目初始化安装用户 Skill
+
+```mermaid
+flowchart LR
+    A[bugx init] --> B[预检发行模板与项目路径]
+    B -->|缺失或路径不安全| F[返回错误]
+    B -->|通过| C[完成云同步策略门禁]
+    C -->|已决| D[初始化项目布局]
+    D --> E[安装或保留 bugx-user Skill]
+    E --> G[记录 onboarding 与打印 Skill 路径]
+```
+
+`--force` 更新不同的 Skill 内容时，提交阶段先写入旧文件备份，再原子替换项目文件。
+
 ## 首次接入与 100% 项目级 MCP
 
 安装 BugX CLI 和宿主入口后，在宿主中选择目标项目并请求启动挖掘。新项目的首次启动会自动准备项目状态，然后继续检查 Git、宿主、云端等实际前置条件；已有状态不完整时会保留数据并报告原因。初始化项目本身不意味着宿主 MCP 已加载。
@@ -363,6 +377,54 @@ bugx install
 
 `bugx install` 会自动接入本机可用的宿主（亦可通过 `--agent` 指定宿主，如 `opencode`, `claude`, `codex`, `cline`, `zcode`, `dsh`, `chatgpt`, `workbuddy`, `qoder`, `trea`, `funide` 等）。
 **关键隔离准则**：项目级 MCP 默认写入当前项目目录（`--root .`）。FunIDE 设置页另有已确认的用户 profile `mcp.json` 数据源，安装器会在该文件的 `servers` 中登记同样的工作区相对命令，并在 profile `settings.json` 写入 `chat.mcp.autostart = newAndOutdated`，保证设置 → MCP 可见且 Agent 消息按需自动拉起新/过期服务；其它宿主仍不写入无契约的用户全局配置。
+
+宿主平台兼容性按宿主逐一取证：Kimi Code 1.4.x 使用
+`<KIMI_CODE_HOME>/plugins/managed/bugx` 与 `<KIMI_CODE_HOME>/plugins/installed.json`
+（默认 `~/.kimi-code`），Windows 不再依赖 macOS `daimon-share`；Kimi CLI/六面插件层均覆盖非系统盘；Claude/Trae 的逻辑盘
+`Program Files` 候选、Trae/Trae CN 变体以及 ZCode Windows `storage.dir` 已纳入有界发现。
+Kimi 的 managed 注册走宿主专用注册器，不生成 ZCode 的 `.zcode-plugin` 交叉产物。
+所有用户级注册能力都要求结构化回执，空回执直接阻断安装；不能以项目入口已写入推断用户级
+插件已加载。Windows 本轮完成真实路径、非系统盘识别与实际注册回归，macOS/Linux 仍需各自宿主真实加载证据。
+
+MiniMax Code 3.1.0 采用独立的 Plugin V1 用户级包，不写项目 MCP 配置：
+
+    sequenceDiagram
+        participant I as BugX Installer
+        participant P as ~/.minimax/plugins/bugx
+        participant A as MiniMax Agent
+        participant W as MiniMax Worker Agent
+        I->>P: write plugin.json, agents, skill, servers.mcp.json, icon.png
+        P-->>I: structured receipt with paths and statuses
+        A->>P: load bugx Agent and bugx Skill
+        W->>P: load bugx-worker and worker MCP allowlist
+        A->>A: reload gate required before MCP/tool assertions
+
+MiniMax 用户级注册已从项目级 native MCP 写入循环中拆出，避免“没有项目 MCP 文件”
+导致用户级 Plugin 被漏装。MiniMax Agent 的 tools 使用 read/write/edit/bash/grep/glob/
+web_fetch 等小写原生名，Worker 不允许继续委派；servers.mcp.json 只声明 PATH 名
+bugx，不硬编码解释器或仓库路径。静态包与安装回执通过后，仍必须由真实宿主完成
+loaded/callable/healthy 和生命周期闭环，缺失证据只能记为 UNVERIFIED。
+
+### DSH 安装器的安全分支
+
+```mermaid
+sequenceDiagram
+    participant I as BugX Installer
+    participant D as dsh launcher
+    participant H as DSH_HOME
+    participant W as Web profile
+    I->>H: stage ecosystem/integrations/dsh/ui → plugins/bugx-ui
+    alt launcher 位于已识别 DSH Desktop 安装根
+        I->>D: dsh plugin --profile web add plugins/bugx-ui
+        D->>W: 注册依赖与 dsh.profile.bundles
+    else 普通 npm/Python dsh 或 Desktop 路径未知
+        I-->>I: status=staged，不执行插件管理子进程
+    end
+    I->>I: Windows preset 只从有界 app.asar 候选读取运行时包名
+```
+
+普通 CLI 的 `staged` 只表示可选 UI 图标尚未注册，不影响 `.dsh` Agent、Skill、MCP 和
+preset 的安装；该分支用于阻止不支持插件管理的 DSH launcher 在 Windows 上崩溃。
 
 ### FunIDE 桌面入口安装时序
 

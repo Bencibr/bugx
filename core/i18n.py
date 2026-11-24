@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import re
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
@@ -38,12 +40,22 @@ class LocaleResolution:
         }
 
 
+def _is_neutral_locale(raw: str) -> bool:
+    """Check if raw locale string represents a neutral POSIX placeholder (e.g. C, POSIX, C.UTF-8)."""
+    if not isinstance(raw, str):
+        return False
+    stripped = raw.strip()
+    if not stripped:
+        return False
+    token = stripped.split(".", 1)[0].split("@", 1)[0].replace("_", "-").casefold()
+    return token in {"c", "posix"}
+
+
 def normalize_locale(value: object) -> str | None:
     """Normalize a BCP-47/POSIX-ish locale to a supported locale.
 
-    ``None`` means the input is not supported.  ``C``/``POSIX`` are treated as
-    the conventional English process locale, while arbitrary languages are not
-    silently mistaken for Chinese.
+    ``None`` means the input is not supported or is neutral (e.g. C/POSIX).
+    Explicit English and Chinese locales map to ``en-US`` and ``zh-CN`` respectively.
     """
     if not isinstance(value, str):
         return None
@@ -56,7 +68,7 @@ def normalize_locale(value: object) -> str | None:
     if not parts:
         return None
     primary = parts[0].casefold()
-    if primary in {"c", "posix", "en", "eng"}:
+    if primary in {"en", "eng"}:
         return "en-US"
     if primary in {"zh", "chi", "zho"}:
         # The first release intentionally has one Chinese regional catalog.
@@ -79,6 +91,71 @@ def _read_preference(path: Path) -> str | None:
     if isinstance(payload, Mapping):
         value = payload.get("locale")
         return value.strip() if isinstance(value, str) and value.strip() else None
+    return None
+
+
+def _detect_system_locale() -> LocaleResolution | None:
+    """Detect display locale from OS native system preferences (macOS, system, timezone)."""
+    # 1. macOS (darwin)
+    if sys.platform == "darwin":
+        # Fast path: read ~/Library/Preferences/.GlobalPreferences.plist (~2ms via plistlib)
+        try:
+            plist_path = Path.home() / "Library" / "Preferences" / ".GlobalPreferences.plist"
+            if plist_path.is_file() and not plist_path.is_symlink():
+                import plistlib
+                with plist_path.open("rb") as f:
+                    prefs = plistlib.load(f)
+                languages = prefs.get("AppleLanguages")
+                if isinstance(languages, (list, tuple)) and languages:
+                    for lang in languages:
+                        if isinstance(lang, str):
+                            resolved = normalize_locale(lang)
+                            if resolved:
+                                return LocaleResolution(lang, resolved, "system-preference")
+                apple_locale = prefs.get("AppleLocale")
+                if isinstance(apple_locale, str) and apple_locale:
+                    resolved = normalize_locale(apple_locale)
+                    if resolved:
+                        return LocaleResolution(apple_locale, resolved, "system-preference")
+        except Exception:
+            pass
+
+        # Subprocess fallback for macOS if plist direct read failed
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["defaults", "read", "-g", "AppleLanguages"],
+                text=True, stderr=subprocess.DEVNULL, timeout=1,
+            )
+            for m in re.finditer(r'"([^"]+)"', out):
+                lang = m.group(1).strip()
+                resolved = normalize_locale(lang)
+                if resolved:
+                    return LocaleResolution(lang, resolved, "system-preference")
+        except Exception:
+            pass
+
+    # 2. Python locale.getlocale() (for non-darwin or fallback)
+    try:
+        import locale as py_locale
+        loc = py_locale.getlocale()[0]
+        if loc and not _is_neutral_locale(loc):
+            resolved = normalize_locale(loc)
+            if resolved:
+                return LocaleResolution(loc, resolved, "system-locale")
+    except Exception:
+        pass
+
+    # 3. Timezone heuristic (East Asia / China UTC+8)
+    try:
+        import time
+        offset_hours = -time.timezone // 3600
+        tz_names = tuple(name.upper() for name in time.tzname)
+        if offset_hours == 8 and any(name in {"CST", "CHINA", "BEIJING", "SHANGHAI", "HKT", "CST-8"} for name in tz_names):
+            return LocaleResolution("zh-CN", "zh-CN", "timezone-hint")
+    except Exception:
+        pass
+
     return None
 
 
@@ -122,9 +199,13 @@ def resolve_locale(
                 f"unsupported locale: {requested}",
             )
 
+    saw_neutral = False
     for key in _ENV_KEYS:
         raw = env.get(key, "").strip()
         if not raw:
+            continue
+        if _is_neutral_locale(raw):
+            saw_neutral = True
             continue
         resolved = normalize_locale(raw)
         if resolved:
@@ -133,7 +214,15 @@ def resolve_locale(
             raw, DEFAULT_LOCALE, key,
             f"unsupported locale: {raw}",
         )
-    return LocaleResolution(None, DEFAULT_LOCALE, "default")
+
+    # 4. OS native preference detection (macOS AppleLanguages, system locale, timezone)
+    if environ is None:
+        detected = _detect_system_locale()
+        if detected is not None:
+            return detected
+
+    fallback_reason = "neutral locale: C/POSIX" if saw_neutral else None
+    return LocaleResolution(None, DEFAULT_LOCALE, "default", fallback_reason)
 
 
 def _catalog_path(locale: str) -> Path:

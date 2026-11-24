@@ -5,37 +5,52 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bugx-cli"
 dynamic = ["version"]
-description = "Host-neutral adversarial white-box and black-box auditing agent and automated code review engine"
+description = "Autonomous code review and testing agent. Catches subtle, high-impact bugs, automates black-box and functional QA testing, and safeguards dependable software delivery."
 readme = "docs/07_distribution/02_README_PYPI.md"
 requires-python = ">=3.11"
 license = "BUSL-1.1"
 keywords = [
-  "agent",
-  "ai-agent",
-  "ai-code-audit",
-  "automated-code-audit",
-  "code-audit",
   "code-review",
   "code-review-agent",
+  "automated-testing",
+  "testing-agent",
+  "autonomous-testing",
+  "black-box-testing",
+  "functional-testing",
+  "performance-testing",
+  "software-testing",
+  "quality-assurance",
+  "qa-automation",
+  "qa-agent",
+  "bug-detection",
+  "bug-hunter",
   "automated-code-review",
-  "vibe-coding",
-  "vibe-coding-security",
+  "ai-code-review",
   "pr-review",
   "pull-request-review",
-  "zero-false-positive",
-  "poc-generator",
   "security-audit",
   "vulnerability-scanner",
-  "vulnerability-mining",
   "sast",
   "static-analysis",
+  "code-audit",
+  "code-quality",
+  "ai-agent",
   "mcp",
   "mcp-server",
-  "mcp-security",
+  "model-context-protocol",
   "claude-code",
   "openai-codex",
+  "codex",
+  "cursor",
+  "trae",
+  "windsurf",
+  "cline",
+  "kimi-code",
+  "minimax-code",
   "opencode",
   "zcode",
+  "ai-testing",
+  "test-automation",
   "devsecops",
 ]
 classifiers = [
@@ -43,6 +58,8 @@ classifiers = [
   "Intended Audience :: Developers",
   "Topic :: Security",
   "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Bug Tracking",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -52,7 +69,10 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://bugx.dev"
+Documentation = "https://bugx.dev"
 Source = "https://github.com/Bencibr/bugx"
+Issues = "https://github.com/Bencibr/bugx/issues"
+Changelog = "https://github.com/Bencibr/bugx/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 tui = ["pexpect==4.9.0"]
@@ -77,6 +97,7 @@ include = ["bugx_cli*"]
 
 [tool.setuptools.data-files]
 "share/bugx-agent" = ["ecosystem/integrations/opencode/opencode.json", "ecosystem/integrations/opencode/mcp-lock.json", "ecosystem/integrations/opencode/bugx-mcp-manifest.json"]
+"share/bugx-agent/skills/platform/bugx-user" = ["skills/platform/bugx-user/SKILL.md"]
 "share/bugx-agent/dsh" = ["ecosystem/integrations/dsh/dsh-patch.yml"]
 "share/bugx-agent/dsh/skills/bugx" = ["ecosystem/integrations/dsh/skills/bugx/SKILL.md"]
 "share/bugx-agent/dsh/skills/bugx-dsh" = ["ecosystem/integrations/dsh/skills/bugx-dsh/SKILL.md"]
@@ -101,6 +122,9 @@ include = ["bugx_cli*"]
 ]
 "share/bugx-agent/plugins/bugx/skills/bugx-zcode" = [
   "ecosystem/plugins/bugx/skills/bugx-zcode/SKILL.md",
+]
+"share/bugx-agent/plugins/bugx/skills/bugx" = [
+  "ecosystem/plugins/bugx/skills/bugx/SKILL.md",
 ]
 "share/bugx-agent/plugins/bugx/skills/bugx-claude" = [
   "ecosystem/plugins/bugx/skills/bugx-claude/SKILL.md",

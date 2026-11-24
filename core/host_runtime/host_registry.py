@@ -38,6 +38,8 @@ SUPPORTED_HOSTS: tuple[str, ...] = (
     "cline",
     "zcode",
     "dsh",
+    "kimi",
+    "minimax",
     "chatgpt",
     "workbuddy",
     "qoder",
@@ -87,15 +89,33 @@ _apply_plugin_markers(HOST_MARKERS)
 #: 已迁移插件（只读视图）：宿主事实的唯一来源。
 _HOST_PLUGINS = MappingProxyType(dict(host_plugins.PLUGINS))
 
-# FunIDE 当前确认的是桌面 Copilot Agent UI，尚未确认独立的
-# AskUserQuestion 原生工具；保持安全默认，交互交给外层控制器或 TTY。
-NATIVE_QUESTION_HOSTS: frozenset[str] = frozenset(SUPPORTED_HOSTS) - {"funide"}
+# 未迁移宿主的交互事实仍由旧基线维护；已迁移宿主直接读取插件身份面。
+_LEGACY_NON_NATIVE_QUESTION_HOSTS: frozenset[str] = frozenset({"funide"})
+NATIVE_QUESTION_HOSTS: frozenset[str] = frozenset(
+    name for name in SUPPORTED_HOSTS
+    if (
+        (
+            name in _HOST_PLUGINS
+            and _HOST_PLUGINS[name].identity.native_question
+        )
+        or (
+            name not in _HOST_PLUGINS
+            and name not in _LEGACY_NON_NATIVE_QUESTION_HOSTS
+        )
+    )
+)
 
 # 宿主可执行名别名 → 规范宿主名。进程树识别必须经此归一化，避免
 # 「同一宿主多个可执行名」散落在各调用点。
 HOST_EXECUTABLE_ALIASES: dict[str, str] = {
     "claude-code": "claude",
     "deepseek": "dsh",
+    "kimi-code": "kimi",
+    "kimicode": "kimi",
+    "minimax-code": "minimax",
+    "minimaxcode": "minimax",
+    "minimax code": "minimax",
+    "mcode": "minimax",
     "codebuddy": "workbuddy",
     "codebuddy-lite-wb": "workbuddy",
     "qoder-cli": "qoder",

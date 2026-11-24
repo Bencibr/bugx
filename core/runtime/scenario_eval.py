@@ -141,7 +141,7 @@ def _run(argv: list[str], *, cwd: Path, timeout: float = 120.0,
     # L3 等场景验证当前 checkout；不让已安装的旧引擎成为量具。
     merged["BUGX_DEV_MODE"] = "1"
     # 源码树里的版本声明是构建模板；开发态启动门禁需要同一解析值。
-    merged["BUGX_VERSION"] = os.environ.get("BUGX_VERSION", "0.1.2")
+    merged["BUGX_VERSION"] = os.environ.get("BUGX_VERSION", "0.1.3")
     merged["HOME"] = str(_sandbox_home())
     try:
         proc = subprocess.run(

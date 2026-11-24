@@ -7841,7 +7841,12 @@
               body: JSON.stringify(payload)
             });
             if (res.ok) {
-              showToast(`已成功挂载 MCP: ${srvName}`);
+              const resData = await res.json().catch(() => ({}));
+              if (resData && resData.session_restart_required) {
+                alert(`【必须重启宿主】已成功挂载 MCP: ${srvName}\n\n项目 MCP 配置已更新至 .mcp.json。\n宿主（VS Code / Cursor / Windsurf / Claude 等）不支持动态热加载，请务必【重载窗口 / 重启宿主会话】方可生效！`);
+              } else {
+                showToast(`已成功挂载 MCP: ${srvName}`);
+              }
               await this.loadData();
               this.render();
             } else {
@@ -8019,7 +8024,12 @@
             if (res.ok) {
               it.mounted = true;
               it.enabled = true;
-              showToast(`已成功挂载 MCP: ${it.name}`);
+              const resData = await res.json().catch(() => ({}));
+              if (resData && resData.session_restart_required) {
+                alert(`【必须重启宿主】已成功挂载 MCP: ${it.name}\n\n项目 MCP 配置已更新至 .mcp.json。\n宿主（VS Code / Cursor / Windsurf / Claude 等）不支持动态热加载，请务必【重载窗口 / 重启宿主会话】方可生效！`);
+              } else {
+                showToast(`已成功挂载 MCP: ${it.name}`);
+              }
               await this.loadData();
               this.render();
             } else {
@@ -8198,7 +8208,12 @@
               })
             });
             if (res.ok) {
-              showToast(`成功挂载自定义 MCP: ${name}`);
+              const resData = await res.json().catch(() => ({}));
+              if (resData && resData.session_restart_required) {
+                alert(`【必须重启宿主】成功挂载自定义 MCP: ${name}\n\n项目 MCP 配置已更新至 .mcp.json。\n宿主（VS Code / Cursor / Windsurf / Claude 等）不支持动态热加载，请务必【重载窗口 / 重启宿主会话】方可生效！`);
+              } else {
+                showToast(`成功挂载自定义 MCP: ${name}`);
+              }
               closeModal();
               await this.loadData();
               this.render();

@@ -507,7 +507,7 @@ def _chatgpt_plugin_manifest(version: str = __version__) -> dict[str, object]:
     return {
         "name": CHATGPT_PLUGIN_NAME,
         "version": version,
-        "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+        "description": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
         "skills": "./skills/",
         "homepage": "https://bugx.dev",
         "author": {
@@ -518,8 +518,8 @@ def _chatgpt_plugin_manifest(version: str = __version__) -> dict[str, object]:
         "keywords": ["bugx", "audit", "security", "testing"],
         "interface": {
             "displayName": "BugX",
-            "shortDescription": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
-            "longDescription": "An autonomous agent dedicated to code review, vulnerability hunting, and automated bug fixing. Built for deep investigations, BugX steps in when you are wrapping up a feature, opening a pull request, or hunting down an elusive bug. It analyzes code logic, automatically writes test cases to uncover and reproduce hidden flaws, and delivers verified patches that resolve root causes. Always safeguarding your code quality and security.",
+            "shortDescription": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
+            "longDescription": "BugX is an autonomous code review and testing agent designed to safeguard software delivery: it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; automates black-box, functional, and performance testing across complex edge cases for QA; and ensures software strictly meets functional requirements with rock-solid stability and resilience. By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people.",
             "developerName": "BugX",
             "category": "Developer tools",
             # ChatGPT only exposes its native choice/confirmation surface to
@@ -2362,7 +2362,7 @@ def _remove_dsh_user_preset(
         for child in preset_dir.iterdir():
             if child.is_file() and not child.is_symlink():
                 _backup_uninstall_file(root, backup_host, child, backup_dir)
-        shutil.rmtree(preset_dir)
+        _remove_tree_force(preset_dir)
         removed.append("~/.dsh/.agent-presets/bugx（已显式清理全局 DSH 预设）")
     except OSError as exc:
         preserved.append(f"~/.dsh/.agent-presets/bugx（清理失败：{exc}）")
@@ -2658,7 +2658,7 @@ def _restore_reset_entries(moved: list[tuple[Path, Path]]) -> None:
             if source.is_symlink() or source.is_file():
                 source.unlink(missing_ok=True)
             elif source.is_dir():
-                shutil.rmtree(source, ignore_errors=True)
+                _remove_tree_force(source)
             shutil.move(str(destination), str(source))
 
 
@@ -2677,7 +2677,7 @@ def _clean_reset_entries(entries: list[tuple[Path, str]]) -> None:
             source.unlink(missing_ok=True)
         elif source.is_dir():
             _assert_no_symlink_components(source)
-            shutil.rmtree(source, ignore_errors=True)
+            _remove_tree_force(source)
 
 
 def _bootstrap_global_knowledge(root: Path, source: Path) -> None:

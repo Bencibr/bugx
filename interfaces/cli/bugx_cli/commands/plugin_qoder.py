@@ -12,6 +12,7 @@ from ..common import (
     _backup_host_resource,
     _i18n_exc,
     _i18n_prompt,
+    _remove_tree_force,
     _resolve_locale_name,
 )
 from ..host_adapters import (
@@ -104,13 +105,11 @@ def _qoder_user_agent_content_worker(*, locale: str | None = None) -> str:
 
 def _clean_legacy_qoder_plugin_and_skills() -> None:
     """清理历史遗留的 Qoder 散装技能目录与插件注册（Option A 收敛保障）。"""
-    import shutil
-
     # 1. 清理 ~/.qoder/skills/bugx
     try:
         user_skill = _qoder_user_skills_dir() / "bugx"
         if user_skill.is_dir() and not user_skill.is_symlink():
-            shutil.rmtree(user_skill)
+            _remove_tree_force(user_skill)
     except OSError:
         pass
 
@@ -118,7 +117,7 @@ def _clean_legacy_qoder_plugin_and_skills() -> None:
     try:
         cache_parent = _qoder_user_plugins_dir() / "cache" / "bugx-agent"
         if cache_parent.is_dir() and not cache_parent.is_symlink():
-            shutil.rmtree(cache_parent)
+            _remove_tree_force(cache_parent)
     except OSError:
         pass
 

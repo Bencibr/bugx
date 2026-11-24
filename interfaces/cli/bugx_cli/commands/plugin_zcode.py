@@ -54,7 +54,7 @@ def _zcode_plugin_manifest(version: str = __version__) -> dict[str, object]:
     return {
         "name": CHATGPT_PLUGIN_NAME,
         "version": version,
-        "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+        "description": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
         "homepage": "https://bugx.dev",
         "author": {
             "name": "BugX",
@@ -130,10 +130,9 @@ def _zcode_storage_dir_override() -> Path:
         raw = storage.get("dir") if isinstance(storage, dict) else None
         if isinstance(raw, str) and raw.strip():
             raw = raw.strip()
-            if raw.startswith("~/"):
-                return home / raw[2:]
-            if raw.startswith("/"):
-                return Path(raw)
+            expanded = Path(raw).expanduser()
+            if expanded.is_absolute():
+                return expanded
     return home / ".zcode"
 
 

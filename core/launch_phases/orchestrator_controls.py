@@ -542,12 +542,7 @@ def print_help() -> int:
     """Print the caller-facing launch protocol without touching project state."""
     # Stable 构建没有开发模式参数，帮助行由下方 DEV_ONLY 块注入。
     dev_flag_help = ""
-    # [BEGIN DEV_ONLY: DEV_MODE_ARG_HELP]
-    dev_flag_help = (
-        "       --dev                    开发者极速免交互调试模式（等价于 --autonomous 的确定性缺省："
-        "审查=mcp-auto 轮询=auto 提交=round 恢复=resume，并默认本地云同步；全程不发起交互提问）\n"
-    )
-    # [END DEV_ONLY: DEV_MODE_ARG_HELP]
+    # (dev-only harness stripped for stable release)
     print(
         """BugX launch_bugx 启动协议（面向宿主 AI）
 

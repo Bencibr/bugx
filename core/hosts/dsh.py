@@ -96,7 +96,7 @@ def _dsh_home() -> Path:
     import os
 
     configured = os.environ.get("DSH_HOME", "").strip()
-    return Path(configured) if configured else Path.home() / ".dsh"
+    return Path(configured).expanduser() if configured else Path.home() / ".dsh"
 
 
 def _profile_patch_path() -> Path:

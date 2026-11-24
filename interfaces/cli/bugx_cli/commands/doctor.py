@@ -586,6 +586,24 @@ def _doctor_repair_assets(root: Path, layout: Any) -> list[str]:
         failed("runtime.json 修复", exc)
 
     try:
+        onboarding_file = root / ".bugx" / "cloud-onboard.json"
+        if onboarding_file.is_symlink():
+            raise OSError(f"拒绝修复软链接目标：{onboarding_file}")
+        if not onboarding_file.is_file():
+            payload = {
+                "schema_version": 1,
+                "state": "local",
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            _doctor_atomic_replace(
+                onboarding_file,
+                json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"),
+            )
+            actions.append("已自动补齐缺失的项目本地 onboarding 配置（.bugx/cloud-onboard.json）")
+    except Exception as exc:
+        failed("cloud-onboard.json 修复", exc)
+
+    try:
         project_file = root / ".bugx-project.json"
         if project_file.is_symlink():
             raise OSError(f"拒绝修复软链接目标：{project_file}")

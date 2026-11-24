@@ -12,8 +12,8 @@ import re
 from pathlib import Path
 
 VERSION_ENV = "BUGX_VERSION"
-VERSION_TOKEN = "${BUGX_VERSION}"
-_DEFAULT_VERSION = "0.1.2"
+VERSION_TOKEN = "0.1.3"
+_DEFAULT_VERSION = "0.1.3"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
@@ -88,10 +88,34 @@ def bump_build_id(root: Path | None = None) -> int:
     return next_id
 
 
+def is_dev_mode(root: Path | None = None) -> bool:
+    """是否处于 dev / alpha 开发模式。正式版返回 False。"""
+    if os.environ.get("BUGX_DEV") in ("1", "true", "yes", "on"):
+        return True
+    env = os.environ.get("BUGX_ENV", "").strip().lower()
+    if env in ("dev", "development", "local", "test"):
+        return True
+    meta_path = _resolve_metadata_path(root)
+    if meta_path.is_file():
+        try:
+            content = meta_path.read_text(encoding="utf-8")
+            m_chan = re.search(r"^bugx_channel:\s*[\"']?([A-Za-z0-9_-]+)", content, re.M)
+            m_mark = re.search(r"^bugx_marker:\s*[\"']?([A-Za-z0-9_-]+)", content, re.M)
+            channel = m_chan.group(1).lower() if m_chan else "stable"
+            marker = m_mark.group(1).lower() if m_mark else "stable"
+            if channel != "stable" or marker in ("dev", "alpha"):
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def get_full_version_string(root: Path | None = None) -> str:
-    """返回标准版本与 Build ID 组合字符串，例如 0.1.1+build.627。"""
-    bid = get_build_id(root)
-    return f"{BASE_VERSION}+build.{bid}"
+    """返回标准版本展示字符串。正式版（Stable）不带 build ID；仅 dev 模式携带。"""
+    if is_dev_mode(root):
+        bid = get_build_id(root)
+        return f"{BASE_VERSION}+build.{bid}"
+    return BASE_VERSION
 
 
 __all__ = [
@@ -101,5 +125,6 @@ __all__ = [
     "bump_build_id",
     "get_build_id",
     "get_full_version_string",
+    "is_dev_mode",
     "resolve_base_version",
 ]

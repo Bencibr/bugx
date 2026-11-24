@@ -2,7 +2,7 @@
   "id": "/",
   "name": "BugX Studio",
   "short_name": "BugX Studio",
-  "description": "AI 编程与自主审计工作台 — 统一多项目控制台与智能体调度中心。",
+  "description": "自主代码审查与自主测试智能体 — 严把代码交付关，自动化运行黑盒测试、功能验证与性能测试，保障软件稳定不翻车。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -1,6 +1,6 @@
 # BugX AI 使用指南
 
-> **版本**：0.1.2+build.11 ｜ **更新日期**：2026-11-23
+> **版本**：0.1.3 ｜ **更新日期**：2026-11-24
 > **定位**：给宿主 AI 的任务型操作指南
 > **相关文档**：[AI Reference](01_AI_REFERENCE.md) ｜ [AI 命令手册](03_AI_COMMANDS.md) ｜ [用户故障排查](../01_guides/03_TROUBLESHOOTING.md)
 
@@ -108,16 +108,16 @@ Dev 路径的成功判定分三层：
 
 ### 云同步门禁示例与范围确认
 
-先把选项字段和范围说清：`value` 是选择值，`action` 是 BugX 内部动作 ID，两者都不是 CLI 参数。直接项目同步可明确指定范围：
+先把选项字段和范围说清：`value` 是选择值，`action` 是 BugX 内部动作 ID，两者都不是 CLI 参数。标准同步应显式指定全量范围：
 
 ```sh
-bugx cloud status --root <ROOT> --scope project --json
-bugx cloud sync --root <ROOT> --scope project
+bugx cloud status --root <ROOT> --scope all --json
+bugx cloud sync --root <ROOT> --scope all
 ```
 
-当前安装版 `cloud sync` 未设置范围时默认 `all`。更关键的是，`cloud onboard on`、`init --cloud-sync sync` 和已保存的同步决定进入 `engine pre` 时会调用 onboarding `sync_layers`；本机这条路径实际同步了 global + project。**所以项目级 `cloud sync --scope project` 后不能无条件再运行 `engine pre` 并宣称只同步项目。**如果用户只授权项目范围而启动路径会出全局数据，先停在门禁，确认授权或修复为真正的项目级启动路径。
+当前源码显式 `cloud sync` 省略 scope 时读取用户级配置，配置缺失时用 `project`。标准路径始终显式传 `--scope all`。标准云同步按全量范围执行，包含项目登记与画像、项目知识和账号全局知识。用户只授权其中一部分时，直接拒绝该同步请求。
 
-若门禁请求创建项目身份（例如 `action=create_project_identity`），先核对当前 CLI 的 `cloud projects add` 语法。该命令会联网并写 `<ROOT>/.bugx/cloud-project.json`；这与选择“开启云同步”是两个动作。提交是独立 Git commit，只有用户明确选择创建并提交后，才只 stage/commit `.bugx/cloud-project.json`，保留其他 WIP。若选择取消则停止同步，不要换成身份创建命令。
+若门禁请求创建项目身份（例如 `action=create_project_identity`），先核对当前 CLI 的 `cloud projects add` 语法。该命令会联网并写 `<ROOT>/.bugx/cloud-project.json`；这与选择“开启云同步”是两个动作。提交是独立 Git commit，只有用户明确选择创建并提交后，才只 stage/commit 根目录的 `.bugx-project.json`。项目内部的 `.bugx/cloud-project.json` 用来核对当前云绑定。若选择取消则停止同步，不要换成身份创建命令。
 
 ### 云端数据路径的 AI 分流
 
@@ -125,25 +125,26 @@ bugx cloud sync --root <ROOT> --scope project
 
 | 用户意图 | 唯一对应入口 | 先确认什么 | 成功证据 |
 |---|---|---|---|
-| 同步 BugX 知识 | `bugx cloud sync --scope project|global|all` | consent、scope、`full|summary`、`block|redact|allow` | 每层 baseline/push/pull 摘要 + `cloud status` 收敛 |
+| 同步 BugX 知识 | `bugx cloud sync --scope all` | consent、scope、`full|summary`、`block|redact|allow` | 每层 baseline/push/pull 摘要 + `cloud status` 收敛 |
 | 上传项目规模/画像 | `bugx project sync --json` | 账号、项目绑定、是否允许指标出网 | `status=ok`、`project_id`、`synced=true` |
 | 发送飞轮遥测 | 普通 CLI 命令会每日最多自动记录并尽力发送安装/心跳；显式发送使用 `bugx telemetry flush|upload` | 遥测门禁、队列范围、strict policy；未配置时门禁默认开启 | `telemetry inspect --latest --json`、egress audit、`sent/remaining`；服务端安装统计只能作为已联网收到的补充证据 |
 | 上报日志 | `bugx cloud log-report --tail-kb ...` | 日志尾部是否有秘密；kind、大小、限额 | bytes/lines + 网络返回和退出码 |
 | 上报 lesson 反馈 | `bugx cloud feedback --dry-run` → 非 dry-run | 条目、outcome、lifecycle/run/project；先预览 | dry-run 条目或 updated/missing |
 | 传输 bundle | `cloud export` → 人工检查 → `cloud upload` | bundle SHA-256、scope、mode、敏感策略 | snapshot_id/version + 上传后本地基线收敛 |
 
-若用户只说“把数据上传一下”而没有指定数据面、scope 和授权，显式上传必须停在 `BLOCKED/NEEDS_USER_SCOPE`，先列出上述选项，不能自行选择 `all`、`full` 或 `allow`。遥测的产品默认门禁是开启，但这不等于 AI 获得了替用户扩大 knowledge/profile/log/bundle 数据面的授权；如果用户要求“不上传遥测”，先执行 `bugx config set telemetry.data_sharing false`，或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`。`cloud sync` 省略 scope 时当前默认可能是 `all`；`onboard on` 和启动 onboarding 还可能同步 global + project。项目级同步成功后，不能推断后续 `pre` 仍 project-only。
+若用户只说“把数据上传一下”而没有指定数据面、scope 和授权，显式上传必须停在 `BLOCKED/NEEDS_USER_SCOPE`，先列出上述选项，不能自行选择 `all`、`full` 或 `allow`。遥测的产品默认门禁是开启，但这不等于 AI 获得了替用户扩大 knowledge/profile/log/bundle 数据面的授权；如果用户要求“不上传遥测”，先执行 `bugx config set telemetry.data_sharing false`，或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`。确认全量授权后，标准同步显式使用 `--scope all`。
 
 云端故障恢复顺序固定为：`cloud status --json` → `auth status --verify`（需要网络时）→ `conflicts list` → `dead-letter list` → 仅在明确 cursor/baseline 失配时 `sync --calibrate`。`ack_pending=true`/`committed=true` 先标 `RECOVERY_REQUIRED`，不要 reset 或重复 upload；open conflict、data sharing revoked、payload/TLS/账号错误都不能用 calibrate 绕过。
 
-`--cloud-sync` 在 `init` 中是初始化参数；在 `engine pre/audit` 中由全局 engine 读取为本次启动的 cloud policy。两条路径都必须明确范围，不要因为参数同名就把一个命令的持久化语义套到另一个命令上：
+`--cloud-sync` 在 `init` 中是初始化参数；在 `engine pre/audit` 中由全局 engine 读取为本次启动的 cloud policy。两条路径都要确认范围。下面检查认证、全量同步和同步状态。
 
 ```sh
-bugx init --root <ROOT> --cloud-sync local
-bugx engine --root <ROOT> pre --cloud-sync local
+bugx auth status --root <ROOT> --verify --json
+bugx cloud sync --root <ROOT> --scope all
+bugx cloud status --root <ROOT> --scope all --json
 ```
 
-`engine pre --cloud-sync local` 只表达本次启动使用本地策略，不会自动撤销用户级数据分享同意；`sync` 是联网和数据分享出口。若项目 profile 或其他启动状态仍要求 global+project onboarding，必须以实际状态和授权为准。若选择“下次再说 / 停止”，就结束本轮，不要继续启动。
+默认引导用户登录并同步。已有 Local 状态可在获得全量授权后恢复同步。仅当用户明确选择离线时才引导 Local。若项目 profile 或其他启动状态仍要求 global+project onboarding，必须以实际状态和授权为准。若选择“下次再说 / 停止”，就结束本轮，不要继续启动。
 
 ### Supervisor MCP 启动门禁
 

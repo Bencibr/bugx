@@ -1,6 +1,6 @@
 ---
 name: bugx-claude
-description: BugX 漏洞挖掘引擎在 Claude Code 宿主下的专属使用手册——开工前必读协议清单、宿主能力映射（AskUserQuestion/Task/MCP）、finding confirmation 与 reproduction 契约、本机实证过的坑位与对策（证据通道、claim 粒度、指纹漂移自锁、大响应体、worker MCP 断线回退）。当用户要在 Claude Code 里启动/排障/收尾 BugX 审计、解释 BugX 门禁报错、或问「为什么审计跑了这么久」时使用本 skill。
+description: BugX 自主代码审查与智能测试在 Claude Code 宿主下的专属使用手册——开工前必读协议清单、宿主能力映射（AskUserQuestion/Task/MCP）、finding confirmation 与 reproduction 契约、本机实证过的坑位与对策（证据通道、claim 粒度、指纹漂移自锁、大响应体、worker MCP 断线回退）。当用户要在 Claude Code 里启动/排障/收尾 BugX 审查、解释 BugX 门禁报错、或问「为什么审查跑了这么久」时使用本 skill。
 ---
 
 # BugX × Claude Code 使用手册（实证复盘版）

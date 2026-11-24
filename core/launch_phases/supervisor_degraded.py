@@ -740,21 +740,7 @@ def prompt_degraded_choices(
         return choices
 
     combined_explicit: dict[str, str] = dict(explicit_choices or {})
-    # [BEGIN DEV_ONLY: FAST_VERIFICATION_TOOLING]
-    from core.runtime.interaction import try_get_preset_runtime_config
-    if try_get_preset_runtime_config is not None:
-        preset_cfg = try_get_preset_runtime_config(resolve_project_root() if uses_project_layout() else None)
-        if preset_cfg.get("auto_install_tools") or preset_cfg.get("missing_tools_action") == "install":
-            for item in degraded:
-                name = str(item.get("name", "unknown"))
-                if name not in combined_explicit:
-                    combined_explicit[name] = "install"
-        elif preset_cfg.get("missing_tools_action") in {"skip", "fallback"}:
-            for item in degraded:
-                name = str(item.get("name", "unknown"))
-                if name not in combined_explicit:
-                    combined_explicit[name] = "defer"
-    # [END DEV_ONLY: FAST_VERIFICATION_TOOLING]
+    # (dev-only harness stripped for stable release)
     env_choices = os.environ.get("BUGX_TOOLING_CHOICES", "")
     if env_choices:
         for part in env_choices.split(","):

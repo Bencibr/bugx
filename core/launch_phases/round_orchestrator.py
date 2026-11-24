@@ -500,9 +500,7 @@ def _manual_action_parser(command: str) -> argparse.ArgumentParser | None:
     else:
         if command in {"pre", "audit"}:
             switches, values = _STARTUP_OPTIONS
-            # [BEGIN DEV_ONLY: DEV_MODE_CLI_VALIDATION]
-            parser.add_argument("--dev", action="store_true")
-            # [END DEV_ONLY: DEV_MODE_CLI_VALIDATION]
+            # (dev-only harness stripped for stable release)
         elif command in _MANUAL_OPTIONS:
             switches, values = _MANUAL_OPTIONS[command]
         else:
@@ -702,9 +700,7 @@ def _main_impl(
     environment = detect_startup_environment()
     # Stable 剥离下方 DEV_ONLY 块后开发模式参数不存在，哨兵值让下游全部回落到生产缺省。
     dev_mode_requested = False
-    # [BEGIN DEV_ONLY: DEV_MODE_ARG]
-    dev_mode_requested = "--dev" in argv[2:]
-    # [END DEV_ONLY: DEV_MODE_ARG]
+    # (dev-only harness stripped for stable release)
     autonomous_requested = "--autonomous" in argv[2:] or dev_mode_requested
     if not autonomous_requested and cmd in {"pre", "audit"}:
         try:
@@ -741,18 +737,7 @@ def _main_impl(
             print_supervisor_mcp_snapshot(supervisor_mcp_snapshot())
         # 哨兵必须在 DEV_ONLY 块之外：Stable 剥离后下方条件仍会读取该名字。
         bypass_headless_gate = False
-        # [BEGIN DEV_ONLY: FAST_VERIFICATION_HEADLESS_BYPASS]
-        try:
-            from core.runtime.interaction import try_get_preset_runtime_config
-        except ImportError:
-            try:
-                from core.runtime.interaction import try_get_preset_runtime_config
-            except ImportError:
-                try_get_preset_runtime_config = None
-        if try_get_preset_runtime_config is not None:
-            if try_get_preset_runtime_config(resolve_project_root() if uses_project_layout() else None):
-                bypass_headless_gate = True
-        # [END DEV_ONLY: FAST_VERIFICATION_HEADLESS_BYPASS]
+        # (dev-only harness stripped for stable release)
         if (uses_project_layout()
                 # 缺字段（最小化 mock 环境）不得让启动流程崩：诊断/门禁按「未知」
                 # 处理，不等于 blocked，因此不额外拦截。
@@ -862,14 +847,7 @@ def _main_impl(
             or str(profile_cfg.get("mode", "")).strip().lower() == "autonomous"
         )
         cloud_policy = _option_value(argv[2:], "--cloud-sync") or profile_cfg.get("cloud_sync")
-        # [BEGIN DEV_ONLY: DEV_MODE_CLOUD_LOCAL]
-        if dev_mode_requested and not cloud_policy:
-            # 开发模式默认本地：无登录态的新机器上强制 sync 会被云端门禁判成
-            # BLOCKED（绝对阻断），"极速"反而起不来。显式 --cloud-sync sync
-            # 或项目/全局配置仍是同步的唯一入口，与 --dev 帮助文案
-            # 「使用本地/显式云同步」保持一致。
-            cloud_policy = "local"
-        # [END DEV_ONLY: DEV_MODE_CLOUD_LOCAL]
+        # (dev-only harness stripped for stable release)
         onboarding_result = startup_cloud_onboarding(
             cloud_policy, autonomous=autonomous_mode,
         )

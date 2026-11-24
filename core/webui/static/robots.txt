@@ -1,0 +1,36 @@
+# robots.txt for BugX WebUI & Public Interface
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /private/
+
+# Explicitly Allow Major Search Bots and Generative AI Answer Engines
+User-agent: Googlebot
+Allow: /
+
+User-agent: Baiduspider
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+# Sitemap Location
+Sitemap: https://bugx.dev/sitemap.xml

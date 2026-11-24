@@ -33,7 +33,7 @@ positional arguments:
     config              设置本地 BugX 隐私与遥测配置
     daemon              BugX 自治持续挖掘常驻守护进程管理
     autonomous          显式启动 Claude Code/Codex/OpenCode/DeepSeek
-                        Harness/Pi/Cline/ZCode 前台无人值守挖掘
+                        Harness/Pi/Kimi Code/Cline/ZCode 前台无人值守挖掘
     goal                目标导向无人值守自治挖掘与长程自愈循环
     supervisor          本地监督 MCP：install / status / rpc；带外动作：reset-budget /
                         recover / rebind-target / gate / findings

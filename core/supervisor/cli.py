@@ -41,9 +41,9 @@ _RPC_CLIENT_INFO: Mapping[str, object] = {
 
 try:
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(line_buffering=True)
+        sys.stdout.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
 except (AttributeError, ValueError):
     pass
 

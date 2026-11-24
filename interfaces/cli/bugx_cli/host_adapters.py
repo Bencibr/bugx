@@ -221,10 +221,17 @@ def add_locale_marker(content: str, locale: str | None) -> str:
     file.  The marker is intentionally placed after that metadata block so it
     remains an inert HTML comment while preserving host discovery semantics.
     """
-    if not locale:
+    loc = (locale or "").strip()
+    if not loc:
+        try:
+            import core.i18n as i18n
+            loc = i18n.resolve_locale().resolved_locale
+        except Exception:
+            pass
+    if not loc:
         return content
     content = strip_locale_marker(content)
-    normalized = str(locale).strip() or "en-US"
+    normalized = loc or "en-US"
     marker = f"<!-- bugx-locale: {normalized} -->\n"
     if content.startswith("---\n"):
         closing = content.find("\n---", 4)
@@ -521,6 +528,8 @@ def _claude_app_markers() -> tuple[Path, ...]:
         relative_paths = (
             "Claude/Claude.exe",
             "Programs/Claude/Claude.exe",
+            "Program Files/Claude/Claude.exe",
+            "Program Files (x86)/Claude/Claude.exe",
         )
         for base in bases:
             markers.extend(base / rel for rel in relative_paths)
@@ -529,6 +538,50 @@ def _claude_app_markers() -> tuple[Path, ...]:
             home / ".local" / "share" / "applications" / "claude.desktop",
             Path("/usr/bin/claude-desktop"),
             Path("/opt/Claude/claude"),
+        ))
+    return tuple(dict.fromkeys(markers))
+
+
+def _kimi_app_markers() -> tuple[Path, ...]:
+    """Return well-known Kimi desktop application locations."""
+    home = Path.home()
+    markers: list[Path] = []
+    if platform.system() == "Darwin":
+        markers.extend((
+            Path("/Applications/Kimi.app"),
+            Path("/Applications/Kimi Code.app"),
+            home / "Applications" / "Kimi.app",
+            home / "Applications" / "Kimi Code.app",
+            home / "Library" / "Application Support" / "kimi-desktop",
+            home / "Library" / "Application Support" / "Kimi Code",
+        ))
+    elif platform.system() == "Windows":
+        bases = [
+            Path(value) for variable in
+            ("LOCALAPPDATA", "APPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)")
+            if (value := os.environ.get(variable))
+        ]
+        bases.extend(_windows_drive_roots())
+        relative_paths = (
+            "Kimi/Kimi.exe",
+            "kimi-desktop/Kimi.exe",
+            "Kimi Code/Kimi Code.exe",
+            "Programs/Kimi/Kimi.exe",
+            "Programs/kimi-desktop/Kimi.exe",
+            "Programs/Kimi Code/Kimi Code.exe",
+            "Program Files/Kimi Code/Kimi Code.exe",
+            "Program Files (x86)/Kimi Code/Kimi Code.exe",
+        )
+        for base in bases:
+            markers.extend(base / rel for rel in relative_paths)
+    else:
+        markers.extend((
+            home / ".local" / "share" / "applications" / "kimi.desktop",
+            home / ".local" / "share" / "applications" / "kimi-code.desktop",
+            Path("/usr/bin/kimi-desktop"),
+            Path("/usr/bin/kimi-code"),
+            Path("/opt/Kimi/kimi"),
+            Path("/opt/Kimi Code/kimi-code"),
         ))
     return tuple(dict.fromkeys(markers))
 
@@ -619,12 +672,22 @@ def _trea_app_markers() -> tuple[Path, ...]:
             "Programs/trae/Trae.exe",
             "Trae/Trae.exe",
             "trae/Trae.exe",
+            "Program Files/Trae/Trae.exe",
+            "Program Files (x86)/Trae/Trae.exe",
+            "Program Files/trae/Trae.exe",
+            "Program Files (x86)/trae/Trae.exe",
             "Programs/Trae CN/Trae CN.exe",
             "Programs/Trae CN/trae-cn.exe",
             "Programs/Trae CN/Trae.exe",
             "Trae CN/Trae CN.exe",
             "Trae CN/trae-cn.exe",
             "Trae CN/Trae.exe",
+            "Program Files/Trae CN/Trae CN.exe",
+            "Program Files (x86)/Trae CN/Trae CN.exe",
+            "Program Files/Trae CN/trae-cn.exe",
+            "Program Files (x86)/Trae CN/trae-cn.exe",
+            "Program Files/Trae CN/Trae.exe",
+            "Program Files (x86)/Trae CN/Trae.exe",
         )
         for base in bases:
             markers.extend(base / rel for rel in relative_paths)
@@ -1202,6 +1265,7 @@ CAP_GLOBAL_AGENT_LINK = "global-agent-link"          # 注册用户级全局 age
 CAP_GLOBAL_SKILL_LINK = "global-skill-link"          # 注册用户级全局 skill 链接
 CAP_NATIVE_MCP_CONFIG = "native-mcp-config"          # 需要写宿主原生项目/工作区 MCP 容器
 CAP_USER_AGENT_REGISTRATION = "user-agent-registration"  # 需要用户级子智能体注册
+CAP_USER_LEVEL_PLUGIN = "user-level-plugin"          # 需要写用户级 Plugin V1 包
 CAP_USER_LEVEL_ARTIFACT = "user-level-artifact"      # 需要写用户级 Skill / Connector 产物
 CAP_WORKSPACE_MIRROR = "workspace-mirror"            # 支持工作区同构镜像（如 Roo Code .roo）
 #: 需要把入口额外镜像到本宿主的**变体目录**（如 Trae 的 .trae / .trae-cn）。
@@ -1213,6 +1277,8 @@ HOST_NAME_ZCODE = "zcode"
 HOST_NAME_CLAUDE = "claude"
 HOST_NAME_QODER = "qoder"
 HOST_NAME_FUNIDE = "funide"
+HOST_NAME_KIMI = "kimi"
+HOST_NAME_MINIMAX = "minimax"
 
 
 @dataclass(frozen=True)
@@ -1283,6 +1349,8 @@ class HostAdapter:
         if self.supports(CAP_EXTENSION_PAYLOAD):
             return ["skill", "extension"]
         if self.supports(CAP_DISTRIBUTION_PLUGIN):
+            return ["plugin"]
+        if self.supports(CAP_USER_LEVEL_PLUGIN):
             return ["plugin"]
         return ["entry"]
 
@@ -1440,6 +1508,70 @@ class ClaudeAdapter(HostAdapter):
     ) -> dict[str, object] | None:
         from .commands.plugin_claude import _ensure_claude_user_agents
         return _ensure_claude_user_agents(root, source, locale=locale)
+
+
+class KimiAdapter(HostAdapter):
+    """Kimi Code CLI & Desktop adapter."""
+
+    def _app_markers(self) -> tuple[Path, ...]:
+        return _kimi_app_markers()
+
+    def _user_marker(self) -> bool:
+        configured = os.environ.get("KIMI_CODE_HOME")
+        kimi_home = (
+            Path(configured).expanduser()
+            if configured and configured.strip()
+            else Path.home() / ".kimi-code"
+        )
+        return kimi_home.is_dir()
+
+    def render_required_entry(
+        self, relative: str, source: Path, *, locale: str | None = None,
+    ) -> str | None:
+        if relative.endswith("bugx-worker.md"):
+            return render_claude_worker_entry(locale=locale)
+        return None
+
+    def ensure_user_agents(
+        self, root: Path, source: Path, *, locale: str | None = None,
+    ) -> dict[str, object] | None:
+        from .commands.plugin_kimi import _ensure_kimi_plugin
+        return _ensure_kimi_plugin(root, source, locale=locale)
+
+
+class MiniMaxAdapter(HostAdapter):
+    """MiniMax Code desktop Plugin V1 adapter."""
+
+    def _app_markers(self) -> tuple[Path, ...]:
+        plugin = engine_host_plugin(self.name)
+        marker_factory = plugin.identity.app_markers
+        return tuple(marker_factory()) if marker_factory is not None else ()
+
+    def _user_marker(self) -> bool:
+        configured = os.environ.get("MINIMAX_DATA_DIR")
+        data_dir = (
+            Path(configured).expanduser()
+            if configured and configured.strip()
+            else Path.home() / ".minimax"
+        )
+        return (
+            data_dir / "plugins" / "bugx" / ".minimax-plugin" / "plugin.json"
+        ).is_file()
+
+    def _project_marker(self, root: Path) -> bool:
+        if self._user_marker():
+            return True
+        return super()._project_marker(root)
+
+    @property
+    def installed_components(self) -> list[str]:
+        return ["plugin", "agent", "worker", "skill", "mcp"]
+
+    def ensure_user_agents(
+        self, root: Path, source: Path, *, locale: str | None = None,
+    ) -> dict[str, object] | None:
+        from .commands.plugin_minimax import _ensure_minimax_plugin
+        return _ensure_minimax_plugin(root, source, locale=locale)
 
 
 class ZCodeAdapter(HostAdapter):
@@ -1624,6 +1756,14 @@ class TreaAdapter(HostAdapter):
         info = super().detect(root)
         home = Path.home()
         variants: list[str] = []
+        app_markers = self._app_markers()
+        cn_app_markers = tuple(
+            marker for marker in app_markers
+            if any(token in str(marker).casefold() for token in ("trae cn", "trae-cn"))
+        )
+        global_app_markers = tuple(
+            marker for marker in app_markers if marker not in cn_app_markers
+        )
 
         cn_paths = [
             Path("/Applications/Trae CN.app"),
@@ -1632,7 +1772,11 @@ class TreaAdapter(HostAdapter):
             home / "Library" / "Application Support" / "Trae CN",
             root / ".trae-cn",
         ]
-        if shutil.which("trae-cn") or any(p.exists() for p in cn_paths):
+        if (
+            shutil.which("trae-cn")
+            or any(p.exists() for p in cn_paths)
+            or any(p.exists() for p in cn_app_markers)
+        ):
             variants.append("trae-cn")
 
         global_paths = [
@@ -1643,7 +1787,11 @@ class TreaAdapter(HostAdapter):
             root / ".trae",
             root / ".trea",
         ]
-        if shutil.which("trae") or any(p.exists() for p in global_paths):
+        if (
+            shutil.which("trae")
+            or any(p.exists() for p in global_paths)
+            or any(p.exists() for p in global_app_markers)
+        ):
             variants.append("trae")
 
         info["detected_variants"] = variants
@@ -1654,8 +1802,9 @@ class TreaAdapter(HostAdapter):
             if cn_exe:
                 info["executable"] = cn_exe
             else:
-                for marker in self._app_markers():
-                    if "trae-cn" in marker.name and marker.is_file():
+                for marker in app_markers:
+                    marker_name = marker.name.casefold()
+                    if ("trae-cn" in marker_name or "trae cn" in marker_name) and marker.is_file():
                         info["executable"] = str(marker)
                         break
         return info
@@ -1824,6 +1973,10 @@ HOST_ADAPTERS: tuple[HostAdapter, ...] = (
     # ZCodeAdapter 只保留 CLI 侧行为覆写。引擎快照不可用时跳过（见
     # _plugin_backed_adapters：全新机器上必须先能启动 bugx init）。
     *_plugin_backed_adapters(ZCodeAdapter),
+    # DOC-239：声明字段全部来自引擎插件（core/hosts/kimi.py）。
+    *_plugin_backed_adapters(KimiAdapter),
+    # MiniMax Code 桌面端通过 Plugin V1 注册 Agent、Skill 与 MCP。
+    *_plugin_backed_adapters(MiniMaxAdapter),
     WorkBuddyAdapter(
         "workbuddy", "WorkBuddy AI", "workbuddy", ".workbuddy",
         WORKBUDDY_PROJECT_PATHS[0], "skill", WORKBUDDY_PROJECT_PATHS,

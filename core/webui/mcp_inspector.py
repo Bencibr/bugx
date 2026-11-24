@@ -958,6 +958,12 @@ def toggle_project_mcp(
 
     res = inspect_workspace_mcp(ws)
     res["ok"] = True
+    if mount:
+        res["session_restart_required"] = True
+        res["restart_guidance"] = (
+            "项目 MCP 配置已更新至 .mcp.json。宿主进程（VS Code / Cursor / Windsurf / Claude 等）"
+            "不支持动态热重载，必须【重载窗口 / 重启宿主会话】方可生效。"
+        )
     res["sandbox_env_path"] = str(_sandbox_env_file(ws))
     return res
 

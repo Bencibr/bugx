@@ -18,6 +18,7 @@ from ..common import (
     _backup_host_resource,
     _i18n_exc,
     _i18n_prompt,
+    _remove_tree_force,
     _resolve_locale_name,
     get_build_id,
 )
@@ -133,9 +134,21 @@ def _claude_desktop_session_dirs() -> list[Path]:
 def _claude_skill_description(locale: str | None = None) -> str:
     """Return localized description for Claude skill."""
     loc = _resolve_locale_name(locale)
+    fallback = (
+        "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，"
+        "减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；"
+        "确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。"
+    ) if loc.startswith("zh") else (
+        "BugX is an autonomous code review and testing agent designed to safeguard software delivery: "
+        "it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; "
+        "automates black-box, functional, and performance testing across complex edge cases for QA; "
+        "and ensures software strictly meets functional requirements with rock-solid stability and resilience. "
+        "By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, "
+        "elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people."
+    )
     return _i18n_prompt(
         "plugin.claude_skill_description",
-        "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。",
+        fallback,
         locale=loc,
     )
 
@@ -247,9 +260,9 @@ def _claude_user_agent_content_worker(*, locale: str | None = None) -> str:
 
 _DEFAULT_CLAUDE_SKILL_CONTENT = """---
 name: bugx
-description: 专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。
+description: BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。
 metadata:
-  bugx_version: "${BUGX_VERSION}"
+  bugx_version: "0.1.3"
 ---
 <!-- bugx-locale: zh-CN -->
 
@@ -257,7 +270,7 @@ metadata:
 
 BugX Claude Skill 镜像。执行前用 `bugx engine path --name AGENT_GUIDE.md` 和 `bugx engine path --name bugx.md` 读取全局协议；项目 `.bugx/` 只保存状态与配置。
 
-协议镜像版本：${BUGX_VERSION}
+协议镜像版本：0.1.3
 
 ## Claude 原生交互适配（强制）
 
@@ -364,7 +377,7 @@ def _claude_plugin_manifest() -> dict[str, object]:
     return {
         "name": "bugx",
         "version": __version__,
-        "description": "Autonomous code review and vulnerability hunting agent that uncovers, reproduces, and fixes deep bugs.",
+        "description": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
         "author": {
             "name": "BugX",
             "url": "https://bugx.dev",
@@ -612,13 +625,14 @@ def _build_claude_desktop_packages(
     skill_bytes = skill_buf.getvalue()
 
     # 构建 in-memory dxt zip (Claude Desktop Extension)
+    plugin_desc = _claude_skill_description(locale=locale)
     dxt_manifest = {
         "manifest_version": "0.4",
         "name": "bugx",
         "display_name": "BugX",
         "version": __version__,
         "bugx_build_id": get_build_id(),
-        "description": "专注于代码质量与安全的自主审查智能体。专为深层缺陷排查而生——在功能写完、提 PR 或排查疑难 Bug 时，它能深入分析代码逻辑，自动编写测试用例，挖掘、复现Bug和漏洞，生成经过验证的修复补丁。随时为您的代码质量和代码安全把关。",
+        "description": plugin_desc,
         "author": {
             "name": "BugX",
             "url": "https://bugx.dev",
@@ -1172,7 +1186,7 @@ def _remove_claude_project_skills_and_dist(
     project_skill = root / ".claude" / "skills" / "bugx"
     if project_skill.is_dir() and not project_skill.is_symlink():
         try:
-            shutil.rmtree(project_skill)
+            _remove_tree_force(project_skill)
             removed.append(f"{project_skill}（项目级 Claude Skill）")
         except OSError as exc:
             preserved.append(f"{project_skill}（删除失败：{exc}）")
@@ -1194,7 +1208,7 @@ def _remove_claude_user_skills(
     user_skill = _claude_user_skills_dir() / "bugx"
     if user_skill.is_dir() and not user_skill.is_symlink():
         try:
-            shutil.rmtree(user_skill)
+            _remove_tree_force(user_skill)
             removed.append(f"{user_skill}（Claude 用户级 Skill）")
         except OSError as exc:
             preserved.append(f"{user_skill}（删除失败：{exc}）")
@@ -1202,7 +1216,7 @@ def _remove_claude_user_skills(
     host_manual = _claude_user_skills_dir() / "bugx-claude"
     if host_manual.is_dir() and not host_manual.is_symlink():
         try:
-            shutil.rmtree(host_manual)
+            _remove_tree_force(host_manual)
             removed.append(f"{host_manual}（Claude 用户级宿主手册 Skill）")
         except OSError as exc:
             preserved.append(f"{host_manual}（删除失败：{exc}）")
@@ -1211,7 +1225,7 @@ def _remove_claude_user_skills(
         target = d_dir / "bugx"
         if target.is_dir() and not target.is_symlink():
             try:
-                shutil.rmtree(target)
+                _remove_tree_force(target)
                 removed.append(f"{target}（Claude 桌面端 Skill）")
             except OSError as exc:
                 preserved.append(f"{target}（删除失败：{exc}）")
@@ -1229,7 +1243,7 @@ def _remove_claude_user_skills(
         ext_dir = desktop_support / "Claude Extensions" / ext_id
         if ext_dir.is_dir() and not ext_dir.is_symlink():
             try:
-                shutil.rmtree(ext_dir)
+                _remove_tree_force(ext_dir)
                 removed.append(f"{ext_dir}（Claude 桌面端扩展）")
             except OSError as exc:
                 preserved.append(f"{ext_dir}（删除失败：{exc}）")
@@ -1319,7 +1333,7 @@ def _remove_claude_desktop_cowork_plugins(
         bugx_dir = local_marketplace / "bugx"
         if bugx_dir.is_dir() and not bugx_dir.is_symlink():
             try:
-                shutil.rmtree(bugx_dir)
+                _remove_tree_force(bugx_dir)
                 removed.append(f"{bugx_dir}（Claude 桌面端插件目录）")
             except OSError as exc:
                 preserved.append(f"{bugx_dir}（删除失败：{exc}）")
@@ -1394,7 +1408,7 @@ def _remove_claude_plugin_registry(
     cache_dir = plugins_dir / "cache" / "bugx"
     if cache_dir.is_dir() and not cache_dir.is_symlink():
         try:
-            shutil.rmtree(cache_dir)
+            _remove_tree_force(cache_dir)
             removed.append(f"{cache_dir}（Claude 插件缓存）")
         except OSError as exc:
             preserved.append(f"{cache_dir}（删除失败：{exc}）")

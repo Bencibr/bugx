@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <!-- 深暗底色渐变 -->
+    <radialGradient id="twBg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#111827" />
+      <stop offset="60%" stop-color="#0a0e17" />
+      <stop offset="100%" stop-color="#030712" />
+    </radialGradient>
+
+    <!-- 微点网格 -->
+    <pattern id="twGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="16" cy="16" r="1" fill="#374151" opacity="0.4" />
+    </pattern>
+
+    <!-- 柔和发光 -->
+    <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="glowRed" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <linearGradient id="vsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+  </defs>
+
+  <!-- 1. 背景 -->
+  <rect width="1200" height="675" fill="url(#twBg)" />
+  <rect width="1200" height="675" fill="url(#twGrid)" />
+
+  <!-- 顶部主标 -->
+  <g transform="translate(600, 65)" text-anchor="middle">
+    <text y="0" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" letter-spacing="-0.5">
+      AI-GENERATED CODE REVIEW
+    </text>
+    <text y="32" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="500">
+      Vibe-based "LGTM" vs. Reproducible Proof
+    </text>
+  </g>
+
+  <!-- 2. 左侧面板：普通的 AI 盲目审查 (The Flattery) -->
+  <g transform="translate(70, 140)">
+    <!-- 卡片背景 -->
+    <rect width="490" height="420" rx="16" fill="#131c2e" stroke="#1e293b" stroke-width="1.5" />
+    
+    <!-- 顶部状态栏 -->
+    <rect width="490" height="44" rx="16" fill="#0f172a" />
+    <circle cx="28" cy="22" r="6" fill="#ef4444" opacity="0.8" />
+    <circle cx="48" cy="22" r="6" fill="#f59e0b" opacity="0.8" />
+    <circle cx="68" cy="22" r="6" fill="#10b981" opacity="0.8" />
+    <text x="96" y="27" fill="#64748b" font-family="monospace" font-size="13">Standard LLM Review</text>
+
+    <!-- 标签：Sycophancy -->
+    <rect x="360" y="10" width="115" height="24" rx="12" fill="#10b981" fill-opacity="0.15" />
+    <text x="417" y="26" text-anchor="middle" fill="#34d399" font-family="sans-serif" font-size="11" font-weight="700">NAIVE PASS</text>
+
+    <!-- AI 回复气泡 -->
+    <g transform="translate(30, 75)">
+      <!-- 机器人头像 -->
+      <circle cx="25" cy="25" r="22" fill="#10b981" fill-opacity="0.2" stroke="#10b981" stroke-width="2" />
+      <text x="25" y="32" text-anchor="middle" font-size="20">🤖</text>
+      <text x="65" y="24" fill="#f1f5f9" font-family="-apple-system, sans-serif" font-size="15" font-weight="700">Chatbot Reviewer</text>
+      <text x="65" y="44" fill="#64748b" font-family="-apple-system, sans-serif" font-size="12">Text-only guesswork</text>
+
+      <!-- 对话框 -->
+      <rect x="0" y="65" width="430" height="235" rx="12" fill="#0b1120" stroke="#334155" stroke-dasharray="4 4" />
+      
+      <text x="24" y="105" fill="#34d399" font-family="sans-serif" font-size="16" font-weight="700">
+        "Looks great! No issues found. 🚀"
+      </text>
+
+      <text x="24" y="145" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="13.5" line-height="22">
+        <tspan x="24" dy="0">• Code is clean and readable.</tspan>
+        <tspan x="24" dy="24">• Proper error handling is in place.</tspan>
+        <tspan x="24" dy="24">• Nit: rename a few variables for clarity.</tspan>
+        <tspan x="24" dy="32" fill="#f87171" font-weight="600">⚠ Reality: Never ran the code once.</tspan>
+        <tspan x="24" dy="20" fill="#64748b" font-size="12">  (Missed context leak &amp; pool deadlock)</tspan>
+      </text>
+
+      <!-- 假安全印章 -->
+      <g transform="translate(260, 225) rotate(-8)">
+        <rect width="140" height="38" rx="8" fill="#10b981" fill-opacity="0.15" stroke="#10b981" stroke-width="2" />
+        <text x="70" y="25" text-anchor="middle" fill="#34d399" font-family="sans-serif" font-size="15" font-weight="900" letter-spacing="1">✓ LGTM</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- 中间 VS 徽标 -->
+  <g transform="translate(600, 350)">
+    <circle cx="0" cy="0" r="28" fill="#0f172a" stroke="url(#vsGrad)" stroke-width="2.5" />
+    <text x="0" y="7" text-anchor="middle" fill="#f8fafc" font-family="-apple-system, sans-serif" font-size="16" font-weight="900">VS</text>
+  </g>
+
+  <!-- 3. 右侧面板：BugX 真实的红队证伪断言 (The Truth) -->
+  <g transform="translate(640, 140)">
+    <!-- 卡片背景（带微红光晕） -->
+    <rect width="490" height="420" rx="16" fill="#18141f" stroke="#e11d48" stroke-opacity="0.6" stroke-width="1.8" />
+    
+    <!-- 顶部状态栏 -->
+    <rect width="490" height="44" rx="16" fill="#1f1322" />
+    <circle cx="28" cy="22" r="6" fill="#f43f5e" />
+    <circle cx="48" cy="22" r="6" fill="#f59e0b" opacity="0.8" />
+    <circle cx="68" cy="22" r="6" fill="#10b981" opacity="0.8" />
+    <text x="96" y="27" fill="#cbd5e1" font-family="monospace" font-size="13" font-weight="700">BugX Audit Agent</text>
+
+    <!-- 标签：Proof-based -->
+    <rect x="340" y="10" width="135" height="24" rx="12" fill="#ef4444" fill-opacity="0.2" />
+    <text x="407" y="26" text-anchor="middle" fill="#fda4af" font-family="sans-serif" font-size="11" font-weight="700">PoC CONFIRMED</text>
+
+    <!-- 真实的控制台终端内容 -->
+    <g transform="translate(24, 65)">
+      <!-- 终端窗口 -->
+      <rect width="442" height="325" rx="10" fill="#09050d" stroke="#331f3b" stroke-width="1" />
+      
+      <text x="20" y="35" fill="#f43f5e" font-family="monospace" font-size="13.5" font-weight="700">
+        [!] CRITICAL DEADLOCK DETECTED
+      </text>
+      <text x="20" y="58" fill="#94a3b8" font-family="monospace" font-size="12">
+        Ledger: 12 units scanned | 1 Fatal Flaw Found
+      </text>
+
+      <line x1="20" y1="74" x2="422" y2="74" stroke="#2a1b32" stroke-width="1" />
+
+      <!-- 可执行 PoC 命令行 -->
+      <text x="20" y="100" fill="#64748b" font-family="monospace" font-size="11.5">
+        # Reproduce with exact PoC command:
+      </text>
+      
+      <rect x="18" y="112" width="406" height="40" rx="6" fill="#1c0f24" stroke="#e11d48" stroke-opacity="0.4" stroke-width="1" />
+      <text x="30" y="137" fill="#fb7185" font-family="monospace" font-size="12" font-weight="600">
+        $ bugx probe exec --burst 50 --timeout 10ms
+      </text>
+
+      <!-- 崩溃复现输出 -->
+      <text x="20" y="178" fill="#cbd5e1" font-family="monospace" font-size="12">
+        Evidence Log:
+      </text>
+      <text x="20" y="200" fill="#ef4444" font-family="monospace" font-size="11.5">
+        ✖ Run 1: 504 Gateway Timeout (Pool Starved)
+      </text>
+      <text x="20" y="220" fill="#ef4444" font-family="monospace" font-size="11.5">
+        ✖ Run 2: 504 Gateway Timeout (Reproduced)
+      </text>
+      <text x="20" y="240" fill="#10b981" font-family="monospace" font-size="11.5">
+        ✔ Normal: 200 OK (Baseline verified)
+      </text>
+
+      <!-- 底部结论提示 -->
+      <rect x="20" y="265" width="402" height="40" rx="6" fill="#e11d48" fill-opacity="0.15" stroke="#e11d48" stroke-width="1" />
+      <text x="221" y="290" text-anchor="middle" fill="#fecdd3" font-family="-apple-system, sans-serif" font-size="13" font-weight="700">
+        No vibes. If we can't reproduce it, we don't report it.
+      </text>
+    </g>
+  </g>
+
+  <!-- 底部微标信息 -->
+  <g transform="translate(600, 620)" text-anchor="middle">
+    <text fill="#64748b" font-family="monospace" font-size="13">
+      Open-source Red-Team Audit Agent for Claude Code / Codex / CLI • https://bugx.dev
+    </text>
+  </g>
+</svg>

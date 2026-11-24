@@ -106,6 +106,11 @@ def _zcode_app_markers() -> tuple[Path, ...]:
             base / "Z.ai" / "ZCode" / "ZCode.exe",
             base / "Programs" / "ZCode" / "ZCode.exe",
             base / "Programs" / "Z.ai" / "ZCode.exe",
+            base / "Programs" / "Z.ai" / "ZCode" / "ZCode.exe",
+            base / "Program Files" / "ZCode" / "ZCode.exe",
+            base / "Program Files (x86)" / "ZCode" / "ZCode.exe",
+            base / "Program Files" / "Z.ai" / "ZCode" / "ZCode.exe",
+            base / "Program Files (x86)" / "Z.ai" / "ZCode" / "ZCode.exe",
         ))
     return tuple(markers)
 

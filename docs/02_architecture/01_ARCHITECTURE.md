@@ -1,6 +1,6 @@
 # BugX 架构总览
 
-> **版本**: 0.1.2+build.11 | **更新日期**: 2026-11-23 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
+> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
 > 本文是 BugX 生产源仓的设计入口：一张图看懂分层、框架与数据流。面向使用、集成与二次开发的工程师。
 
 > [!IMPORTANT]
@@ -41,9 +41,10 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  宿主层（9 个 AI 宿主，宿主中立）                                  │
-│  OpenCode · Codex · Cline · Claude Code · ZCode · WorkBuddy AI · │
-│  Pi · ChatGPT 桌面 · DeepSeek Harness                             │
+│  宿主层（14 个 AI 宿主，宿主中立）                                 │
+│  OpenCode · Codex · Cline · Claude Code · ZCode · MiniMax Code · │
+│  WorkBuddy AI · Pi · ChatGPT 桌面 · DeepSeek Harness · Qoder · │
+│  Trae · FunIDE                                                    │
 │  每个宿主一份原生入口（Agent/Skill/Plugin/Connector），行为由协议单源渲染 │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ 宿主 Agent 按 `core/bugx.md` 协议执行
@@ -300,7 +301,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    HOSTS[OpenCode / Codex / Claude / Cline / Pi / DSH / ZCode / WorkBuddy / ChatGPT]
+    HOSTS[OpenCode / Codex / Claude / Cline / Pi / DSH / ZCode / MiniMax Code / WorkBuddy / ChatGPT]
     HOSTS --> LOG[bugx_logging.py]
     LOG --> LOCK[.bugx/logs/bugx.jsonl.lock]
     LOCK --> WIN[Windows: msvcrt 非阻塞重试]
@@ -309,6 +310,59 @@ flowchart LR
     CAND -->|未命中| PROC[Windows PowerShell 或 Linux /proc 进程反查]
 ```
 
+### 2.3 宿主逐平台安装路径与注册契约（2026-11-24）
+
+宿主适配不能把一个平台的安装目录复制给另一个平台。安装器按宿主分别解析用户数据根、
+桌面应用候选和原生注册表，并把未知自定义目录限制在环境变量、配置文件、逻辑盘固定候选或
+运行中进程这四类有界来源内；禁止全盘递归扫描。
+
+| 宿主组 | Windows | macOS | Linux | 失败语义 |
+| --- | --- | --- | --- | --- |
+| Kimi Code | `KIMI_CODE_HOME` 或 `%USERPROFILE%\\.kimi-code`；`Kimi Code.exe`、非系统盘逻辑驱动器与 CLI 后缀候选 | `KIMI_CODE_HOME` 或 `~/.kimi-code`；应用包候选 | `KIMI_CODE_HOME` 或 `~/.kimi-code`；桌面入口/PATH 候选 | 当前根不存在或注册表损坏即阻断 |
+| Claude / Cline / Qoder | 用户级 `~/.claude`、`~/.cline`、`~/.qoder`；应用候选按逻辑盘 | 同一用户级根 + `Library/Application Support` | 同一用户级根 + XDG/PATH | 注册回执为空即阻断 |
+| ZCode / Trae | `storage.dir`、逻辑盘 `Program Files` 候选；Trae 变体显式识别 | 应用包 + `Library/Application Support` | XDG、桌面入口、PATH | 配置路径不是绝对可解析路径时拒绝猜测 |
+| WorkBuddy / FunIDE / DSH | `APPDATA`、`LOCALAPPDATA`、受控进程/ASAR 候选 | 应用包和用户数据根 | XDG、`/proc` 或 PATH | 不支持的 Desktop 管理动作保持 staged/blocked |
+| OpenCode / Codex / Pi / ChatGPT | 项目配置、MSIX 和固定用户目录候选 | 原生应用及用户配置 | XDG/PATH/桌面入口 | 不以 CLI 退出 0 冒充宿主加载成功 |
+
+Kimi Code 1.4.x 的当前注册时序为：
+
+```mermaid
+sequenceDiagram
+    participant I as BugX Installer
+    participant K as KIMI_CODE_HOME
+    participant R as plugins/installed.json
+    participant H as Kimi Code
+    I->>K: 写 managed/bugx/kimi.plugin.json、agents、skills、icon
+    I->>R: upsert id=bugx、root=managed/bugx、enabled=true
+    I->>I: 校验 manifest、root 与 registry，空回执/坏 JSON 失败关闭
+    H->>R: 读取启用记录
+    H->>K: 加载 managed/bugx
+```
+
+旧 `daimon-share`、`plugin-meta.json` 和个人市场文件不属于当前 Kimi Code 读取面，不能作为
+跨平台回退路径；Kimi 的 managed 注册也不复用 ZCode 专用的 `distribution-plugin` 分支。
+宿主真机验收仍需按 Windows、macOS、Linux 分别提供实际加载证据；本轮已完成
+Windows 真实安装事实与非系统盘识别，macOS/Linux 仍只有路径契约证据。
+
+
+MiniMax Code 3.1.0 的注册时序为：
+
+    sequenceDiagram
+        participant I as BugX Installer
+        participant D as ~/.minimax
+        participant P as plugins/bugx
+        participant M as MiniMax Code
+        I->>D: resolve bounded user data root
+        I->>P: write Plugin V1 manifest, Agents, Skill, MCP and icons
+        P-->>I: return structured receipt
+        M->>P: discover .minimax-plugin/plugin.json
+        M->>P: load bugx and bugx-worker Agents
+        M->>P: load servers.mcp.json and icon.png
+        M-->>I: reload/load/call/healthy evidence is required separately
+
+MiniMax 的包路径、Agent frontmatter 和 MCP schema 来自已安装 Electron 包内的
+local-plugin-v1 与 local-plugin-agents reference；BugX 只声明已验证的桌面插件面，
+不声明未取证的 mcode headless flag 或标准 ACP。
 
 ## 3. 主数据流（一次审计的生命周期）
 
@@ -352,6 +406,10 @@ Worker 若实际复用 pattern 必须在最终 Finding 回填 `pattern_id`，若
 完成/安全停止时提交，`none` 归一为 `manual` 并登记 `manual_pending`。提交只包含项目
 相对 HEAD 的用户变更，排除 `.bugx/` 运行态、宿主适配目录和 `__pycache__/`、`.pyc/.pyo`
 生成物；Git 失败时记录 `commit_status=pending`，post 继续完成，启动或下一边界自动重试；核心引擎不隐式执行远端 push。
+
+### 项目级用户 Skill
+
+`bugx init` 从安装资产根的同级 `skills/platform/bugx-user/SKILL.md` 读取用户 Skill。源码、wheel 及 npm 保持相同的资产相对路径，sdist 与生产导出包含同一模板。项目目标固定为 `.agents/skills/bugx-user/SKILL.md`。初始化预检拒绝缺失模板和不安全目标，提交阶段复用已有的受管文件原子写入和备份逻辑。
 
 ### 2.1 安装事务与 Windows 宿主目录边界
 
@@ -1212,10 +1270,18 @@ sequenceDiagram
 
 DSH UI 图标加载链路与 Agent preset 分离：`ecosystem/integrations/dsh/ui` 是同时声明
 `dsh.bundle`/`dsh.client` 的最小包，安装时复制到 `~/.dsh/plugins/bugx-ui`，再由
-`dsh plugin --profile web add` 写入 web profile 的依赖与 bundle 列表；`client.js` 在
-`sidebarRightTabs` 注册 `guide.icon`。WorkBuddy 的图标链路则是项目级
+确认属于 DSH Desktop 的 launcher 才调用 `dsh plugin --profile web add` 写入 web profile
+的依赖与 bundle 列表；普通 npm/Python launcher 只保留 `staged` 包，不执行插件管理子进程，
+避免 Windows CLI 崩溃。`client.js` 在 `sidebarRightTabs` 注册 `guide.icon`。WorkBuddy 的图标链路则是项目级
 `.workbuddy/connector/bugx/{connector-meta.json,icon.png,skills/}`，用于官方 Connector
 导入/上架，运行时 Skill 发现仍由用户级和项目级 Skill 路径负责。
+
+DSH Desktop 的 `app.asar` 探测保持有界：macOS 使用应用目录，Windows 使用
+`LOCALAPPDATA`、`PROGRAMFILES`、`PROGRAMFILES(X86)`、`PROGRAMW6432` 的
+`DeepSeek Harness/resources/app.asar` 固定候选。preset 包名优先按 asar 内置运行时判定；
+ASAR 头部递归匹配 `node_modules/@deepseek-ai/<package>`，兼容 Desktop 当前
+`files/dsh/files/node_modules` 嵌套布局；
+profile 中的 junction/符号链接目录先解析真实目标再判断，失效链接不会污染版本选择。
 
 DSH 路径解析与 UI/preset 同样分层：安装 checkout 只用于读取标准 preset，`DSH_HOME`
 只保存用户数据；两者不参与项目根推断。直接 `dsh web` 时，会话级 BugX MCP 读取当前
@@ -1254,9 +1320,9 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 同时验证 `coverage_complete=true` 与 `open_findings=[]`。
 
 依据系统发布与版本策略：本仓走
-`0.1.2-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
+`0.1.3-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
 `interfaces/cli/bugx_cli/__init__.py` 为唯一权威源，其余版本标记为引擎契约的功能性
-副本（doctor 依赖其一致性）。当前正式基线为 `0.1.2`。
+副本（doctor 依赖其一致性）。当前正式基线为 `0.1.3`。
 
 
 ## 7. 开发生命周期与设计文档同步门禁
@@ -1264,7 +1330,7 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 BugX 固化了“方案审计先行、定向测试守护、现有设计文档同步更新”的工程生命周期治理体系（由 `dev-doc` Skill 与 `scripts/dev_doc.py` 承载）：
 - **设计规划（plan）**：自动生成带 5 问逐条审计矩阵的 `DOC-XXX.md`，并强制注入现有核心设计文档更新清单（`02_DESIGN_SPEC.md`、`01_ARCHITECTURE.md`、`03_BUGX_AUDIT_FLOW.md`、`01_AI_REFERENCE.md`）；
 - **审计核验（check）**：核查所有设计项结论均为 `AUDITED_OK`，并在开发过程中实时提示现有设计文档的修改情况；
-- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.2`。
+- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.3`。
 
 ### 远程补丁验证数据流
 

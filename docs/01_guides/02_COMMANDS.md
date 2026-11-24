@@ -114,8 +114,9 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
               [--accept-data-sharing] [--privacy {standard,strict}]
 
 - --root 默认当前目录。
-- 非 TTY 中必须显式给出 --cloud-sync local|sync，除非 preset 已提供。
-- --force 更新受管理的静态 Agent 文件，不覆盖运行态。
+- 初始化成功时输出项目用户 Skill 路径 `.agents/skills/bugx-user/SKILL.md`。重复初始化保留已有普通文件，`--force` 更新不同内容前备份。路径含符号链接等重解析点，或安装包缺模板时返回错误。
+- 非 TTY 必须显式给出云同步策略，除非 preset 已提供。面向云端使用时，先确认账号和范围。`init --cloud-sync sync` 可能同步 global + project。按全量范围获得授权后再执行。
+- `--force` 刷新静态安装资产。不同内容的项目用户 Skill 会先备份。
 - 初始化可能清理旧项目级 .bugx/core 可执行布局；先确认目标目录。
 
 ### 4.3 dsh [W]
@@ -282,13 +283,16 @@ logic_command 只能是 validate、bind 或 bind-finding；--input 必填。
 
 ### 6.3 probe
 
-    bugx probe <probe_kind> [--root ROOT] [probe_args ...]
+    bugx probe [--root ROOT] [--timeout-seconds SECONDS] <probe_kind> [probe_args ...]
 
 probe_kind 必须为：
 
 efficiency、sast、mobile、ui、ios_binary、codebase-memory、platform、memory、pattern、differential、openwiki。
 
 其余 probe_args 由具体 probe 透传；probe 可能读取项目或产生 artifact，不应按纯 parser 查询处理。
+`--timeout-seconds` 是 BugX 外层子进程看护，不会改变探针内部的页面或动作超时；默认 120 秒，
+有效范围为 `(0, 1800]`。由于 probe 参数采用透传形式，该选项也可以放在 `<probe_kind>` 后，
+但会由 BugX 外层消费，不会传给具体探针。
 
 Web UI 审计使用同一 Python 环境安装 `bugx-cli[ui]`，再执行 `python3 -m playwright install chromium`。
 
@@ -528,7 +532,7 @@ status 在未初始化项目上可以执行有限的只读检查；其他动作�
     bugx cloud feedback [--lifecycle ID] [--run-id ID] [--project PROJECT]
                         [--limit N] [--dry-run] [--json]
 
-- cloud status 的 scope 默认 all，是本地同步状态查询，不主动登录或网络 store。
+- cloud status 的 scope 默认 all，读取本地 SyncStore 和绑定状态。服务端认证用 `auth status --verify --json`，字段 `auth_verified` 给出验证结果。
 - log-report 的 --tail-kb 默认 256、--kind 默认 `cli-diagnostics`，是显式网络 POST；不要把它当本地日志查看。
 - feedback 的 --run-id/--project 默认空，--limit 默认 100；--dry-run 只预览。
 - config 的选项互斥；修改 base URL、路由或版本检查是本地写入。
@@ -569,7 +573,7 @@ conflicts 的 action 默认 list，scope 默认 all，reason-filter 默认空；
 - `conflicts list` 和 `prune` 是本地队列治理；`resolve --side local` 保留本地方向，`resolve --side remote` 会联网拉取远端权威内容。`--all` 与单个 `CONFLICT_ID` 互斥，批量 remote 解决有实现上限，失败项应保持 open。
 - `dead-letter purge` 没有 `--confirm` 时只是预览；确认后先归档到 `.bugx/cloud-sync/dead-letter-archive-<timestamp>.json` 再删除已归档行。删除前必须保存 list/status 证据。
 - `cloud projects list|add` 会访问云端；`add` 会登记项目并写 `<ROOT>/.bugx/cloud-project.json`。绑定文件存在不等于知识同步或项目画像同步成功。
-- `cloud onboard on` 立即同步 global + project；`off` 只修改本地 onboarding 状态。若只授权项目范围，优先使用显式 `cloud sync --scope project`。
+- `cloud onboard on` 立即同步 global + project；`off` 只修改本地 onboarding 状态。标准同步路径需要授权项目登记与画像、项目知识和账号全局知识。
 
 ### 8.5 auth
 

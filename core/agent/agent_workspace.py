@@ -681,14 +681,26 @@ class AgentWorkspace:
 
     @staticmethod
     def _make_tree_removable(root: Path) -> None:
-        """Restore owner traversal/write bits without following symlinks."""
-        for current, directory_names, _file_names in os.walk(root, topdown=True, followlinks=False):
+        """Restore owner removal bits without following symlinks.
+
+        Windows treats a read-only file as undeletable even when its parent
+        directory is writable.  Directory-only chmod therefore leaves files
+        such as ``.gitattributes`` behind and makes ``shutil.rmtree`` fail
+        with ``PermissionError``.  Keep the existing symlink boundary and
+        restore only the owner write bit on regular files.
+        """
+        for current, directory_names, file_names in os.walk(root, topdown=True, followlinks=False):
             current_path = Path(current)
             for directory_name in directory_names:
                 child = current_path / directory_name
                 if child.is_symlink():
                     continue
                 os.chmod(child, (stat.S_IMODE(child.stat().st_mode) | 0o700) & 0o777)
+            for file_name in file_names:
+                child = current_path / file_name
+                if child.is_symlink():
+                    continue
+                os.chmod(child, (stat.S_IMODE(child.stat().st_mode) | stat.S_IWUSR) & 0o777)
         if root.is_dir() and not root.is_symlink():
             os.chmod(root, (stat.S_IMODE(root.stat().st_mode) | 0o700) & 0o777)
 

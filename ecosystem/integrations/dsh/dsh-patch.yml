@@ -1,6 +1,6 @@
 # DeepSeek Harness (dsh) preset — 由 `bugx install --agent dsh` 自动生成。
 # 将此文件复制到 ~/.dsh/.agent-presets/bugx/agent.cordis.yml
-# 并配合 preset.yml 即可在 Web UI 中选中 "BugX 深度审计" 预设。
+# 并配合 preset.yml 即可在 Web UI 中选中 "BugX 代码审查与智能测试" 预设。
 
 - id: agent-loop
   name: cordis:patch
@@ -8,7 +8,7 @@
     agents:
       - id: bugx
         name: bugx
-        description: "你的自动化代码安全体检专家。深度排查项目中隐藏的逻辑漏洞、鉴权越界与并发隐患，不仅找 Bug，更能自动生成复现验证与修复建议。适合在项目提测发版前、安全合规体检或排查疑难缺陷时开启；日常开发与普通交流不打扰。"
+        description: "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。"
         instructions: |
           在执行任何探索前，先通过 bugx engine path --name AGENT_GUIDE.md 和
           bugx engine path --name bugx.md 读取全局协议，

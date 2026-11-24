@@ -2,9 +2,9 @@
 title: BugX AI Host and Worker Reference
 audience: AI hosts and native agents
 status: DOCUMENTATION_UNVERIFIED
-version: ${BUGX_VERSION}
+version: 0.1.3
 protocol: MCP 2024-11-05
-server: bugx-supervisor ${BUGX_VERSION}
+server: bugx-supervisor 0.1.3
 last-verified: 2026-11-17
 ---
 
@@ -65,18 +65,21 @@ receipt final_state=COMPLETE + doctor success -> update COMPLETE
 ### 1.3 Host capability sets
 
     install_adapters =
-      chatgpt, claude, cline, codex, dsh, funide,
-      opencode, pi, qoder, trea, workbuddy, zcode
+      chatgpt, claude, cline, codex, dsh, funide, kimi,
+      minimax, opencode, pi, qoder, trea, workbuddy, zcode
 
     ready_engine_plugins =
-      opencode, codex, cline, dsh, claude, pi, zcode
+      opencode, codex, cline, dsh, claude, pi, zcode, kimi, minimax
 
-    acp_ready = cline, opencode
+    acp_ready = cline, kimi, opencode
     acp_todo = chatgpt, workbuddy, qoder, trea, funide
-    acp_unavailable = claude, codex, dsh, pi, zcode
+    acp_unavailable = claude, codex, dsh, pi, zcode, minimax
 
     autonomous_cli_choices =
-      claude, codex, opencode, dsh, pi, cline, zcode
+      claude, codex, opencode, dsh, pi, kimi, cline, zcode
+
+    desktop_registration =
+      claude, kimi, zcode, qoder, minimax
 
 autonomous host 选取不是独立事实表：baseline 五宿主来自 `AUTONOMOUS_HOST_BASELINE`
 （`interfaces/cli/bugx_cli/hosts/registry.py`），并自动追加声明了
@@ -84,6 +87,52 @@ autonomous host 选取不是独立事实表：baseline 五宿主来自 `AUTONOMO
 `bugx goal --host` 的 choices 均由 `autonomous_host_names()` 动态派生。pi 无原生 Task
 （native_task=False），自治走无头通道 `pi --approve -p <prompt> --mode json`
 （`core/hosts/pi.py` engine_run.autonomous_argv）。
+
+`desktop_registration` 宿主（claude、kimi、zcode、qoder、minimax）在执行 `bugx install` 时自动完成各自当前契约要求的用户级注册，无需用户在应用内手动点击安装。Kimi Code 1.4.x 的唯一注册面是
+`<KIMI_CODE_HOME>/plugins/managed/<id>` 与 `<KIMI_CODE_HOME>/plugins/installed.json`
+（未设置 `KIMI_CODE_HOME` 时为 `~/.kimi-code`）；旧 `daimon-share`、`plugin-meta.json` 和
+个人市场文件不是当前 Kimi Code 读取路径，安装器不再写入。Kimi 注册通过
+`interfaces/cli/bugx_cli/commands/plugin_kimi.py::_ensure_kimi_plugin` 实现，能力声明为
+`user-agent-registration`；Kimi 的 managed 插件注册由该宿主专用注册器完成，不能落入
+ZCode 专用的 `distribution-plugin` 分支（`core/hosts/kimi.py`）。
+
+MiniMax Code 3.1.0 的桌面 Plugin V1 注册面是
+%USERPROFILE%\\.minimax\\plugins\\bugx（测试/隔离时可用 MINIMAX_DATA_DIR），
+manifest 为 .minimax-plugin/plugin.json，Agent 清单为 agents/*.md，Skill 为
+skills/bugx/SKILL.md，MCP 为 servers.mcp.json，图标为经过校验的 icon.png（没有伪造
+darkIcon）。plugin_minimax.py 负责整包写入并返回结构化 receipt；MiniMax 的 Agent
+frontmatter 使用原生小写工具名，主 Agent 通过 `x-mavis.displayName: BugX` 统一显示，
+内部 `name: bugx` 和 Skill 预加载的 `bugx` 名称保持不变。MiniMax
+当前只声明桌面 Plugin/MCP/Agent 面，headless、自治 CLI 和标准 ACP 均保持未取证/不可用，
+不得把安装文件存在误报为宿主闭环。
+
+### 1.4 宿主逐平台路径审计（2026-11-24）
+
+本轮按宿主逐一检查 Windows、macOS、Linux 的用户级注册根、桌面应用候选和失败语义：
+
+| 宿主 | Windows | macOS | Linux | 结论 |
+| --- | --- | --- | --- | --- |
+| MiniMax Code | %USERPROFILE%\\.minimax\\plugins\\bugx；MiniMax Code.exe 与逻辑盘 Program Files 候选；Agent/Skill/MCP/图标整包 | ~/.minimax/plugins/bugx；应用包候选 | ~/.minimax/plugins/bugx；XDG/PATH 候选 | AUDITED_OK（安装契约；真实重载未验收） |
+| Kimi Code | `KIMI_CODE_HOME`/`%USERPROFILE%\\.kimi-code`；补齐 `Kimi Code.exe`、非系统盘逻辑驱动器与 `.exe/.cmd/.bat` CLI | `KIMI_CODE_HOME`/`~/.kimi-code`；补齐 `Kimi Code.app` 候选 | `KIMI_CODE_HOME`/`~/.kimi-code`；补齐 `kimi-code` 桌面候选 | `AUDITED_OK`（当前协议） |
+| Claude Code | `~/.claude`；补齐逻辑盘 `Program Files` 候选 | `~/.claude` + `~/Library/Application Support/Claude` | `~/.claude` + XDG/Claude 候选 | `AUDITED_OK` |
+| ZCode | `storage.dir` 现在接受 Windows 绝对路径；逻辑盘候选补齐 | `~/.zcode`/`storage.dir` | `~/.zcode`/`storage.dir` | `AUDITED_OK` |
+| Trae | 补齐 Trae/Trae CN 的逻辑盘 `Program Files` 候选与变体识别 | 应用包与 `~/Library/Application Support` | XDG 桌面入口与 PATH | `AUDITED_OK`（发现层） |
+| Cline / Qoder | 用户根 `~/.cline` / `~/.qoder`，不依赖盘符 | 同一用户根契约 | 同一用户根契约 | `AUDITED_OK` |
+| WorkBuddy / FunIDE | `APPDATA`、`LOCALAPPDATA`、数据目录覆盖和有界进程反查 | 应用包/用户数据目录 | XDG/`/proc` 受控反查 | `AUDITED_OK`（发现层） |
+| OpenCode / Codex / Pi / ChatGPT / DSH | 各自项目或受控用户配置；MSIX/DSH 候选不做全盘扫描 | 原生应用/用户配置候选 | PATH/XDG/桌面入口 | `AUDITED_OK`（路径静态审计） |
+
+所有声明 `user-agent-registration` 的适配器都必须返回结构化注册回执；返回空值会被安装事务直接阻断，不得再出现“命令成功但用户级插件未注册”的静默结果。当前轮实际运行环境为 Windows；Kimi Code 已完成实际 managed/installed 注册与项目 MCP 验收，macOS/Linux 的宿主真机闭环仍需各自宿主现场证据，不能由本表静态审计替代。
+
+DSH 安装契约补充：`ecosystem/integrations/dsh/ui` 始终先发布到
+`DSH_HOME/plugins/bugx-ui`。仅当 `dsh` launcher 位于已探测的 DSH Desktop 安装根下时，
+安装器才调用 `dsh plugin --profile web add`；普通 npm/Python launcher 的插件管理请求
+不得执行，失败时保持 `staged`，不影响 DSH Agent、Skill、MCP 或 preset。Windows Desktop
+运行时的 preset 名称优先从固定候选路径下的 `resources/app.asar` 头部读取；候选只包括
+`%LOCALAPPDATA%\Programs`、`%LOCALAPPDATA%`、`%PROGRAMFILES%`、`%PROGRAMFILES(X86)%`
+和 `%PROGRAMW6432%` 下的 `DeepSeek Harness` 目录，不做全盘扫描。
+ASAR 包名探测递归读取其 `files` 文件树，匹配任意层级的
+`node_modules/@deepseek-ai/<package>`，覆盖 Desktop 当前 `files/dsh/files/node_modules`
+布局；不能确认包名时不得猜测，回退到 profile 实际目录。
 
 这些集合不可互换。install adapter 不代表 engine plugin、ACP 或 autonomous CLI 可用。插件 ready 需要六面契约：identity、install、engine_run、worker_runtime、mcp_write、acp。ACP 状态含义：
 
@@ -207,7 +256,7 @@ Python API 的布尔字段仍按各自协议传递，不能把协议字段拼接
 
 帮助可通过 `bugx help <COMMAND> [ACTION]` 查询。显式项目根在业务分发前解析，重复的
 `--root` 会拒绝。引擎先校验结算参数，快照预览不创建 CLI 日志，报告共享策略由启动时
-的 `--report-policy` 决定。安装载荷缺失时通过显式的 `bugx update --repair-assets` 恢复。
+的 `--report-policy` 决定。安装载荷缺失时通过显式的 `bugx update --repair-assets` 恢复。项目缺失 `cloud-onboard.json` 时可通过 `bugx doctor --repair-assets` 自动自愈为本地模式，或显式执行 `bugx cloud onboard off`。CLI 输出端默认强制 UTF-8 编码与替代码保护，确保在 Windows GBK 及无终端管道下稳定运行；UI 视觉挖掘环境要求 Node >= 20。
 
 帮助调用 help、--help、-h 必须只读。pre/audit 明确拒绝 --allow-degraded；不要通过该参数请求静默降级。
 
@@ -253,7 +302,7 @@ No model text, Task print, `ready`, `claim`, or `pre` exit 0 can be reported as 
 autonomous contract：
 
     bugx autonomous --root <project>
-      --host {claude,codex,opencode,dsh,pi,cline,zcode}
+      --host {claude,codex,opencode,dsh,pi,kimi,cline,zcode}
       [--workers N] [--model MODEL] [--provider PROVIDER]
       [--max-turns N] [--max-wall-time SECONDS]
       [--agent-timeout SECONDS] [--coverage-manifest PATH]
@@ -290,7 +339,7 @@ report source 语义：
 
     protocolVersion: 2024-11-05
     serverName: bugx-supervisor
-    serverVersion: ${BUGX_VERSION}
+    serverVersion: 0.1.3
     hostHeartbeatIntervalSeconds: 5.0
     transport: local stdio
 
@@ -419,7 +468,9 @@ Shared tools：
 
 总工具数为 66。工具名存在不代表当前 role、Host、scope 或生命周期允许调用；role gate 和 claim epoch 始终优先。
 
-Web/UI 入口为 `bugx probe ui --root <项目> --url <URL>`。`manifest.json` 绑定项目根、
+Web/UI 入口为 `bugx probe [--timeout-seconds <秒>] ui --root <项目> --url <URL>`。
+外层看护默认 120 秒，允许显式设置到 1800 秒以内；它不替代页面/动作自己的超时。
+`manifest.json` 绑定项目根、
 run ID、Chromium、视口、原生缩放、截图哈希、axe-core 和场景结果。`dynamic-evidence.json`
 是版本化清单引用。Web 标准检查器回读哈希、截图和观测结果。`DESIGN.md` 的 `bugx-ui`
 提供 token、组件、对比度、重排、`journeys` 与 `keyboard`。`--journeys` 执行两类场景。
@@ -710,13 +761,15 @@ AI 不得猜测 data sharing consent、report policy、tooling choice、repair s
 | lesson feedback | `bugx cloud feedback` | 本地 feedback 的 lesson_id/outcome，最多 100，附可选 run/project | 当前项目/lifecycle filter | `--dry-run` 无网络；非 dry-run 单向 POST | dry-run 预览或 updated/missing、网络结果、退出码 |
 | bundle | `cloud export|upload` | export 生成的指定 V2 JSON bundle | export default project/full；upload 以输入 bundle scope 为准 | export 本地原子写；upload 网络并采用 snapshot、强制 baseline pull | bundle SHA-256 + snapshot_id/version + upload 后 status |
 
-知识同步的 `detail-mode=summary` 只是删除部分 pattern/incident 详情，不能当作“无业务内容”或“无敏感数据”。`sensitive_policy` 的值是 `block|redact|allow`；配置缺失时实现缺省 `allow`，所以 AI 在用户未选择策略时必须停下来询问，而不是静默上传原始记录。非默认策略的审计摘要在 `~/.bugx/logs/sync-policy-audit.jsonl`。
+知识同步的 `detail-mode=summary` 只是删除部分 pattern/incident 详情，不能当作“无业务内容”或“无敏感数据”。`sensitive_policy` 的值是 `block|redact|allow`；配置缺失时实现缺省 `redact`，`allow` 须显式设置。非 `allow` 策略的出网决策摘要在 `~/.bugx/logs/sync-policy-audit.jsonl`。
 
 遥测门禁统一由 `core/cloud_sync/consent.py:telemetry_enabled()` 裁决。未配置持久化值时默认 `true`；`bugx config set telemetry.data_sharing false` 会清空飞轮 outbox、停止本地统计写入，并让知识同步 push/pull 进入撤销态。持久化的 `false` 是硬撤销，不能用 `BUGX_TELEMETRY_ENABLED=1` 或调用方传入 `data_sharing=True` 绕过；该环境变量只在未持久化撤销时覆盖当前进程，非法值按关闭处理。`telemetry flush/upload` 关闭时不联网、返回 0 并打印已关闭；该 0 只表示安全跳过。普通 CLI 命令还会每日最多尝试一次安装/心跳事件，首次 `installed`、之后 `heartbeat`，通过同一 outbox 传输。
 
 AI 在用户要求“上传数据”时仍必须先分类并说明 telemetry 数据面；但不能把“未见用户逐次确认”误判为实现上的关闭，因为当前产品默认开启。用户明确要求不上传时，先执行 `bugx config set telemetry.data_sharing false` 或在当前进程设置 `BUGX_TELEMETRY_ENABLED=0`，再继续只读/本地路径。
 
 ### 10.2 Cloud state machine and recovery
+
+`bugx init` 从 CLI 发行资产安装 `.agents/skills/bugx-user/SKILL.md`，包括重新初始化已有项目的路径。普通初始化保留已有文件，`--force` 刷新不同内容前备份。用户上手以云登录、项目绑定、首轮推拉和经验复用为主线，见 [BugX 用户 Skill](../../skills/platform/bugx-user/SKILL.md)。仅当用户明确要离线才引导 Local。已有 `local` 先核对当前账号和授权，获得全量授权后再执行 `cloud sync --scope all`。只授权部分数据时拒绝该同步请求。同步包含 project 且成功时设置 `done`。认证验收看 `auth_verified=true`，同步验收看本次各层推拉和队列证据。初始化成功和 `onboarding=done` 都可早于本轮实际同步成功。
 
 AI 处理 cloud 命令时必须先执行以下只读分流：
 

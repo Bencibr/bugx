@@ -1,19 +1,19 @@
 {
   "name": "BugX",
-  "name_zh": "BugX 深度审计",
+  "name_zh": "BugX 代码审查与智能测试",
   "name_en": "BugX",
-  "description": "Use BugX to discover, reproduce, verify, and report real bugs.",
-  "description_zh": "使用 BugX 发现、复现、验证并报告真实漏洞。",
-  "description_en": "Use BugX to discover, reproduce, verify, and report real bugs.",
+  "description": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
+  "description_zh": "BugX 是一个具备自主代码审查与测试能力的智能体，严把代码交付关：它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能符合要求、具备良好的健壮性和稳定性。让开发和测试在繁琐的工作中解放双手，大幅提高工作效率、全面提升代码质量、显著降低后期维护成本，实现科技服务于人。",
+  "description_en": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
   "source": "bugx-agent",
   "type": "skill-only",
-  "version": "${BUGX_VERSION}",
+  "version": "0.1.3",
   "examples_zh": [
-    "检查这个项目中是否存在真实漏洞",
-    "复现并验证这个 BugX 发现的问题"
+    "运行代码审查，排查深层 Bug 与性能隐患",
+    "自动化运行功能验证与黑盒测试"
   ],
   "examples_en": [
-    "Audit this project for real bugs",
-    "Reproduce and verify the BugX finding"
+    "Run code review to uncover deep bugs and performance bottlenecks",
+    "Automate functional verification and black-box testing"
   ]
 }
