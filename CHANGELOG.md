@@ -6,19 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Note for Users**: For granular internal commit notes from previous alpha/patch development cycles, see the internal development records in `docs/08_internal/`.
 
-## [0.1.3] - 2026-11-24
+## [0.1.4] - 2026-11-25
 
 ### Added / 功能
-- **发版前 GitHub Issue 闭环强门禁**：新增 `scripts/check_release_issues.py`，发版前自动扫描 GitHub open issues 并核验修复状态；对未修复或未在 GitHub 关单的缺陷实行 Fail-Closed 阻断（退出码 1），杜绝带病发版。
-- **GitHub Releases 自动化创建规程**：规范化 `gh release create v<X.Y.Z>` 发布 SOP，强制全量挂载 Python Wheel 与 NPM TGZ 双包分发资产并绑定权威 Release Notes。
-- **项目级 MCP 配置变更后强制重启宿主门禁**：在 `bugx init`、`bugx doctor --repair-assets`、`bugx install --agent` 配置完成项目 MCP 后增加醒目的强制重启提示（CLI 警告块、pre 门禁检查、WebUI 弹窗引导），解决宿主旧 MCP 列表无法感知 BugX 的问题。
+- **文档服务远程优先与无感本地兜底 (Remote-First with Fallback)**：`bugx-docs` 全面重构为远程优先体系，默认直连官方端点，网络异常或离线模式毫秒级无感降级到本地缓存。
+- **问题与异常上报命令**：新增 `bugx issue report` 与 `feedback` 命令，支持本地安全脱敏打包与一键反馈。
+- **Antigravity 宿主原生支持**：支持 Antigravity 宿主运行时与 ACP 协议，提供插件一键安装管理。
+- **随包离线官方文档**：随包内置离线官方文档与场景速查手册，离线环境下支持快速检索。
 
 ### Changed / 优化
-- **版本号规范与正式版免 Build ID 机制**：全局基线版本升级至 `0.1.3`（33 处声明一致）；发新版本时 Build ID 重置为 `1`；正式版（Release / Stable 通道）`bugx --version` 仅输出纯语义版本（如 `bugx 0.1.3`），不携带 `+build.N`，仅 dev 模式下展示构建号。
-- **全平台中英文产品描述母语级对齐**：统一全生态各宿主插件（Kimi Code、MiniMax Code、OpenCode、DSH、README、manifest 等）产品标题为 `BugX`，母语级规范化中英文描述。
-- **UI 视觉挖掘 Node 版本要求放宽**：将 `core/runtime/setup_ui_env.py` 中的 `NODE_MIN_MAJOR` 放宽至 20（兼容 Node 20.x、22.x LTS 及 Node 24+ 等现代环境），彻底废除 `NODE_MAX_MAJOR` 人为上限拦截。
+- **全平台分支协同**：统一各分支代码基线，实现多端代码无缝对齐。
+- **CLI 帮助快照同步**：Argparse 命令注册表与终端帮助快照实时同步，提升命令响应速度。
 
 ### Fixed / 修复
-- **Windows DSH Desktop 预设插件安装修复 (Issue #1)**：增加 Windows 安装路径候选与递归 asar 解析；修复 `_dsh_directory_exists` 对 Windows junction/断链软链的解析，解决写入失效复数包名 `@deepseek-ai/dsh-agent-presets` 的缺陷，已回归验证并关闭 GitHub Issue #1。
-- **CLI 终端编码与 Windows GBK 管道崩溃消除**：在 npm wrapper (`bugx.js`) 默认注入 `PYTHONUTF8: '1'` 与 `PYTHONIOENCODING: 'utf-8'`；在 Python CLI、Supervisor 入口重置 stdout/stderr 为 UTF-8 + replace 容错，彻底消除非 UTF-8 管道与 Windows GBK 环境下的 `UnicodeEncodeError` 崩溃。
-- **资产自愈门禁与 cloud-onboard.json 自动恢复**：在 `bugx doctor --repair-assets` 增加 `.bugx/cloud-onboard.json` 自动补齐与就地自愈能力。
+- **评测管道死锁消除**：重定向标准输入流，消除后台评测与自动化管道中的进程挂起问题。
+- **Agent 显示标识规范**：统一 Antigravity 宿主内的智能体显示名称为 BugX。

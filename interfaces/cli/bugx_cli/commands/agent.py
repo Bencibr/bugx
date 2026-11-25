@@ -22,6 +22,7 @@ from ..common import _close_bugx_logging
 from ..infra.engine_installer import refresh_i18n_after_engine_swap
 from ..common import *
 from ..hosts.registry import (
+    QODER_PROJECT_MCP_PATHS,
     engine_host_cli_hook,
     engine_host_label,
     engine_host_plugins,
@@ -61,6 +62,7 @@ from .plugin import (
     _chatgpt_marketplace,
     _ensure_chatgpt_plugin,
     _ensure_zcode_plugin,
+    _qoder_mcp_entry_is_current,
     _sweep_legacy_skill_entry,
     _sweep_legacy_zcode_project_entries,
     _prompt_for_hosts,
@@ -104,13 +106,18 @@ class _CliProgress:
         percent = max(0, min(100, percent))
         filled = self._WIDTH * percent // 100
         line = f"[bugx] 进度 [{('=' * filled).ljust(self._WIDTH, '-')}] {percent:3d}% {label}"
-        sys.stderr.write("\r" + line)
+        cols = sum(2 if ord(ch) > 127 else 1 for ch in line)
+        prev = int(getattr(self, "_last_cols", 0))
+        pad = " " * max(0, prev - cols)
+        self._last_cols = cols
+        sys.stderr.write("\r" + line + pad)
         sys.stderr.flush()
 
     def finish(self, label: str = "完成") -> None:
         if not self.enabled:
             return
         self.update(100, label)
+        self._last_cols = 0
         sys.stderr.write("\n")
         sys.stderr.flush()
 
@@ -218,7 +225,6 @@ _AGENT_INSTALL_SNAPSHOT_FILES = (
     ".agents/plugins/marketplace.json",
     ".qoder/agents/bugx.md",
     ".qoder/agents/bugx-worker.md",
-    ".qoder/mcp.json",
     ".github/agents/bugx.agent.md",
     ".trea/agents/bugx.md",
     ".trea/mcp.json",
@@ -437,6 +443,8 @@ def _agent_install_snapshot(
     """
     staging = Path(tempfile.mkdtemp(prefix="bugx-install-transaction-")).resolve()
     existed: dict[str, bool] = {}
+    if _is_global_home_scope(root):
+        return staging, existed
     try:
         for relative in _agent_install_surfaces(selected_adapters):
             target = root / relative
@@ -689,6 +697,8 @@ def _remove_install_snapshot_tree(path: Path) -> None:
 def _restore_agent_install_snapshot(
     root: Path, staging: Path, existed: dict[str, bool],
 ) -> None:
+    if _is_global_home_scope(root) or not existed:
+        return
     manifest_path = staging / _AGENT_INSTALL_SNAPSHOT_MANIFEST
     if manifest_path.is_file():
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -838,6 +848,180 @@ def _select_install_adapters(
     return tuple(selected)
 
 
+def _sync_global_pi_skill_global_mode(root: Path, *, locale: str | None = None) -> None:
+    """Install user-level ~/.agents/skills/bugx and ~/.pi skill links without touching root/.pi."""
+    skill_src = pi_skill_root() / "SKILL.md"
+    if not skill_src.is_file():
+        return
+    content = add_locale_marker(skill_src.read_text(encoding="utf-8"), locale)
+    home = Path.home().resolve()
+    agents_skill_parent = (home / ".agents" / "skills").resolve(strict=False)
+    if not agents_skill_parent.is_relative_to(home):
+        raise CliError(_i18n_exc("agent.pi_global_skill_escaped_user", f"Pi 全局 Skill 目录越出用户目录：{agents_skill_parent}", path=agents_skill_parent))
+    _assert_no_symlink_components(agents_skill_parent)
+    agents_skill_dir = agents_skill_parent / "bugx"
+    _assert_no_symlink_components(agents_skill_dir)
+    agents_skill_dir.mkdir(parents=True, exist_ok=True)
+    target = agents_skill_dir / "SKILL.md"
+    _tx_stage_global(target)
+    _atomic_write_global_file_tx(target, content.encode("utf-8"))
+    for p_dir in (home / ".pi" / "skills" / "bugx", home / ".pi" / "agent" / "skills" / "bugx"):
+        _assert_no_symlink_components(p_dir.parent)
+        p_dir.parent.mkdir(parents=True, exist_ok=True)
+        if p_dir.is_symlink() or p_dir.exists():
+            if not p_dir.is_symlink():
+                # Only update inside already-owned file/dir if needed; skip foreign user directories
+                existing = p_dir / "SKILL.md"
+                if existing.is_file():
+                    try:
+                        _atomic_write_global_file_tx(existing, content.encode("utf-8"))
+                    except OSError:
+                        pass
+            continue
+        _atomic_link_or_copy(agents_skill_dir, p_dir, directory=True)
+
+
+def _finish_global_home_install(
+    args: argparse.Namespace,
+    *,
+    root: Path,
+    source: Path,
+    selected: tuple[object, ...],
+    engine_copied: int,
+    engine_skipped: int,
+    deployment_locale: str,
+    cbm_detail: str,
+    ts_detail: str,
+    progress: _CliProgress | None = None,
+) -> int:
+    """Complete a User-Global Home Mode (`~`) install without polluting home with project files."""
+    del args.force
+    global_k = (_global_bugx_dir() / "knowledge").resolve()
+    override = os.environ.get("BUGX_GLOBAL_KNOWLEDGE_ROOT")
+    if override:
+        global_k = Path(override).expanduser().resolve()
+    if not (global_k / "global.sqlite3").is_file():
+        from .plugin import _bootstrap_global_knowledge
+
+        _bootstrap_global_knowledge(root, source)
+
+    selected_names = {str(getattr(adapter, "name", "")) for adapter in selected}
+    user_hosts_done: list[str] = []
+    project_only_hosts: list[str] = []
+    dsh_ui_plugin: dict[str, object] | None = None
+    dsh_patch_status: str | None = None
+    user_agents_by_host: dict[str, dict[str, object]] = {}
+    host_mcp_configs: dict[str, dict[str, object]] = {}
+    opencode_user_skill: dict[str, object] | None = None
+    workbuddy_user_skill: dict[str, object] | None = None
+    workbuddy_custom_expert: dict[str, object] | None = None
+
+    if progress is not None:
+        progress.update(70, "正在装配用户级宿主资产")
+
+    for adapter in selected:
+        name = str(adapter.name)
+        if adapter.supports(CAP_PROJECT_PATCH_OVERLAY):
+            dsh_patch_status, dsh_ui_plugin = _ensure_dsh_patch(root)
+            user_hosts_done.append(name)
+        if adapter.supports(CAP_NATIVE_MCP_CONFIG) and name == HOST_NAME_ZCODE:
+            item_status, path, _backup, _created = write_host_mcp_config(root, name)
+            host_mcp_configs[name] = {
+                "path": str(path),
+                "status": item_status,
+                "session_restart_required": item_status != "unchanged",
+            }
+        if adapter.supports(CAP_USER_AGENT_REGISTRATION):
+            res = adapter.ensure_user_agents(root, source, locale=deployment_locale)
+            if isinstance(res, dict):
+                user_agents_by_host[name] = res
+            if name == HOST_NAME_ZCODE:
+                from .plugin_zcode import (
+                    _upsert_zcode_plugin_dirs,
+                    _write_zcode_global_plugin,
+                )
+                _write_zcode_global_plugin(root, source, locale=deployment_locale)
+                _upsert_zcode_plugin_dirs(register=None, remove=False)
+                user_skill = _ensure_zcode_user_skill(root, source)
+                if name in user_agents_by_host:
+                    user_agents_by_host[name]["user_skill"] = user_skill
+            if name not in user_hosts_done:
+                user_hosts_done.append(name)
+        if adapter.supports(CAP_GLOBAL_AGENT_LINK):
+            _register_global_opencode_agent(root)
+            opencode_user_skill = _ensure_opencode_user_skill(
+                root, source, backup_label=name,
+            )
+            if name not in user_hosts_done:
+                user_hosts_done.append(name)
+        if adapter.supports(CAP_GLOBAL_SKILL_LINK):
+            _sync_global_pi_skill_global_mode(root, locale=deployment_locale)
+            if name not in user_hosts_done:
+                user_hosts_done.append(name)
+        if adapter.supports(CAP_USER_LEVEL_ARTIFACT):
+            wb_content = adapter.render(global_engine_root() / "bugx.md", locale=deployment_locale)
+            workbuddy_user_skill = _ensure_workbuddy_user_skill(root, wb_content)
+            workbuddy_custom_expert = _ensure_workbuddy_custom_expert(root, wb_content)
+            for cfg_root in _workbuddy_config_roots():
+                if cfg_root != workbuddy_user_skill_root():
+                    _ensure_workbuddy_custom_expert(root, wb_content, config_root=cfg_root)
+            if name not in user_hosts_done:
+                user_hosts_done.append(name)
+
+        if adapter.supports(CAP_PROJECT_MCP_CONFIG) or (
+            adapter.supports(CAP_NATIVE_MCP_CONFIG) and name not in {HOST_NAME_ZCODE}
+        ) or adapter.entry_mode == ENTRY_PLUGIN_CATALOG or name in {"codex", "cline", "trea", "claude", "qoder", "funide", "workbuddy", "pi"}:
+            project_only_hosts.append(name)
+
+    if progress is not None:
+        progress.finish("用户全局安装完成")
+    mcp_recommendations = _mcp_recommendations(root, installed_hosts=selected_names)
+    payload = {
+        "mode": "global",
+        "global_scope": True,
+        "root": str(root),
+        "shared_engine": str(global_engine_root()),
+        "shared_copied": engine_copied,
+        "shared_skipped": engine_skipped,
+        "required_tools": {
+            "codebase-memory-mcp": cbm_detail,
+            "tree-sitter-language-pack": ts_detail,
+        },
+        "user_level_hosts": sorted(set(user_hosts_done)),
+        "project_only_hosts": sorted(set(project_only_hosts)),
+        "dsh_patch": dsh_patch_status,
+        "dsh_ui_plugin": dsh_ui_plugin,
+        "user_agents_by_host": user_agents_by_host,
+        "host_mcp_configs": host_mcp_configs,
+        "opencode_user_skill": opencode_user_skill,
+        "workbuddy_user_skill": workbuddy_user_skill,
+        "workbuddy_custom_expert": workbuddy_custom_expert,
+        "mcp_recommendations": mcp_recommendations,
+        "status": "installed",
+        "ready": True,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default))
+    else:
+        print("[bugx] ✓ 用户全局模式安装完成（未在主目录 ~ 创建项目 .bugx/manifest.json 或项目入口）")
+        print(f"  共享引擎：{global_engine_root()}（复制 {engine_copied}，未变更跳过 {engine_skipped}）")
+        print(f"  全局知识库：{global_k}")
+        print(f"  必需核心工具：codebase-memory-mcp ({cbm_detail})；tree-sitter ({ts_detail})")
+        if user_hosts_done:
+            print(f"  用户级宿主资产：{', '.join(sorted(set(user_hosts_done)))}")
+        if dsh_ui_plugin is not None:
+            detail_ui = str(dsh_ui_plugin.get("detail") or dsh_ui_plugin.get("status") or "")
+            print(f"  DSH UI 插件：{dsh_ui_plugin.get('root')}（{detail_ui}）")
+        if project_only_hosts:
+            print(
+                "  提示：以下宿主需绑定具体工作区配置（当前仅完成全局层装配，未写入主目录 ~）："
+                + ", ".join(sorted(set(project_only_hosts)))
+            )
+            print("        进入具体项目目录后运行 `bugx install`（或 `bugx install --root <PROJECT>`）完成项目绑定。")
+        _print_mcp_recommendations(mcp_recommendations)
+    return 0
+
+
 def _command_agent_impl(
     args: argparse.Namespace,
     *,
@@ -879,15 +1063,17 @@ def _command_agent_impl(
     # Validate an existing host manifest before any resource or runtime writes;
     # a corrupt manifest must never cause a partial installation and then fail.
     existing_record = root / ".bugx" / "hosts.json"
-    if existing_record.exists() or existing_record.is_symlink():
+    is_home_scope = _is_global_home_scope(root)
+    if not is_home_scope and (existing_record.exists() or existing_record.is_symlink()):
         _merge_host_records(existing_record, [])
 
     # Validate host catalogs or prerequisites before shared runtime writes so
     # an invalid or conflicting catalog cannot leave a partial install.
-    for adapter in selected:
-        adapter.pre_validate(root)
-    if any(adapter.supports(CAP_PROJECT_MCP_CONFIG) for adapter in selected):
-        _preflight_opencode_mcp_config(root)
+    if not is_home_scope:
+        for adapter in selected:
+            adapter.pre_validate(root)
+        if any(adapter.supports(CAP_PROJECT_MCP_CONFIG) for adapter in selected):
+            _preflight_opencode_mcp_config(root)
     if progress is not None:
         progress.update(15, "已完成配置校验")
 
@@ -895,7 +1081,10 @@ def _command_agent_impl(
     source = asset_root()
     # DOC-004 Layout 2：项目不再承载可执行 core。旧项目必须显式选择
     # 破坏性迁移；迁移会先转移运行态/项目数据，再把旧 core 移出活动布局。
-    removed_legacy_core = _require_global_only_layout(root)
+    if not is_home_scope:
+        removed_legacy_core = _require_global_only_layout(root)
+    else:
+        removed_legacy_core = False
     if progress is not None:
         progress.update(20, "正在安装共享引擎")
     engine = global_engine_root()
@@ -925,6 +1114,38 @@ def _command_agent_impl(
     )
     _ensure_global_cli_symlinks()
 
+    if progress is not None:
+        progress.update(45, "校验并装配必需核心依赖（codebase-memory / tree-sitter）")
+    _ensure_core_importable()
+    from core.repair.self_heal import (
+        ensure_codebase_memory_ready,
+        ensure_tree_sitter_ready,
+    )
+    cbm_ok, cbm_detail = ensure_codebase_memory_ready(root)
+    if not cbm_ok:
+        raise CliError(
+            f"必需核心依赖 codebase-memory-mcp 安装或校验失败（不可降级放行）：{cbm_detail}"
+        )
+    ts_ok, ts_detail = ensure_tree_sitter_ready()
+    if not ts_ok:
+        raise CliError(
+            f"必需核心依赖 tree-sitter-language-pack 安装或校验失败（不可降级放行）：{ts_detail}"
+        )
+
+    if is_home_scope:
+        return _finish_global_home_install(
+            args,
+            root=root,
+            source=source,
+            selected=selected,
+            engine_copied=copied,
+            engine_skipped=skipped,
+            deployment_locale=deployment_locale,
+            cbm_detail=cbm_detail,
+            ts_detail=ts_detail,
+            progress=progress,
+        )
+
     _layout_module(root).initialize(root, bugx_version=__version__)
     _ensure_project_readme(root, source)
     # The common runtime is intentionally installed once even when the selected
@@ -932,21 +1153,29 @@ def _command_agent_impl(
     _initialize_lesson_ledger(root, source)
     _initialize_project_knowledge_snapshots(root, source)
     _initialize_life_state(root)
+    from .lifecycle import _ensure_project_startup_todo
+    _ensure_project_startup_todo(root)
     if progress is not None:
         progress.update(60, "项目运行态初始化完成")
     if removed_legacy_core:
         print(f"[bugx] 已直接删除旧项目引擎入口：{removed_legacy_core}")
     selected_mcp_names = targeted_mcp_names(root)
-    optional_mcp_names = selected_mcp_names & {"playwright", "postmcp"}
-    provisioned_optional_mcps = provision_targeted_mcp_runtime(root, optional_mcp_names)
+    # 可选 MCP 能力（playwright/postmcp 等）延迟至实际项目审计 pre 阶段由 AI 与用户决定启用，
+    # 不在 install 阶段触发耗时联网装配。
+    provisioned_optional_mcps: set[str] = set()
     opencode_config_status: str | None = None
     opencode_config_backup: Path | None = None
     host_mcp_configs: dict[str, dict[str, object]] = {}
     dsh_patch_status: str | None = None
     dsh_ui_plugin: dict[str, object] | None = None
+    docs_transport = getattr(args, "docs_transport", None)
+    docs_remote_url = getattr(args, "docs_remote_url", None)
     if any(adapter.supports(CAP_PROJECT_MCP_CONFIG) for adapter in selected):
         opencode_config_status, opencode_config_backup = _ensure_opencode_config(
-            root, selected=selected_mcp_names,
+            root,
+            selected=selected_mcp_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
         )
     if any(adapter.supports(CAP_PROJECT_PATCH_OVERLAY) for adapter in selected):
         dsh_patch_status, dsh_ui_plugin = _ensure_dsh_patch(root)
@@ -1199,7 +1428,11 @@ def _command_agent_impl(
             )
             for config_host in config_hosts:
                 item_status, path, backup, created = write_host_mcp_config(
-                    root, config_host, optional_names=provisioned_optional_mcps,
+                    root,
+                    config_host,
+                    optional_names=provisioned_optional_mcps,
+                    docs_transport=docs_transport,
+                    docs_remote_url=docs_remote_url,
                 )
                 config_paths.append(str(path))
                 if item_status != "unchanged":
@@ -1402,7 +1635,7 @@ def _command_agent_impl(
     if progress is not None:
         progress.update(98, "安装记录已写入")
         progress.finish()
-    mcp_recommendations = _mcp_recommendations(root)
+    mcp_recommendations = _mcp_recommendations(root, installed_hosts=selected_names)
     payload = {
         "status": "INSTALLED", "root": str(root),
         "hosts": installed, "shared_copied": copied, "shared_skipped": skipped,
@@ -2015,46 +2248,49 @@ def _ensure_dsh_patch(root: Path) -> tuple[str, dict[str, object] | None]:
     The browser UI package is installed separately into the DSH web profile;
     agent presets do not load ``dsh.client`` modules.
     """
-    dsh_dir = root.resolve() / ".dsh"
-    dsh_dir.mkdir(parents=True, exist_ok=True)
-
-    patch_path = dsh_dir / "patch.yml"
-    skill_path = dsh_dir / "skills" / "bugx" / "SKILL.md"
-    dsh_skill_path = dsh_dir / "skills" / "bugx-dsh" / "SKILL.md"
-    agent_path = dsh_dir / "agents" / "bugx.md"
+    is_home_scope = _is_global_home_scope(root)
     patched = False
-    any_existing = any(path.exists() for path in (patch_path, skill_path, dsh_skill_path, agent_path))
+    any_existing = False
+    if not is_home_scope:
+        dsh_dir = root.resolve() / ".dsh"
+        dsh_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read bundled templates from integrations/dsh/
-    integration_dir = _integration_dir()
-    bundled_patch = integration_dir / "dsh" / "dsh-patch.yml"
-    bundled_skill = integration_dir / "dsh" / "skills" / "bugx" / "SKILL.md"
-    bundled_dsh_skill = integration_dir / "dsh" / "skills" / "bugx-dsh" / "SKILL.md"
-    bundled_agent = integration_dir / "dsh" / "agents" / "bugx.md"
+        patch_path = dsh_dir / "patch.yml"
+        skill_path = dsh_dir / "skills" / "bugx" / "SKILL.md"
+        dsh_skill_path = dsh_dir / "skills" / "bugx-dsh" / "SKILL.md"
+        agent_path = dsh_dir / "agents" / "bugx.md"
+        any_existing = any(path.exists() for path in (patch_path, skill_path, dsh_skill_path, agent_path))
 
-    for bundled, target in (
-        (bundled_patch, patch_path),
-        (bundled_skill, skill_path),
-        (bundled_dsh_skill, dsh_skill_path),
-        (bundled_agent, agent_path),
-    ):
-        if not bundled.is_file():
-            raise CliError(_i18n_exc("agent.dsh_resource_missing", f"缺少 dsh 适配资源：{bundled}", bundled=bundled))
-        copied, _skipped, _backup = _write_host_resource(
-            root, target, bundled.read_bytes(), "dsh",
-        )
-        patched = patched or bool(copied)
+        # Read bundled templates from integrations/dsh/
+        integration_dir = _integration_dir()
+        bundled_patch = integration_dir / "dsh" / "dsh-patch.yml"
+        bundled_skill = integration_dir / "dsh" / "skills" / "bugx" / "SKILL.md"
+        bundled_dsh_skill = integration_dir / "dsh" / "skills" / "bugx-dsh" / "SKILL.md"
+        bundled_agent = integration_dir / "dsh" / "agents" / "bugx.md"
 
-    # 项目 patch 也要带官方 MCP overlay：`bugx doctor` 的「DeepSeek Harness
-    # MCP 配置」扫的是项目 `.dsh/patch.yml` 与全局预设，不是 profile patch。
-    # 只在 profile 层写入会让 install 之后 doctor 仍报「缺少 bugx-supervisor
-    # MCP」——修好调用却报告缺失，是更难排查的破窗。
-    if patch_path.is_file():
-        project_patch = patch_path.read_text(encoding="utf-8")
-        with_overlay = _ensure_official_mcp_overlay(project_patch, root)
-        if with_overlay != project_patch:
-            _atomic_write_global_file_tx(patch_path, with_overlay.encode("utf-8"))
-            patched = True
+        for bundled, target in (
+            (bundled_patch, patch_path),
+            (bundled_skill, skill_path),
+            (bundled_dsh_skill, dsh_skill_path),
+            (bundled_agent, agent_path),
+        ):
+            if not bundled.is_file():
+                raise CliError(_i18n_exc("agent.dsh_resource_missing", f"缺少 dsh 适配资源：{bundled}", bundled=bundled))
+            copied, _skipped, _backup = _write_host_resource(
+                root, target, bundled.read_bytes(), "dsh",
+            )
+            patched = patched or bool(copied)
+
+        # 项目 patch 也要带官方 MCP overlay：`bugx doctor` 的「DeepSeek Harness
+        # MCP 配置」扫的是项目 `.dsh/patch.yml` 与全局预设，不是 profile patch。
+        # 只在 profile 层写入会让 install 之后 doctor 仍报「缺少 bugx-supervisor
+        # MCP」——修好调用却报告缺失，是更难排查的破窗。
+        if patch_path.is_file():
+            project_patch = patch_path.read_text(encoding="utf-8")
+            with_overlay = _ensure_official_mcp_overlay(project_patch, root)
+            if with_overlay != project_patch:
+                _atomic_write_global_file_tx(patch_path, with_overlay.encode("utf-8"))
+                patched = True
 
     # Deploy BugX's agent preset and the browser UI bundle to their native
     # DSH user-level locations.
@@ -2064,6 +2300,8 @@ def _ensure_dsh_patch(root: Path) -> tuple[str, dict[str, object] | None]:
     except (CliError, OSError) as exc:
         raise CliError(_i18n_exc("agent.dsh_preset_write_failed", f"写入 dsh 全局预设失败：{exc}", exc=exc)) from exc
 
+    if is_home_scope:
+        return ("global_only", ui_plugin)
     if patched:
         return ("patched", ui_plugin) if any_existing else ("created", ui_plugin)
     return ("unchanged", ui_plugin)
@@ -2586,9 +2824,10 @@ def _sync_one_profile_patch(
         else:
             updated = f"{content.rstrip()}\n\n{patch_block}\n"
 
-    if root is None:
-        raise CliError("_sync_one_profile_patch 需要 root 以绝对化 MCP --root/--db（F-RSI-20261119-015）")
-    updated = _ensure_official_mcp_overlay(updated, root)
+    if root is None or _is_global_home_scope(root):
+        updated = _ensure_official_mcp_overlay(updated, root or Path.home())
+    else:
+        updated = _ensure_official_mcp_overlay(updated, root)
 
     if updated != content:
         _atomic_write_global_file_tx(patch_path, updated.encode("utf-8"))
@@ -2629,9 +2868,43 @@ def _ensure_official_mcp_overlay(content: str, root: Path) -> str:
     不再承载 MCP，若 install 也不写，doctor 就会判定「缺少 bugx-supervisor
     MCP」，形成「修好调用却报告缺失」的新破窗。
     """
-    root_text = str(Path(root).resolve())
+    global_scope = _is_global_home_scope(root)
+    if global_scope:
+        existing_match = re.search(
+            r"^\s*-\s*['\"]?--root['\"]?\s*\n\s*-\s*['\"]?([^'\"\n]+)['\"]?",
+            content,
+            re.MULTILINE,
+        )
+        preserved_root: str | None = None
+        if existing_match:
+            candidate_text = existing_match.group(1).strip()
+            if candidate_text and candidate_text not in {".", "{ROOT}"}:
+                try:
+                    candidate_path = Path(candidate_text).expanduser().resolve()
+                    if candidate_path.is_dir() and not _is_global_home_scope(candidate_path):
+                        preserved_root = str(candidate_path)
+                except OSError:
+                    preserved_root = None
+        if preserved_root is not None:
+            servers_to_write = tuple(
+                (name, [arg.replace("{ROOT}", preserved_root) for arg in argv])
+                for name, argv in _OFFICIAL_MCP_SERVERS
+            )
+        else:
+            servers_to_write = (
+                ("bugx-supervisor", ["mcp", "serve", "--role", "host"]),
+                ("bugx-supervisor-worker", ["mcp", "serve", "--role", "worker"]),
+                ("bugx-docs", ["mcp", "docs", "serve"]),
+            )
+    else:
+        root_text = str(Path(root).resolve())
+        servers_to_write = tuple(
+            (name, [arg.replace("{ROOT}", root_text) for arg in argv])
+            for name, argv in _OFFICIAL_MCP_SERVERS
+        )
+
     lines = [_OFFICIAL_MCP_MARKER, "- insert:"]
-    for server_name, argv in _OFFICIAL_MCP_SERVERS:
+    for server_name, argv in servers_to_write:
         lines.extend([
             f"    - id: {server_name}",
             f"      name: '{_OFFICIAL_MCP_CLIENT}'",
@@ -2642,7 +2915,7 @@ def _ensure_official_mcp_overlay(content: str, root: Path) -> str:
             "        args:",
         ])
         lines.extend(
-            f"          - '{arg.replace('{ROOT}', root_text)}'" for arg in argv
+            f"          - '{arg}'" for arg in argv
         )
     block = "\n".join(lines) + "\n"
 
@@ -3583,7 +3856,11 @@ def _preflight_opencode_mcp_config(root: Path) -> None:
 
 
 def _ensure_opencode_config(
-    root: Path, *, selected: set[str] | None = None,
+    root: Path,
+    *,
+    selected: set[str] | None = None,
+    docs_transport: str | None = None,
+    docs_remote_url: str | None = None,
 ) -> tuple[str, Path | None]:
     """Create or safely merge the bundled OpenCode MCP configuration.
 
@@ -3628,6 +3905,15 @@ def _ensure_opencode_config(
     for name in list(bundled_servers):
         if name not in keep:
             bundled_servers.pop(name, None)
+    from .plugin import resolve_effective_docs_transport
+    effective_docs_transport = resolve_effective_docs_transport(docs_transport, docs_remote_url)
+    if effective_docs_transport == "remote" and "bugx-docs" in bundled_servers:
+        from .plugin import _resolve_docs_remote_url
+        bundled_servers["bugx-docs"] = {
+            "type": "remote",
+            "url": _resolve_docs_remote_url(docs_remote_url),
+            "codemode": False,
+        }
     if target.exists():
         if not target.is_file():
             raise CliError(_i18n_exc("agent.opencode_config_not_regular_file", f"OpenCode 配置不是普通文件: {target}", target=target))
@@ -3674,13 +3960,26 @@ def _ensure_opencode_config(
             name for name in managed_names
             if not isinstance(servers.get(name), dict)
         ]
-        if not missing and not remove_unavailable_optional and not configuration_changed:
+        docs_entry = servers.get("bugx-docs")
+        desired_docs = bundled_servers.get("bugx-docs")
+        docs_transport_mismatch = (
+            isinstance(docs_entry, dict)
+            and isinstance(desired_docs, dict)
+            and _mcp_entry_state("bugx-docs", docs_entry) == "configured"
+            and (
+                (effective_docs_transport == "remote" and docs_entry.get("url") != desired_docs.get("url"))
+                or (effective_docs_transport == "stdio" and isinstance(docs_entry.get("url"), str))
+            )
+        )
+        if not missing and not remove_unavailable_optional and not docs_transport_mismatch and not configuration_changed:
             return "unchanged", None
         backup = _backup_opencode_config(root, target)
         for name in remove_unavailable_optional:
             servers.pop(name, None)
         for name in missing:
             servers[name] = copy.deepcopy(bundled_servers[name])
+        if docs_transport_mismatch and desired_docs is not None:
+            servers["bugx-docs"] = copy.deepcopy(desired_docs)
         updated = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         descriptor, temporary = tempfile.mkstemp(
             dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp",
@@ -3776,17 +4075,24 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
             if not dsh_client or not isinstance(ui_name, str):
                 ui_detail = "；DSH UI 包 manifest 缺少 dsh.client 或 ./client 导出"
             elif profile.is_file() and (ui_name not in bundles or ui_name not in dependencies):
-                ui_detail = "；DSH UI 包未注册到 web profile，请重新运行 bugx install --agent dsh"
+                ui_detail = "；DSH UI 包已暂存就绪（CLI/Desktop 通道可用；可选 web profile 注册未激活）"
             elif not profile.is_file():
                 ui_detail = "；已暂存 DSH UI 包（当前未发现 web profile）"
             else:
                 ui_detail = "；DSH UI 图标包已注册到 web profile"
-        if patch_file.is_file() or user_preset.is_file():
+        profile_patches = [
+            _dsh_home() / "profiles" / profile_name / "cordis.patch.yml"
+            for profile_name in ("web", "desktop")
+        ]
+        if patch_file.is_file() or user_preset.is_file() or any(p.is_file() for p in profile_patches):
             content = ""
             if patch_file.is_file():
                 content += patch_file.read_text(encoding="utf-8", errors="ignore")
             if user_preset.is_file():
                 content += user_preset.read_text(encoding="utf-8", errors="ignore")
+            for p_patch in profile_patches:
+                if p_patch.is_file():
+                    content += p_patch.read_text(encoding="utf-8", errors="ignore")
             has_supervisor = "bugx-supervisor" in content or "mcp-client" in content
             has_native_question = "@deepseek-ai/dsh-tool-ask-user" in content
             if has_supervisor and has_native_question:
@@ -4005,11 +4311,8 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
         return True, "WorkBuddy `.workbuddy` 与 CodeBuddy 兼容 Skill 入口、Connector 图标包均已就绪；" + user_detail + venv_detail
 
     if host_name == HOST_NAME_QODER:
-        qoder_mcp = root / ".qoder" / "mcp.json"
-        project_mcp = root / ".mcp.json"
-        candidates = (
-            (qoder_mcp, "flat"),
-            (project_mcp, "flat"),
+        candidates = tuple(
+            (root / relative, "flat") for relative in reversed(QODER_PROJECT_MCP_PATHS)
         )
         from .plugin_qoder import _clean_legacy_qoder_plugin_and_skills, _qoder_user_agents_dir
 
@@ -4054,7 +4357,9 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
             if has_legacy:
                 legacy_warning = "；发现用户级 Qoder 遗留配置，可运行 `bugx doctor --repair` 清理"
 
-        ok, detail = _validate_host_supervisor_mcp(candidates, root)
+        ok, detail = _validate_host_supervisor_mcp(
+            candidates, root, merge_servers=True, entry_is_current=_qoder_mcp_entry_is_current,
+        )
         user_agents_dir = _qoder_user_agents_dir()
         user_main = user_agents_dir / "bugx.md"
         user_worker = user_agents_dir / "bugx-worker.md"
@@ -4071,7 +4376,9 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
             _ensure_qoder_user_agents(root, source=asset_root())
             if not ok:
                 write_host_mcp_config(root, host_name)
-                ok, detail = _validate_host_supervisor_mcp(candidates, root)
+                ok, detail = _validate_host_supervisor_mcp(
+                    candidates, root, merge_servers=True, entry_is_current=_qoder_mcp_entry_is_current,
+                )
             missing_user = [
                 name for name, path in (("bugx", user_main), ("bugx-worker", user_worker))
                 if not path.is_file()

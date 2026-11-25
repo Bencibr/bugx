@@ -177,6 +177,10 @@ DOWNLOAD_PATH = f"{AGENT_API_PREFIX}/download"
 KNOWLEDGE_PREFETCH_PATH = f"{AGENT_API_PREFIX}/knowledge/prefetch"
 VULNERABILITY_QUERY_PATH = f"{AGENT_API_PREFIX}/vulnerabilities/query"
 PATCH_VERIFICATION_PATH = f"{AGENT_API_PREFIX}/patch-verifications"
+DOCS_MANIFEST_PATH = f"{AGENT_API_PREFIX}/docs/manifest"
+DOCS_BUNDLE_PATH = f"{AGENT_API_PREFIX}/docs/bundle"
+DOCS_SEARCH_PATH = f"{AGENT_API_PREFIX}/docs/search"
+DOCS_FETCH_PATH = f"{AGENT_API_PREFIX}/docs/fetch"
 PROJECT_PROFILE_MAX_BYTES = 256 * 1024
 VULNERABILITY_QUERY_MAX_COMPONENTS = 100
 
@@ -569,8 +573,53 @@ class CloudClient:
             time.sleep(interval)
         return ReportResult(ok=False, status=None, data=None, error="授权超时")
 
-    def login(self, name: str = "", device_id: str | None = None) -> ReportResult:
-        """完整 device-code 登录：发码→打印 URL→尝试自动打开浏览器→轮询→存凭据。"""
+    def verify_device_token(self, device_code: str | None = None, device_id: str | None = None) -> ReportResult:
+        """单次非阻塞校验 device-token：由前端或 Agent 在用户完成网页确认后单步核验。"""
+        did = device_id or get_device_id()
+        pending_path = Path(self.cred_path).parent / "cloud-auth-pending.json"
+        if not device_code and pending_path.is_file():
+            try:
+                pdata = json.loads(pending_path.read_text(encoding="utf-8"))
+                device_code = pdata.get("device_code")
+                did = device_id or pdata.get("device_id") or did
+            except (OSError, json.JSONDecodeError):
+                pass
+        if not device_code:
+            return ReportResult(ok=False, status=400, data=None, error="缺少 device_code，且未发现挂起的授权请求")
+
+        res = self._request("POST", DEVICE_TOKEN_PATH,
+                            {"device_code": device_code, "device_id": did},
+                            auth=False, retry_auth=False)
+        data = res.data if isinstance(res.data, dict) else {}
+        err = str(data.get("error", "") or "")
+        inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+        token = inner.get("token") or inner.get("access_token")
+        if err in {"access_denied", "expired_token", "expired"}:
+            code_to_msg = {
+                "access_denied": "用户已拒绝授权",
+                "expired_token": "授权码已过期，请重新登录",
+                "expired": "授权码已过期，请重新登录",
+            }
+            return ReportResult(ok=False, status=getattr(res, "status", None),
+                                data=res.data, error=code_to_msg.get(err, err))
+        if token:
+            self.cred = CloudCredentials(
+                token=token, refresh_token=inner.get("refresh_token"),
+                api_key=inner.get("api_key"), user=inner.get("user"),
+            )
+            self._store_route(inner.get("route"))
+            self.cred.save(self.cred_path)
+            if pending_path.is_file():
+                try:
+                    pending_path.unlink()
+                except OSError:
+                    pass
+            return ReportResult(ok=True, status=getattr(res, "status", 200),
+                                data=res.data, error=None)
+        return ReportResult(ok=False, status=202, data=res.data, error="授权仍在等待中，请确认已在浏览器点击同意")
+
+    def login(self, name: str = "", device_id: str | None = None, non_blocking: bool = False) -> ReportResult:
+        """完整 device-code 登录：发码→打印 URL→尝试自动打开浏览器→(若非阻塞则退出，否则轮询)→存凭据。"""
         flow = self.start_device(name=name, device_id=device_id)
         uri = flow.get("verification_uri") or ""
         # 授权页必须是普通 http(s) 地址：被劫持/被替换的服务端可能借
@@ -605,6 +654,36 @@ class CloudClient:
                 print(f"已打开浏览器授权页：{uri}", flush=True)
             else:
                 print(f"自动打开浏览器失败，请手动打开授权页：{uri}", flush=True)
+
+        # 非阻塞模式：保存待办信息并立即返回，由外部交互驱动
+        if non_blocking or os.environ.get("BUGX_NON_BLOCKING_AUTH") == "1":
+            pending_path = Path(self.cred_path).parent / "cloud-auth-pending.json"
+            pending_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                pdata = {
+                    "device_code": flow.get("device_code"),
+                    "user_code": flow.get("user_code"),
+                    "verification_uri": uri,
+                    "device_id": device_id or get_device_id(),
+                    "expires_in": flow.get("expires_in"),
+                    "created_at": time.time(),
+                }
+                pending_path.write_text(json.dumps(pdata), encoding="utf-8")
+                os.chmod(pending_path, 0o600)
+            except OSError:
+                pass
+            return ReportResult(
+                ok=True, status=202,
+                data={
+                    "status": "pending_user_confirmation",
+                    "verification_uri": uri,
+                    "user_code": flow.get("user_code"),
+                    "device_code": flow.get("device_code"),
+                    "expires_in": flow.get("expires_in"),
+                },
+                error=None,
+            )
+
         # 轮询间隔来自服务端，属不可信输入：限幅到 [1,30] 秒，拒绝 0/负值
         # 造成的忙轮询，也拒绝异常大值把登录挂死。非法类型回退默认 5s。
         try:

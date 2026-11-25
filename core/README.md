@@ -1,6 +1,6 @@
 # BugX 微内核与核心领域系统 (Core Microkernel & Domain Architecture)
 
-> **版本契约**: `0.1.3` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`
+> **版本契约**: `0.1.4` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 索引对齐防漂移)
 
@@ -17,6 +17,7 @@ core/
 │   │   ├── infra/                # 核心纯净基础设施与底层操作系统原语子系统
 │   │   ├── runtime/              # 核心运行时配置、会话画像、模型适配与持久化同步
 │   │   ├── assets/               # 静态资源、报告模板与预置样式的资产包
+│   │   ├── bundled_docs/         # 随包官方文档离线基线与清单（bugx:official 兜底）
 │   │   ├── dev_harness/          # 本地开发调试轻量级沙箱与模拟测试夹具环境
 │   │   └── locales/              # 国际化语言包 (zh-CN, en-US) 与终端渲染词条
 │   │
@@ -144,9 +145,9 @@ flowchart TD
 
 ---
 
-## 3. 34 个专业领域子系统索引清单 (34 Subsystems Inventory)
+## 3. 35 个专业领域子系统索引清单 (35 Subsystems Inventory)
 
-`core/` 下包含 **34 个高内聚专业领域子系统**，全部实现模块化封装并配备独立的 `README.md` 与 100% 覆盖索引：
+`core/` 下包含 **35 个高内聚专业领域子系统**，全部实现模块化封装并配备独立的 `README.md` 与 100% 覆盖索引：
 
 | 子目录 | 架构分层 | 核心职责说明 | 关联子系统文档 |
 | :--- | :--- | :--- | :--- |
@@ -155,6 +156,7 @@ flowchart TD
 | `assets/` | Layer 0 | 报告生成、样式注入及预置配置的静态资产资源包 | [assets/README.md](assets/README.md) |
 | `audit_packs/` | Layer 1 | 收拢 `web-audit`, `mobile-audit`, `desktop-audit` 等垂直攻防规则包 | [audit_packs/README.md](audit_packs/README.md) |
 | `autonomous_cve/` | Layer 4 | 真实世界 CVE 漏洞自动发现、利用链构造与修复验证流水线 | [autonomous_cve/README.md](autonomous_cve/README.md) |
+| `bundled_docs/` | Layer 0 | 随包官方离线文档基线（`guides/`、`ai/`、`reference/`、`hosts/` + `manifest.json`） | [bundled_docs/README.md](bundled_docs/README.md) |
 | `cloud_sync/` | Layer 5 | 云端多设备协同、审计日志上报与分布式数据飞轮同步协议 | [cloud_sync/README.md](cloud_sync/README.md) |
 | `contracts/` | Layer 1 | 核心执行协议、宿主交互契约与智能体工作流指南 | [contracts/README.md](contracts/README.md) |
 | `coverage/` | Layer 2 | 最小审计单元递归发现、证据链核验、防恶化门禁与双态覆盖率子系统 | [coverage/README.md](coverage/README.md) |

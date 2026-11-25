@@ -2487,7 +2487,7 @@ def command_mcp(args: argparse.Namespace) -> int:
 
 
 def command_mcp_docs(args: argparse.Namespace) -> int:
-    """索引或启动本地项目文档 MCP，不访问第三方文档服务。"""
+    """索引、同步或启动双域文档 MCP，隔离业务项目与官方知识库。"""
     root = resolve_project_root(args.root).resolve()
     forwarded = [args.mcp_docs_command, "--root", str(root), "--db", str(args.db)]
     if args.project_id:
@@ -2496,6 +2496,16 @@ def command_mcp_docs(args: argparse.Namespace) -> int:
         forwarded.extend(["--version", args.version])
     if getattr(args, "no_auto_index", False):
         forwarded.append("--no-auto-index")
+    mode = getattr(args, "mode", None)
+    if mode:
+        forwarded.extend(["--mode", str(mode)])
+    remote_url = getattr(args, "remote_url", None)
+    if remote_url:
+        forwarded.extend(["--remote-url", str(remote_url)])
+    if getattr(args, "force", False):
+        forwarded.append("--force")
+    if getattr(args, "offline", False):
+        forwarded.append("--offline")
     return _run_script(
         root, "bugx_docs_mcp_server.py", forwarded,
         timeout=None if args.mcp_docs_command == "serve" else 300,

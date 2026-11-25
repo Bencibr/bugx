@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """探测 codebase-memory-mcp 安装、版本和当前仓库索引状态。
 
-它是功能拆分和业务链路的首选语义增强层，但不是全量覆盖的硬依赖：缺失或索引
-异常返回 DEGRADED，调用方必须取得用户的回退决定；本地 symbol_index/project_graph
-仍负责不漏文件、不漏配置资产的覆盖事实。审计必须在准备记录中保存本命令结果。
+它是 BugX 的必装核心代码图谱引擎：缺失或版本不匹配时必须直接安装修复，
+严禁静默降级或豁免放行；本地 symbol_index/project_graph 负责全量资产清单与交叉校验。
 """
 
 from __future__ import annotations
@@ -25,12 +24,14 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
+import sysconfig
 from pathlib import Path
 
 if __package__:
-    from ..runtime.tool_install_targets import OPTIONAL_TOOL_PACKAGE_SPECS
+    from ..runtime.tool_install_targets import REQUIRED_TOOL_PACKAGE_SPECS
 else:
-    from core.runtime.tool_install_targets import OPTIONAL_TOOL_PACKAGE_SPECS
+    from core.runtime.tool_install_targets import REQUIRED_TOOL_PACKAGE_SPECS
 
 PROJECT_URL = "https://github.com/DeusData/codebase-memory-mcp"
 RELEASE_URL = f"{PROJECT_URL}/releases"
@@ -79,7 +80,7 @@ def _probe_environment() -> dict[str, str]:
 
 
 def _pinned_cli_version() -> str | None:
-    spec = OPTIONAL_TOOL_PACKAGE_SPECS.get("codebase-memory", "").strip()
+    spec = REQUIRED_TOOL_PACKAGE_SPECS.get("codebase-memory", "").strip()
     match = re.fullmatch(r"codebase-memory-mcp==(?P<version>\d+(?:\.\d+){1,3})", spec)
     return match.group("version") if match else None
 
@@ -98,21 +99,34 @@ def _binary_candidates(
     """Return bounded, deduplicated candidates, preferring managed user bin dirs.
 
     A caller-supplied binary is an explicit selection and remains authoritative.
-    Otherwise, inspect the configured uv/XDG executable directories before
+    Otherwise, inspect the configured BugX/uv/XDG executable directories before
     arbitrary PATH entries so an unrelated workspace binary cannot shadow the
     installed tool.
     """
     if binary:
         return [str(binary)], False
 
-    home = Path(environment.get("HOME") or str(Path.home()))
+    home = Path(environment.get("HOME") or environment.get("USERPROFILE") or str(Path.home()))
+    scripts_dir = "Scripts" if os.name == "nt" else "bin"
+    bugx_tool_bin = str(home / ".bugx" / "tools" / "codebase-memory" / scripts_dir)
+    bugx_bin = str(home / ".bugx" / "bin")
+    python_scripts = None
+    try:
+        python_scripts = sysconfig.get_path("scripts")
+    except (KeyError, TypeError, ValueError):
+        python_scripts = None
+
     directories: list[str] = []
     for value in (
+        bugx_tool_bin,
+        bugx_bin,
         environment.get("UV_TOOL_BIN_DIR"),
         environment.get("XDG_BIN_HOME"),
         str(Path(environment["XDG_DATA_HOME"]).parent / "bin")
         if environment.get("XDG_DATA_HOME") else None,
         str(home / ".local" / "bin"),
+        str(Path(sys.executable).parent),
+        python_scripts,
         *environment.get("PATH", "").split(os.pathsep),
     ):
         if not value:
@@ -141,7 +155,7 @@ def _binary_candidates(
 
 def _resolve_binary(
     environment: dict[str, str], expected_version: str, binary: str | None = None,
-    *, timeout_seconds: float = 10.0,
+    *, timeout_seconds: float = 30.0,
 ) -> tuple[str | None, str | None, list[dict[str, str]], bool]:
     """Find an executable whose strict ``--version`` output matches the pin."""
     candidates, truncated = _binary_candidates(environment, binary)
@@ -170,7 +184,7 @@ def resolve_compatible_binary(
     *, environment: dict[str, str] | None = None,
     expected_version: str | None = None,
     binary: str | None = None,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 30.0,
 ) -> str | None:
     """Return only a CLI that reports the repository's exact pinned version."""
     environment = environment or _probe_environment()
@@ -321,7 +335,12 @@ def _unsupported_output_detail(stdout: str, stderr: str) -> str:
     )
 
 
-def inspect(root: Path, binary: str | None = None) -> dict:
+def inspect(
+    root: Path,
+    binary: str | None = None,
+    *,
+    check_project_index: bool = True,
+) -> dict:
     root = root.resolve()
     environment = _probe_environment()
     checks: list[dict] = []
@@ -387,6 +406,8 @@ def inspect(root: Path, binary: str | None = None) -> dict:
             "expected": expected_version,
         },
     ))
+    if not check_project_index:
+        return _report(root, checks, version_text, None)
     projects_result, retry_note, transient = _list_projects_with_retry(executable, environment)
     if projects_result is None:
         checks.append({
@@ -528,14 +549,12 @@ def _report(root: Path, checks: list[dict], version: str | None,
     ready = all(check["ok"] for check in checks)
     return {
         "status": "READY" if ready else "DEGRADED",
-        # required_check means the startup environment must inspect and report
-        # this capability. required remains false because local enumeration is
-        # a valid fallback for small/offline projects.
+        # 必装核心能力：缺失或版本不匹配时必须阻断修复，禁止降级放行。
         "required_check": True,
-        "required": False,
+        "required": True,
         "recommended": True,
-        "hard_dependency": False,
-        "role": "semantic-graph-enhancement",
+        "hard_dependency": True,
+        "role": "semantic-graph-core",
         "required_for": [
             "functional-minimization",
             "business-flow-discovery",
@@ -552,8 +571,8 @@ def _report(root: Path, checks: list[dict], version: str | None,
         ),
         "project": project.get("name") if project else None,
         "checks": checks,
-        "fallback": "symbol_index.py + project_graph.py",
-        "install": f"pipx install --force {OPTIONAL_TOOL_PACKAGE_SPECS['codebase-memory']}",
+        "fallback": "symbol_index.py + project_graph.py（仅作辅助基线对照，不得替代必装组件）",
+        "install": f"pipx install --force {REQUIRED_TOOL_PACKAGE_SPECS['codebase-memory']}（或 bugx doctor --repair）",
         "configure": "codebase-memory-mcp install，然后重启 AI 编程工具并索引项目",
         "source": RELEASE_URL,
     }
@@ -564,14 +583,13 @@ def print_report(report: dict, as_json: bool = False) -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
     print(
-        f"[{report['status']}] codebase-memory-mcp（环境必检；语义拆分首选，非全量硬依赖）"
+        f"[{report['status']}] codebase-memory-mcp（必装核心代码图谱；缺失时阻断，不做降级放行）"
     )
     for check in report["checks"]:
         print(f"  {'✓' if check['ok'] else '!'} {check['name']}: {check['detail']}")
     if report["status"] != "READY":
-        print(f"  → 推荐：{report['install']}")
+        print(f"  → 安装：{report['install']}")
         print(f"  → 配置：{report['configure']}")
-        print(f"  → 本轮回退：{report['fallback']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -580,8 +598,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--installation-only", action="store_true")
     args = parser.parse_args(argv)
-    report = inspect(args.root)
+    report = inspect(args.root, check_project_index=not args.installation_only)
     print_report(report, args.json)
     return 1 if args.strict and report["status"] != "READY" else 0
 
@@ -635,7 +654,7 @@ def run_static_degraded(root: Path, *, binary: str | None = None) -> dict:
         "findings": [],
         "evidence": evidence,
         "fallback": "symbol_index.py + project_graph.py（本地全量枚举，不依赖语义图谱）",
-        "install": f"pipx install --force {OPTIONAL_TOOL_PACKAGE_SPECS['codebase-memory']}",
+        "install": f"pipx install --force {REQUIRED_TOOL_PACKAGE_SPECS['codebase-memory']}",
         "metadata": {
             "degraded_mode": "local_coverage_facts_only",
             "semantic_graph_available": False,

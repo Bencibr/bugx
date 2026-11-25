@@ -16,7 +16,7 @@ from typing import Any
 
 from .. import __version__
 from ..common import *
-from ..infra.engine_installer import refresh_i18n_after_engine_swap
+from ..infra.engine_installer import _is_global_home_scope, refresh_i18n_after_engine_swap
 from ..host_adapters import ENTRY_MULTI_PATH, HOST_ADAPTERS
 from ..hosts.registry import (
     engine_host_cli_hook,
@@ -49,7 +49,6 @@ from .plugin import (
     _remove_host_mcp_entry,
     _remove_opencode_mcp_entry,
     _remove_owned_record,
-    _remove_qoder_mcp_entry,
     _reset_active_blockers,
     _reset_confirmation,
     _reset_entries,
@@ -1844,6 +1843,9 @@ def _uninstall_guidance_flow(args: argparse.Namespace, root: Path) -> int:
     return command_uninstall(args)
 
 
+_SHARED_ROOT_MCP_HOSTS = frozenset({"claude", "funide", "qoder"})
+
+
 def _uninstall_dry_run_preview(
     root: Path,
     installed: list[object],
@@ -1853,6 +1855,7 @@ def _uninstall_dry_run_preview(
     purge_data: bool,
     purge_global_data: bool,
     force: bool = False,
+    remaining_mcp_hosts: set[str],
 ) -> tuple[list[str], list[str]]:
     """Build an uninstall preview without invoking any mutating helper.
 
@@ -1943,6 +1946,9 @@ def _uninstall_dry_run_preview(
                 continue
             target_path, _ = target_info
             if target_path.is_file() and not target_path.is_symlink():
+                if mcp_host in _SHARED_ROOT_MCP_HOSTS and remaining_mcp_hosts:
+                    preserved.append(".mcp.json（仍有其他宿主使用 BugX MCP）")
+                    continue
                 try:
                     rel = str(target_path.relative_to(root))
                 except ValueError:
@@ -1990,17 +1996,11 @@ def _remove_host_mcp_entries_for(
     preserved: list[str],
     *,
     backup_dir: Path | None = None,
+    remaining_mcp_hosts: set[str],
 ) -> None:
     """清理宿主项目级 MCP 登记，含多路径宿主的 `.codebuddy` 兼容副本。"""
-    # Claude Code and FunIDE intentionally share the project-root `.mcp.json`
-    # shape.  Removing FunIDE must not tear down a Claude installation that is
-    # still present in the same project; both hosts consume the same BugX
-    # servers.  A FunIDE-only project has no `.claude` marker and is cleaned as
-    # usual.
-    if name == "funide" and (root / ".claude").exists():
-        preserved.append(
-            ".mcp.json（与 Claude Code 共用，卸载 FunIDE 时保留 BugX MCP）"
-        )
+    if name in _SHARED_ROOT_MCP_HOSTS and remaining_mcp_hosts:
+        preserved.append(".mcp.json（仍有其他宿主使用 BugX MCP）")
     else:
         _remove_host_mcp_entry(root, name, removed, preserved, backup_dir=backup_dir)
     for mcp_host in _mcp_config_host_names(name):
@@ -2049,6 +2049,11 @@ def command_uninstall(args: argparse.Namespace) -> int:
             choices = ", ".join(adapter.name for adapter in HOST_ADAPTERS)
             raise CliError(_i18n_exc("lifecycle.unknown_ai_agent", f"未知 AI Agent: {name}；可选：{choices}", name=name, known=choices))
     selected_names = list(dict.fromkeys(known[name].name for name in raw_names))
+    remaining_mcp_hosts = {
+        str(item.get("name")) for item in installed if isinstance(item, dict)
+    } & (_SHARED_ROOT_MCP_HOSTS - set(selected_names))
+    if "funide" in selected_names and "claude" not in selected_names and (root / ".claude").exists():
+        remaining_mcp_hosts.add("claude")
 
     if args.dry_run:
         planned, preserved = _uninstall_dry_run_preview(
@@ -2059,6 +2064,7 @@ def command_uninstall(args: argparse.Namespace) -> int:
             purge_data=bool(args.purge_data),
             purge_global_data=bool(args.purge_global_data),
             force=force,
+            remaining_mcp_hosts=remaining_mcp_hosts,
         )
         payload = {
             "status": "DRY_RUN",
@@ -2148,7 +2154,10 @@ def command_uninstall(args: argparse.Namespace) -> int:
             ]
         for record in records:
             _remove_owned_record(root, record, name, removed, preserved, uninstall_backup_dir, force=force)
-        _remove_host_mcp_entries_for(root, name, removed, preserved, backup_dir=uninstall_backup_dir)
+        _remove_host_mcp_entries_for(
+            root, name, removed, preserved, backup_dir=uninstall_backup_dir,
+            remaining_mcp_hosts=remaining_mcp_hosts,
+        )
         if name == "chatgpt":
             _remove_chatgpt_marketplace_entry(root, removed, preserved, backup_dir=uninstall_backup_dir)
             _deregister_codex_plugin(root, removed, preserved)
@@ -2260,7 +2269,10 @@ def command_uninstall(args: argparse.Namespace) -> int:
     for name in selected_names:
         if name in recorded_names:
             continue
-        _remove_host_mcp_entries_for(root, name, removed, preserved, backup_dir=uninstall_backup_dir)
+        _remove_host_mcp_entries_for(
+            root, name, removed, preserved, backup_dir=uninstall_backup_dir,
+            remaining_mcp_hosts=remaining_mcp_hosts,
+        )
         if name == "chatgpt":
             _remove_chatgpt_marketplace_entry(root, removed, preserved, backup_dir=uninstall_backup_dir)
             _deregister_codex_plugin(root, removed, preserved)
@@ -2288,7 +2300,10 @@ def command_uninstall(args: argparse.Namespace) -> int:
         }
         for adapter in HOST_ADAPTERS:
             if adapter.name not in recorded:
-                _remove_host_mcp_entries_for(root, adapter.name, removed, preserved, backup_dir=uninstall_backup_dir)
+                _remove_host_mcp_entries_for(
+                    root, adapter.name, removed, preserved, backup_dir=uninstall_backup_dir,
+                    remaining_mcp_hosts=remaining_mcp_hosts,
+                )
                 if (global_engine_root() / "bugx.md").is_file():
                     _sweep_unrecorded_host_entry(root, adapter, removed, preserved, uninstall_backup_dir, force=force)
 
@@ -2392,12 +2407,13 @@ def _assert_writable(directory: Path, label: str) -> None:
         raise CliError(f"{label}不可写：{directory}: {exc}") from exc
 
 
-_PROJECT_USER_SKILL = Path(".agents/skills/bugx-user/SKILL.md")
+_PROJECT_SKILL = Path(".agents/skills/bugx/SKILL.md")
+_PROJECT_USER_SKILL = _PROJECT_SKILL
 
 
 def _read_project_user_skill(root: Path, source: Path) -> bytes:
     """Validate the required bundled Skill and its project destination before init writes."""
-    target = root / _PROJECT_USER_SKILL
+    target = root / _PROJECT_SKILL
     _assert_no_symlink_components(target)
     for parent in target.parents:
         if parent == root:
@@ -2407,25 +2423,35 @@ def _read_project_user_skill(root: Path, source: Path) -> bytes:
     if target.exists() and not target.is_file():
         raise CliError(f"项目 Skill 目标不是普通文件：{target}")
 
-    template = source.parent / "skills" / "platform" / "bugx-user" / "SKILL.md"
+    template = source.parent / "skills" / "platform" / "bugx" / "SKILL.md"
     _assert_no_symlink_components(template)
     if not template.is_file():
-        raise CliError(f"安装包缺少 BugX 用户 Skill：{template}。请重新安装完整的 bugx-cli。")
+        raise CliError(f"安装包缺少 BugX Skill：{template}。请重新安装完整的 bugx-cli。")
     try:
         content = template.read_bytes()
     except OSError as exc:
-        raise CliError(f"无法读取 BugX 用户 Skill：{template}: {exc}") from exc
+        raise CliError(f"无法读取 BugX Skill：{template}: {exc}") from exc
     if not content.strip():
-        raise CliError(f"安装包中的 BugX 用户 Skill 为空：{template}。请重新安装完整的 bugx-cli。")
+        raise CliError(f"安装包中的 BugX Skill 为空：{template}。请重新安装完整的 bugx-cli。")
     return content
 
 
 def _install_project_user_skill(root: Path, content: bytes, *, force: bool) -> Path | None:
-    target = root / _PROJECT_USER_SKILL
+    # 迁移/清理旧版 bugx-user
+    legacy_user_skill = root / ".agents" / "skills" / "bugx-user" / "SKILL.md"
+    if legacy_user_skill.is_file():
+        try:
+            legacy_user_skill.unlink()
+            if legacy_user_skill.parent.is_dir():
+                legacy_user_skill.parent.rmdir()
+        except OSError:
+            pass
+
+    target = root / _PROJECT_SKILL
     _assert_no_symlink_components(target)
     if target.is_file() and not force:
         return None
-    _, _, backup = _write_host_resource(root, target, content, "bugx-user")
+    _, _, backup = _write_host_resource(root, target, content, "bugx")
     return backup
 
 
@@ -2466,7 +2492,7 @@ def _plan_cloud_onboarding(
     # been initialized.  Probing sync here can otherwise make first-time
     # ``init --cloud-sync sync`` fail before it creates the very ledger that
     # sync requires.
-    if not had_onboarding and cloud_sync_explicit and cloud_sync_choice in {"local", "sync"}:
+    if cloud_sync_explicit and cloud_sync_choice in {"local", "sync"}:
         action = "enable_sync" if cloud_sync_choice == "sync" else "set_local"
         return {"action": action}, 0
     if not had_onboarding:
@@ -2551,6 +2577,10 @@ def _commit_with_self_heal(commit, *, retries: int = 1):
 
 def command_init(args: argparse.Namespace) -> int:
     root = args.root.resolve()
+    if _is_global_home_scope(root):
+        raise CliError(
+            "不能将用户主目录 (~) 作为被测项目初始化；请在具体项目目录执行 `bugx init --root <PROJECT>`，或运行 `bugx install` 执行用户全局安装。"
+        )
     preset_data = {}
     try:
         _ensure_core_importable()
@@ -2686,9 +2716,9 @@ def command_init(args: argparse.Namespace) -> int:
     if removed_legacy_core:
         print(f"  已直接删除旧项目引擎入口：{removed_legacy_core}")
     print(f"  运行目录：{layout.root}")
-    print(f"  用户 Skill：{_PROJECT_USER_SKILL.as_posix()}")
+    print(f"  标准 Skill：{_PROJECT_SKILL.as_posix()}")
     if committed["skill_backup"] is not None:
-        print(f"  用户 Skill 备份：{committed['skill_backup']}")
+        print(f"  标准 Skill 备份：{committed['skill_backup']}")
     print(f"  写入 {copied} 个文件，保留 {skipped} 个已有文件")
     if life_created:
         print("  已创建 .bugx 当前生命周期生命状态（1 条初始寿命）")

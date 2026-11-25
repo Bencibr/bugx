@@ -43,6 +43,7 @@ WORKBUDDY_PROJECT_PATHS = (
     ".workbuddy/skills/bugx/SKILL.md",
     ".codebuddy/skills/bugx/SKILL.md",
 )
+QODER_PROJECT_MCP_PATHS = (".mcp.json", ".qoder/settings.json")
 
 
 def _packaged_asset_cores() -> tuple[Path, ...]:
@@ -376,7 +377,7 @@ def _component_from_plugin(name: str) -> HostComponent:
 #: 它随纵切推进增长；全部宿主迁移完成后本清单与 ``HOST_COMPONENTS`` 的本地字面量
 #: 会一起消失。
 PLUGIN_BACKED_HOSTS: tuple[str, ...] = (
-    "cline", "codex", "claude", "pi", "zcode", "kimi", "minimax",
+    "cline", "codex", "claude", "pi", "zcode", "kimi", "minimax", "antigravity",
 )
 
 
@@ -503,7 +504,7 @@ HOST_COMPONENTS: tuple[HostComponent, ...] = (
             single_select="等价于 multiple=false",
             failure="控件失败时停在当前 gate",
         ),
-        mcp=McpContract(config_relpaths=(".qoder/mcp.json", ".mcp.json")),
+        mcp=McpContract(config_relpaths=QODER_PROJECT_MCP_PATHS),
         execution=ExecutionContract(supports_headless=True, host_surface="tui"),
         aliases=("qoder-cli", "ali-qoder"),
         capabilities=frozenset({

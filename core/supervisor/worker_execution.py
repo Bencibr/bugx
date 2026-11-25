@@ -84,10 +84,23 @@ def terminate_group(process: subprocess.Popen[bytes]) -> None:
             # 即使父进程已经退出，后台孙进程仍可能保留该进程组；必须
             # 继续清理整个组，避免它们脱离 Worker 生命周期。
             os.killpg(process.pid, signal.SIGTERM)
-        elif process.poll() is None:  # pragma: no cover - Windows fallback
-            process.terminate()
-    except (OSError, ProcessLookupError):
+        else:  # pragma: no cover - Windows fallback
+            # Do not invoke an asynchronous tree-kill command here: a delayed
+            # PID-based command can target an unrelated process after PID
+            # reuse. The caller owns the exact ACP parent and closes its pipes.
+            if process.poll() is None:
+                process.terminate()
+    except (OSError, ProcessLookupError, subprocess.TimeoutExpired):
         pass
+    if os.name == "nt":  # pragma: no cover - Windows fallback
+        # Windows process handles may remain non-signaled while Antigravity's
+        # child MCP pipes drain. Never wait on that handle in the teardown
+        # path: kill this exact parent and return.
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError):
+            pass
+        return
     deadline = time.monotonic() + _KILL_GRACE_SECONDS
     while process.poll() is None and time.monotonic() < deadline:
         time.sleep(0.02)

@@ -44,18 +44,9 @@ def _kimi_code_home() -> Path:
 
 def _find_bugx_skill_source(root: Path, source: Path) -> Path | None:
     """定位可复用的 BugX SKILL.md 源文件。"""
-    candidates = (
-        source / "skills" / "bugx" / "SKILL.md",
-        source / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
-        source / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
-        root / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
-        root / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
-        global_engine_root() / "skills" / "bugx" / "SKILL.md",
-    )
-    for candidate in candidates:
-        if not candidate.is_symlink() and candidate.is_file():
-            return candidate
-    return None
+    from ..infra.host_sync import find_bugx_skill_source
+
+    return find_bugx_skill_source(root, source)
 
 
 def _find_bugx_avatar_source() -> Path | None:
@@ -384,3 +375,66 @@ def _ensure_kimi_plugin(
         "written": written,
         "backups": [],
     }
+
+
+def validate_install(root: Path) -> tuple[bool, str]:
+    """Verify Kimi Code plugin registration, files, and MCP server channels."""
+    del root
+    try:
+        kimi_home = _kimi_code_home()
+    except CliError as exc:
+        return False, str(exc)
+    plugins_root = kimi_home / "plugins"
+    installed_file = plugins_root / "installed.json"
+    dest = plugins_root / "managed" / "bugx"
+    manifest = dest / "kimi.plugin.json"
+    dot_manifest = dest / ".kimi-plugin" / "plugin.json"
+    agent_main = dest / "agents" / "bugx.md"
+    agent_worker = dest / "agents" / "bugx-worker.md"
+    skill_file = dest / "skills" / "bugx" / "SKILL.md"
+    missing = [
+        label for label, path in (
+            ("installed.json", installed_file),
+            ("kimi.plugin.json", manifest),
+            (".kimi-plugin/plugin.json", dot_manifest),
+            ("主智能体", agent_main),
+            ("Worker 智能体", agent_worker),
+            ("Skill", skill_file),
+        )
+        if path.is_symlink() or not path.is_file()
+    ]
+    if missing:
+        return (
+            False,
+            f"Kimi Code 插件不完整（{dest} 缺少 {'、'.join(missing)}）；"
+            "请运行 `bugx install --agent kimi`",
+        )
+    try:
+        installed_data = json.loads(installed_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return False, f"Kimi Code installed.json 无法解析（{installed_file}）：{exc}"
+    plugins_list = installed_data.get("plugins") if isinstance(installed_data, dict) else None
+    entry = (
+        next((p for p in plugins_list if isinstance(p, dict) and p.get("id") == "bugx"), None)
+        if isinstance(plugins_list, list) else None
+    )
+    if not entry or not entry.get("enabled"):
+        return False, f"Kimi Code installed.json 未启用 bugx 插件（{installed_file}）；请运行 `bugx install --agent kimi`"
+    try:
+        manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return False, f"Kimi Code kimi.plugin.json 无法解析（{manifest}）：{exc}"
+    servers = manifest_data.get("mcpServers") if isinstance(manifest_data, dict) else None
+    if not isinstance(servers, dict):
+        return False, f"Kimi Code kimi.plugin.json 缺少 mcpServers（{manifest}）"
+    missing_channels = [
+        ch for ch in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+        if not isinstance(servers.get(ch), dict)
+    ]
+    if missing_channels:
+        return (
+            False,
+            f"Kimi Code kimi.plugin.json 缺少 {', '.join(missing_channels)}（{manifest}）；"
+            "请运行 `bugx install --agent kimi`",
+        )
+    return True, f"Kimi Code 插件与三通道 MCP 已就绪并启用（{dest}）"

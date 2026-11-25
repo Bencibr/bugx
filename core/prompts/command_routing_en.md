@@ -23,6 +23,7 @@ In the first second of receiving a task, classify which branch it belongs to:
 5. **Close the Loop**: Defects require standalone reproduction scripts (PoC) and call-stack evidence; report truthfully using the 6 standard status terms (read-only inspection, project ready, gate ready, test execution, mining launched, mining completed).
 
 ### 3. Core Action Matrix (High-Frequency Commands Covering 90% of Calls)
+- **Live Guide Lookup**: `bugx guide "<keyword>"` (`--offline` queries bundled official baseline + project docs without network)
 - **Environment Diagnosis**: `bugx doctor --root <ROOT> --json` (`--repair-assets` for repair)
 - **Startup and Gates**: `bugx engine --root <ROOT> status --json` / `bugx engine --root <ROOT> pre` (fresh projects use `bugx init --root <ROOT>`)
 - **Reproduction and Mutation**: `bugx test-generate --root <ROOT> --scope <PATH::SYM> --out <FILE>` / `bugx test-verify verify --scope <SCOPE>`
@@ -30,12 +31,12 @@ In the first second of receiving a task, classify which branch it belongs to:
 - **Telemetry and Logs**: `bugx telemetry inspect` / `bugx log --root <ROOT> --errors`
 - **Dual Reports and Preview**: `bugx report both --eval-dir verification/evals/oss --out verification/evals/oss` / `bugx report serve --port 18991`
 
-### 4. Compact Command Radar (41 Top-level Commands Classified Index)
+### 4. Compact Command Radar (43 Top-level Commands Classified Index)
 To invoke any command below, inspect exact parameters dynamically via `bugx help <cmd>`; never guess:
-- **Diagnostics and Inspection (9)**: `help`, `doctor`, `hosts`, `completion`, `log`, `stats`, `view`, `project`, `self-audit`
-- **Core Lifecycle and Hosts (14)**: `init`, `engine`, `supervisor`, `daemon`, `config`, `reset`, `install`, `uninstall`, `dsh`, `plugin`, `mcp`, `mcp-runtime`, `capability`, `logic-analysis`
-- **Deep Audit and Verification (10)**: `audit`, `probe`, `test-generate`, `test-audit`, `test-verify`, `patch-forge`, `test-strategy`, `fuzz-input`, `differential-probe`, `mining-audit`
-- **Knowledge Flywheel and Delivery (8)**: `report`, `lesson`, `knowledge`, `skill`, `cloud`, `auth`, `telemetry`, `advisory`
+- **Diagnostics and Inspection (10)**: `help`, `completion`, `guide`, `hosts`, `doctor`, `log`, `stats`, `view`, `project`, `self-audit`
+- **Core Lifecycle and Hosts (15)**: `init`, `install`, `reset`, `uninstall`, `dsh`, `engine`, `supervisor`, `daemon`, `config`, `plugin`, `mcp`, `capability`, `mcp-runtime`, `update`, `interaction`
+- **Deep Audit and Verification (10)**: `audit`, `probe`, `logic-analysis`, `mining-audit`, `test-generate`, `test-audit`, `test-verify`, `patch-forge`, `autonomous`, `goal`
+- **Cloud, Knowledge, and Delivery (8)**: `cloud`, `auth`, `telemetry`, `knowledge`, `lesson`, `skill`, `advisory`, `report`
 
 ### 5. Mandatory Rules and Deprecated Command Redirection
 - **Gate Blockage Forbids Destructive Repairs**: `FATAL_BLOCKED` must never be bypassed using `init`, `reset`, or `--force`; preserve logs and state first.

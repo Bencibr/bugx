@@ -1,6 +1,6 @@
 # BugX 架构总览
 
-> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
+> **版本**: 0.1.4 | **更新日期**: 2026-11-25 | **定位**: Diátaxis - Explanation (系统高层架构与设计白皮书)
 > 本文是 BugX 生产源仓的设计入口：一张图看懂分层、框架与数据流。面向使用、集成与二次开发的工程师。
 
 > [!IMPORTANT]
@@ -239,15 +239,11 @@ CLI 命令面保持短而单一：`bugx hosts` 只读发现宿主，`bugx instal
 `docs/02_architecture/02_DESIGN_SPEC.md` 的“Doctor 云端端点探活与 macOS 本地网络错误归因”规格。
 探针参数固定为 `-q -sS --insecure --noproxy '*' --connect-timeout 1.0 --max-time 1.5 --head --output /dev/null --write-out '%{remote_ip}'`；HEAD 不携带凭据或请求体，`--insecure` 仅作用于该探针以允许自签证书。
 
-10. **探针环境与动态预算**：所有预检子进程继承规范化 PATH，并在 macOS/Linux 补齐已存在的
- Homebrew、用户本地和 Cargo bin 目录；不覆盖用户已有 PATH 顺序。`codebase-memory` 的预算采用
-    冷启动下限、上次实测耗时加余量和 120 秒硬上限，支持 `BUGX_PROBE_TIMEOUT_<NAME>`、
-    `BUGX_PROBE_TIMEOUT_SECONDS` 覆盖；画像记录耗时与实际预算，禁止用固定 5 秒误判可用工具。
+10. **核心必需工具与按需环境预算**：所有预检子进程继承规范化 PATH，补齐用户本地（`~/.local/bin`、`~/.bugx/bin`、`~/.bugx/tools/codebase-memory/{bin,Scripts}`、`~/.bugx/tools/pydeps`）与常用包管理器目录而不覆盖已有顺序。`codebase-memory-mcp==0.12.1`（`critical=True`）与 `tree-sitter-language-pack==1.14.3` 属于全局通用核心必需依赖：在 `bugx install` 与 `bugx doctor --repair` 阶段即强制安装并校验（`codebase-memory` 支持 `pipx`/`uv tool` 与 BugX 托管隔离 venv `~/.bugx/tools/codebase-memory`，验活超时 120s 兼容 PyPI wrapper 首次解压二进制；`tree-sitter` 支持 `--target ~/.bugx/tools/pydeps` 回退解决 PEP 668 限制），在默认 `doctor` 与 `pre` 均不可降级或豁免；项目级 `codebase-memory` 查询预算仍采用冷启动下限、实测耗时余量与 120 秒硬上限。其余项目栈相关可选项（`ast-grep`、`playwright`、`postmcp`、`codindex`、`mobile`、`sast`、`ui_env`、`MCP 离线 runtime` 等）不在全局安装期强制安装，而是在实际进入项目审计 `pre` 阶段按技术栈由 AI 与用户共同决策启用；非 `--root` 在用户主目录 `~` 运行 `bugx install`/`doctor` 时进入用户全局模式，绝不把 `~` 初始化为项目或删除 `~/.bugx/core`。
 
-工具准备若有多个未就绪项，`supervisor_bridge` 将它们合并为一个多选问题；勾选项进入安装/配置，未勾选项
-使用回退方案，非交互宿主可用 `BUGX_TOOLING_CHOICES` 逐工具答案承接。单个工具和生命周期策略门禁仍为单选。
+工具准备若有多个可选未就绪项，`supervisor_bridge` 将非关键可选项合并为一个多选问题；勾选项进入安装/配置，未勾选项使用回退方案，非交互宿主可用 `BUGX_TOOLING_CHOICES` 逐工具答案承接；`critical=True` 核心依赖缺失时直接自愈或阻断，不得跳过。
 
-`self_heal.plans_for()` 仅返回 `PLAN_REGISTRY` 中维护的安装配方。未登记名称设置 `unregistered_tool`、保留剩余项并写入拒绝收据，不会形成任何包管理器命令；登记配方的包来源与版本证明另行核验。
+`self_heal.plans_for()` 仅返回 `PLAN_REGISTRY` 中维护的安装配方（包含 `__bugx_venv_pip__` 隔离 venv 配方）。未登记名称设置 `unregistered_tool`、保留剩余项并写入拒绝收据，不会形成任何包管理器命令；登记配方的包来源与版本证明另行核验。
 
 ### 2.1.3 架构缺陷修复边界（2026-09-20）
 
@@ -265,6 +261,8 @@ CLI 命令面保持短而单一：`bugx hosts` 只读发现宿主，`bugx instal
 - `runtime.json.bak` 始终保存上一代有效 runtime；doctor 不再凭空合成 runtime、coverage 或
   supervisor 状态，生命周期续轮准备失败时恢复旧的 current 指针。
 - Doctor 普通诊断对 Qoder 遗留数据和项目 manifest 保持只读；`--repair` 的项目文件更新拒绝软链接，使用同目录临时文件原子替换，失败会进入修复检查错误清单。初始化项目缺少宿主安装清单时 fail-closed，并从已检测宿主补做只读 MCP 检查。
+- Qoder 项目级 MCP 由安装事务合并到根目录 `.mcp.json`。三项 BugX stdio 注册均携带项目绝对 `--root`。Windows 使用安装时的绝对 `python.exe` 与 `-P -m bugx_cli.cli`，npm 安装额外传递自身模块与资源路径。Doctor 和运行时按 Qoder 的项目配置优先级读取 `.qoder/settings.json` 与 `.mcp.json`，同名条目以根配置为准。Claude、FunIDE 和 Qoder 共享根配置，卸载单个宿主时依据剩余安装登记保留共享 BugX 注册。
+- MCP 快速分派在 Windows 使用 `subprocess.call` 保留包含空格的 argv、stdio 和退出码，POSIX 仍用 `execv` 替换进程。
 - Doctor 的 AI 诊断只提供根因分析：模型输出的修复命令与 `auto_repairable` 不可信；精确检查名、当前模式和已实现修复路径共同决定修复提示，未知检查只给只读指引。`doctor --repair` 不再强制重写整套漂移宿主适配包，以免覆盖项目内修改；全局引擎替换仍要求安装资源 Build ID 严格高于目标。副本诊断仅在安装资源高于共享引擎且不低于全部已发现副本时建议 `install --force`；同号、未知或发现更高副本时只给逐路径核对指引。
 - Checkpoint 必须携带有效业务内容；并发门禁要求至少两个 worker 提交本轮 checkpoint，已提交
   的证据发布可用同一 checkpoint 幂等重试；知识审批拒绝 reviewer 自审。
@@ -345,7 +343,7 @@ sequenceDiagram
 Windows 真实安装事实与非系统盘识别，macOS/Linux 仍只有路径契约证据。
 
 
-MiniMax Code 3.1.0 的注册时序为：
+MiniMax Code 3.1.17 的注册时序如下。
 
     sequenceDiagram
         participant I as BugX Installer
@@ -353,16 +351,26 @@ MiniMax Code 3.1.0 的注册时序为：
         participant P as plugins/bugx
         participant M as MiniMax Code
         I->>D: resolve bounded user data root
-        I->>P: write Plugin V1 manifest, Agents, Skill, MCP and icons
-        P-->>I: return structured receipt
+        I->>P: publish Worker, Skill, MCP and icon, then manifest
+        I->>D: publish official avatar, then agents/bugx/agent.md
+        I-->>I: validate registration and return structured receipt
         M->>P: discover .minimax-plugin/plugin.json
-        M->>P: load bugx and bugx-worker Agents
-        M->>P: load servers.mcp.json and icon.png
-        M-->>I: reload/load/call/healthy evidence is required separately
+        M->>P: load bugx:bugx-worker, Skill, MCP and icon
+        M->>D: enumerate canonical Custom Agents for Agents UI
+        M-->>I: run-time MCP calls require separate host evidence
 
-MiniMax 的包路径、Agent frontmatter 和 MCP schema 来自已安装 Electron 包内的
-local-plugin-v1 与 local-plugin-agents reference；BugX 只声明已验证的桌面插件面，
-不声明未取证的 mcode headless flag 或标准 ACP。
+MiniMax 的包路径、Agent frontmatter 和 MCP schema 以已安装 Electron 包的解析器和
+自定义 Agent 文件存储为依据。标准 ACP 和 headless 能力保持 `UNVERIFIED`。
+
+Google Antigravity 通过 `core/hosts/antigravity.py` 声明宿主身份，主 Agent 的原生标识为 `BugX`。CLI 将主 Agent、
+Worker Agent、Skill、官方 `assets/bugx-avatar.svg` 和 `plugin.json` 发布到用户级插件目录，将三条项目绑定的 MCP
+写入 `<root>/.agents/mcp_config.json`。Doctor 通过 Antigravity 专用校验读取用户级
+受管文件，不能把 `.gemini/config/plugins` 当作项目相对路径。Supervisor/Worker 通道在 ACP 中使用全局引擎
+的 `skills/bugx_mcp_server.py` 直通启动，docs 通道使用对应的文档 MCP 脚本，避免完整
+`bugx` CLI 的 Windows 冷启动超过宿主预加载预算；宿主真实工具证据仍独立于安装回执。
+当前 `agy 1.5.16` 的 ACP 工具级探活仍为 `UNVERIFIED`：握手可建立，但日志出现
+`AgentBasePath is not set`/`unsupported_tool: call_mcp_tool`，因此不能把直通启动或
+headless docs 调用提升为 ACP 生命周期通过。
 
 ## 3. 主数据流（一次审计的生命周期）
 
@@ -407,9 +415,9 @@ Worker 若实际复用 pattern 必须在最终 Finding 回填 `pattern_id`，若
 相对 HEAD 的用户变更，排除 `.bugx/` 运行态、宿主适配目录和 `__pycache__/`、`.pyc/.pyo`
 生成物；Git 失败时记录 `commit_status=pending`，post 继续完成，启动或下一边界自动重试；核心引擎不隐式执行远端 push。
 
-### 项目级用户 Skill
+### 项目级标准 Skill（DOC-004 极简 RAG 驱动架构）
 
-`bugx init` 从安装资产根的同级 `skills/platform/bugx-user/SKILL.md` 读取用户 Skill。源码、wheel 及 npm 保持相同的资产相对路径，sdist 与生产导出包含同一模板。项目目标固定为 `.agents/skills/bugx-user/SKILL.md`。初始化预检拒绝缺失模板和不安全目标，提交阶段复用已有的受管文件原子写入和备份逻辑。
+`bugx init` 从安装资产根的同级 `skills/platform/bugx/SKILL.md` 读取标准通用 Skill（DOC-004：废除旧 `bugx-user` 膨胀模式）。源码、wheel 及 npm 保持相同的资产相对路径，sdist 与生产导出包含同一模板。项目目标固定为 `.agents/skills/bugx/SKILL.md`（体积压缩至 ~600 Tokens，内嵌向本地 SQLite FTS5 RAG 与 `bugx guide` 动态按需查询步骤的规则）。初始化预检拒绝缺失模板和不安全目标，提交阶段复用已有的受管文件原子写入和备份逻辑。若存在旧版 `bugx-user/SKILL.md`，执行平滑迁移备份。
 
 ### 2.1 安装事务与 Windows 宿主目录边界
 
@@ -1129,7 +1137,7 @@ flowchart TD
     subgraph ComputeTiers["4. 工种专精亲和与模型梯队分级 (Worker Affinity)"]
         WRecon["Recon-Worker ➔ 绑定 FAST 模型 (Agnes 3.0 Flash)"]
         WAuth["Auth-Worker ➔ 绑定 BALANCED 模型 (Haiku / DeepSeek V3)"]
-        WLogic["Logic-Worker ➔ 绑定 PRO 模型 (Claude 3.5 Sonnet / GPT-4o)"]
+        WLogic["Logic-Worker ➔ 绑定 PRO 模型 (Claude Sonnet 5.5 / Gemini 4 Carbon / GPT-4o)"]
         WExploit["Exploit-Worker ➔ 绑定 PRO 模型 (DeepSeek R1 / Sonnet)"]
     end
 
@@ -1322,7 +1330,7 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 依据系统发布与版本策略：本仓走
 `0.1.3-alpha.N` 预发布线，版本号由导出流程单点写入；`pyproject.toml` 与
 `interfaces/cli/bugx_cli/__init__.py` 为唯一权威源，其余版本标记为引擎契约的功能性
-副本（doctor 依赖其一致性）。当前正式基线为 `0.1.3`。
+副本（doctor 依赖其一致性）。当前正式基线为 `0.1.4`。
 
 
 ## 7. 开发生命周期与设计文档同步门禁
@@ -1330,7 +1338,7 @@ active claim、保留 checkpoint 与审计历史，然后继续同一自治 sess
 BugX 固化了“方案审计先行、定向测试守护、现有设计文档同步更新”的工程生命周期治理体系（由 `dev-doc` Skill 与 `scripts/dev_doc.py` 承载）：
 - **设计规划（plan）**：自动生成带 5 问逐条审计矩阵的 `DOC-XXX.md`，并强制注入现有核心设计文档更新清单（`02_DESIGN_SPEC.md`、`01_ARCHITECTURE.md`、`03_BUGX_AUDIT_FLOW.md`、`01_AI_REFERENCE.md`）；
 - **审计核验（check）**：核查所有设计项结论均为 `AUDITED_OK`，并在开发过程中实时提示现有设计文档的修改情况；
-- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.3`。
+- **收尾闭环（close）**：自动比对 Git 变动。当存在 `core/` 或 `interfaces/` 等功能代码变更时，核查现有核心设计文档是否已同步修改；验证通过后生成 Build ID 发布说明并刷新全仓声明与哈希清单，语义版本保持 `0.1.4`。
 
 ### 远程补丁验证数据流
 
@@ -1720,7 +1728,8 @@ flowchart LR
 Windows、macOS、Linux 的统一生命周期转发入口。Windows 不要求项目引擎符号链接，宿主
 入口的链接失败只允许退化为受控文件副本。旧入口属于破坏性迁移对象，不提供兼容回退。
 
-`asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资源。即使 CLI 从
+`asset_root()` 默认只解析 wheel data-files 与已安装 distribution 资源，并优先当前 CLI 对应的
+distribution 资源，再回退到系统级 data-files，避免 Windows 用户级 wheel 被旧系统目录遮蔽。即使 CLI 从
 editable checkout 导入，源码仓库的 `core/` 也不会自动成为资源候选；安装载荷缺失或不完整
 时由 `MissingAgentAssetError` 标记。Wheel 通过逐目录 `data-files` 声明提供 core 资源；Jenkins 发布流水线在改写 staged 版本、通道与默认云端地址后重签 `engine-integrity.json`，并在上传前逐项校验 wheel 清单文件哈希及 CLI/core Build ID。默认安装资源损坏时普通命令只报告诊断。用户可以从真实 CLI 控制台显式执行 `bugx update --repair-assets`：
 先读取当前非 editable wheel distribution dist-info 内的原始 `RECORD` 文本（不能依赖会因目标文件缺失而漏项的 `distribution.files`）；只有 CLI 与全局引擎 Build ID 相同、且全局文件逐项匹配 `RECORD` 的 SHA-256 和大小时，才在 wheel 资源目录同级暂存、复验并原子恢复。否则才访问网络：优先从官方 stable 发行 API `https://bugx.dev` 获取 wheel；仅该 API 不可用时才查询官方 PyPI 的 `bugx-cli` stable wheel（不采用用户配置的云端同步地址、设备路由或其他镜像）。校验 HTTPS、响应摘要、发行身份、语义版本、纯 Python 标签与 Build ID 下限（至少达到当前 CLI、现有 asset 与共享引擎中的最高值），
@@ -1734,7 +1743,8 @@ editable checkout 导入，源码仓库的 `core/` 也不会自动成为资源�
 
 若本地恢复原先没有安装目录、但发布后的校验失败，事务会移走并清理本次发布的目录，使安装状态回到缺失；若目标在校验期间被并发替换，则通过隔离目录身份比较保留该目标并停止自动修复，不继续在线 wheel 或 pip 安装。
 
-`pyproject.toml` 的 data-files glob 必须覆盖 `engine-integrity.json` 的每个签名路径；一致性
+`pyproject.toml` 的 data-files glob（包括 `audit_packs/pitfalls/*.json` 与 WebUI 静态图片、
+robots/sitemap 文件）必须覆盖 `engine-integrity.json` 的每个签名路径；一致性
 测试按实际 glob 语义检查映射，真实 wheel 校验仍逐项验证最终包中的文件和哈希。
 
 ```mermaid
@@ -2220,10 +2230,9 @@ Cline 交互主会话逐个执行 Worker，Cline 自治 CLI 则由独立进程�
 Cline 交互车道按单 claim 主会话执行；Claude Code/Codex/OpenCode 的自治宿主不得调用独立
 `worker_runtime --execute`，Cline process mode 是显式的 CLI 进程池例外。
 OpenCode v2 项目配置采用 `plugins` 与 `mcp.servers`，停用字段为 `disabled`；v1 扁平 MCP、条目 `enabled` 与旧 Agent 字段均 fail-closed，不做迁移。Build ID 刷新器由 MCP registry 重建随包模板的 server map。主/Worker Agent 使用有序 `permissions` 规则，OpenCode MCP 动作名为 `<server>_<tool>`，保留 server 名中的连字符；Host、Worker、Docs 权限前缀分别为 `bugx-supervisor_*`、`bugx-supervisor-worker_*`、`bugx-docs_*`，主 Agent 只授权启动 `bugx-worker`。所有已配置的 BugX 管理 MCP（含 Docs 和本轮选中的运行时）设置 `codemode: false`，主/Worker Agent 均拒绝 Code Mode `execute`；ACP 缺少 direct action 时 fail-closed，不回退到 Code Mode 或 shell。OpenCode 直连 action 同时带 server ID 与工具名，例如 `bugx-supervisor_bugx_supervisor_status` 和 `bugx-supervisor-worker_bugx_supervisor_claim`；Agent/ACP 提示必须按外层 action 调用，业务层的 MCP method 名仍保持不变。
-自治 `pre` 对 Context7、设备、移动端、Perfetto、Web 动态检查和 codebase-memory 等非硬依赖只采用
-探针显式声明的回退；codebase-memory 探针逐个检查 PATH 候选并优先查找配置/默认用户工具目录，只接受与 `core/runtime/tool_install_targets.py` 固定 pin 完全一致的 CLI。同名旧程序会被跳过；只有精确匹配的 CLI 才能执行 `cli --quiet list_projects --format json --detail stats`。该参数返回 `nodes/edges` 统计；缺少字段时按无法判定处理，不将未知值误报为零节点。无匹配版本时在列举或建图前进入固定规格的隔离安装自愈，安装后必须重新验证版本与当前项目索引；匹配后缺索引才以 `cli --quiet index_repository --repo-path <root>` 建图并复查，失败原因保留在检查中；Supervisor MCP、Git、版本、覆盖、证据、预算和认证仍 fail-closed。
-Codebase Memory 自愈桥接与图增强桥接共用 `codebase_memory_probe.resolve_compatible_binary()`；图增强桥接在列举项目、读取索引或查询图谱前再次核对固定版本，因此 PATH 前置的旧副本不会被误用或触发假降级。项目列表与索引状态复用共享探针的直接 JSON 命令，图查询使用当前 CLI 的 `--project`/`--query` 参数，不解析外层 MCP envelope 或传递已弃用的裸 JSON 参数。只有复查当前 root 后得到 `READY` 才清除降级项并设置 `BUGX_USE_CODEBASE_MEMORY=1`；子命令单独返回 0 或同名文件存在不作为就绪证明。索引失败不会重复安装包，图增强只读路径不会自行安装工具。
-通用可选工具自愈的包规格由 `core/runtime/tool_install_targets.py` 唯一维护；Codebase Memory 与 ast-grep 仅经固定版本的 `pipx install --force` / `uv tool install --reinstall` 隔离环境安装，不向 BugX 当前 Python 或 Homebrew 写入。
+自治 `pre` 对 Context7、设备、移动端、Perfetto、Web 动态检查等可选项目能力按探针显式策略决策与处置；而 `codebase-memory-mcp==0.12.1`（`critical=True`）与 `tree-sitter-language-pack==1.14.3` 为全局核心必装能力，已在安装阶段强制就绪，启动期不得通过降级或豁免放行。codebase-memory 探针逐个检查 PATH 候选并优先查找隔离工具目录与用户工具目录，只接受与 `core/runtime/tool_install_targets.py` 固定 pin 完全一致的 CLI。同名旧程序会被跳过；只有精确匹配的 CLI 才能执行 `cli --quiet list_projects --format json --detail stats`。该参数返回 `nodes/edges` 统计；缺少字段时按无法判定处理，不将未知值误报为零节点。无匹配版本时在列举或建图前进入固定规格的隔离安装自愈（`pipx`/`uv tool`/`~/.bugx/tools/codebase-memory` 隔离 venv），安装后必须重新验证版本与当前项目索引；匹配后缺索引才以 `cli --quiet index_repository --repo-path <root>` 建图并复查，失败原因保留在检查中并与 Supervisor MCP、Git、版本、覆盖、证据、预算和认证共同 fail-closed。
+Codebase Memory 自愈桥接与图增强桥接共用 `codebase_memory_probe.resolve_compatible_binary()`；图增强桥接在列举项目、读取索引或查询图谱前再次核对固定版本，因此 PATH 前置的旧副本不会被误用或触发假降级。项目列表与索引状态复用共享探针的直接 JSON 命令，图查询使用当前 CLI 的 `--project`/`--query` 参数，不解析外层 MCP envelope 或传递已弃用的裸 JSON 参数。只有复查当前 root 后得到 `READY` 才设置 `BUGX_USE_CODEBASE_MEMORY=1`；子命令单独返回 0 或同名文件存在不作为就绪证明。索引失败不会重复安装包，图增强只读路径不会自行安装工具。
+通用工具自愈的包规格由 `core/runtime/tool_install_targets.py` 唯一维护（拆分为 `REQUIRED_TOOL_PACKAGE_SPECS` 与 `OPTIONAL_TOOL_PACKAGE_SPECS`）：`codebase-memory` 优先复用或构建 `pipx` / `uv tool` / `~/.bugx/tools/codebase-memory` 隔离 venv；`tree-sitter-language-pack` 优先 pip 安装并在 PEP 668 受限环境回退至 `--target ~/.bugx/tools/pydeps`；`ast-grep` 等可选工具仍在审计按需自愈中经隔离环境安装。
 runtime 中 `host=cline` 且未进入 process mode 时，`pre` 记录 Cline Worker 串行执行原因并签发与当前身份绑定的串行凭证，`workers` 每批最多申请一个 claim；
 Cline 主会话经 Worker MCP 完成 checkpoint 后才继续领取。若 runtime 中 `execute=true` 或显式传入 `--execute`，则 `workers` 通过 `AdaptiveConcurrencyController` 取得 2~6（候选不足时可低于 2）个槽位，
 每个 Claim 启动一个独立 Cline CLI 进程和工作区外独立私有沙箱（`~/.bugx/sandboxes/cline/...`），窗口使用
@@ -3271,5 +3280,31 @@ flowchart TD
 upsert 去重的 `agent_installations`，管理员统计通过 `/api/v1/admin/telemetry/stats`，
 安装列表通过 `/api/v1/admin/telemetry/installations`。客户端、服务端 `00053` migration、
 权限和管理端必须一起发布；只有客户端或只有“配置写入成功”均不构成安装统计可用。
+
+### `bugx-docs` 双作用域章节检索、云端热同步与不可变缓存架构（DOC-006）
+
+`bugx-docs` 与持久化错题/经验台账（`lesson-ledger.sqlite3`）及分语言数据集（`seed_corpus`）保持**严格正交分离、绝不合并**：`bugx-docs` 只承担无状态只读 Markdown 操作指南 RAG（`resolve_library`、`search_docs`、`list_sections`、`fetch_doc`），底层 schema 升级为 `v2-trigram-section-hybrid`（`documents` + `document_sections` + `sections_fts tokenize='trigram'`）。
+
+```mermaid
+flowchart TB
+    Cloud["服务端 docs 发布与热更新端点<br/>/api/v1/mcp/docs · /api/v1/agent/docs/{manifest,bundle,search,fetch}"]
+    Sync["core/skills/bugx_docs_cloud_sync.py<br/>1.5s ETag + sync.lock 单飞锁 + SHA-256 + PRAGMA quick_check"]
+    Cache[("全局不可变官方缓存 (~/.bugx/cache/docs/<contract_version>/)<br/><sha256>.sqlite3 + current.json (旧库 unlink/.gc-pending)")]
+    Bundled["随包离线基线 (core/bundled_docs/)<br/>物理排除 docs/08_internal/；断网/只读兜底"]
+    ProjDB[("项目私有文档库 (<ROOT>/.bugx/knowledge/docs.sqlite3)<br/>仅存 project:<id>，绝不上云")]
+    Gateway["bugx-docs Gateway (bugx mcp docs serve / bugx guide / WebUI)"]
+
+    Cloud -->|"contract_version 严格隔离"| Sync
+    Sync -->|"校验通过原子切换"| Cache
+    Gateway -->|"bugx:official 优先"| Cache
+    Gateway -->|"离线 / 404 / 未拉取回退"| Bundled
+    Gateway -->|"project:<id> 仅本机"| ProjDB
+```
+
+关键隔离与健壮性边界：
+1. **跨版本防污染**：所有官档缓存按 `contract_version`（仅取 `MAJOR.MINOR.PATCH`）分桶，服务端若返回失配版本立刻拒绝写入；
+2. **文件并发与占用自愈**：全局热更新使用单飞锁 `sync.lock`，仅在 SHA-256 + SQLite `PRAGMA quick_check` 通过后原子切换 `current.json`，若旧文件被锁（如 Windows `WinError 32`）写入 `.gc-pending` 延后清理；只读目录查询退化为 `:memory:` 构建而不崩溃；
+3. **绝对断网开关**：`BUGX_DOCS_OFFLINE=1`、`cloud.docs_remote_enabled=false`、`--offline` 或 `--mode local-only` 下确保零出网请求。
+4. **全链路消费统一**：`bugx guide`、所有 11+ 家宿主 `stdio`（及可选 `--docs-transport remote` HTTP URL 模式）与 WebUI `docs_session_service` 共用同一引擎，并对齐全部 43 个真实 CLI 顶层命令（零幽灵命令）。
 
 

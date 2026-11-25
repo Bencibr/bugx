@@ -64,6 +64,9 @@ def _run_round(*, level_ids: list[str] | None, baseline: Path | None,
     try:
         proc = subprocess.run(
             argv, cwd=str(REPO_ROOT), capture_output=True, text=True,
+            # RSI 轮次是机器编排，不允许 scenario_eval 继承宿主 TTY 后
+            # 在任何未预期的交互门禁上无限等待。
+            stdin=subprocess.DEVNULL,
             timeout=timeout, check=False,
         )
     except subprocess.TimeoutExpired:

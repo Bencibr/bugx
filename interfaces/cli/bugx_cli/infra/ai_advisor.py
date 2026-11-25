@@ -431,12 +431,12 @@ class DiagnosticAIArbitrator:
         (
             r"(?:全局引擎完整性|引擎副本一致性)",
             "全局引擎代码清单 (engine-integrity.json) 哈希不匹配或文件缺失，存在版本漂移或代码被意外修改。",
-            "`bugx doctor --repair` 在两种情况下会重放安装资源修好引擎：(1) 安装资源 Build ID 严格高于全局引擎；(2) 同 Build ID 且安装资源自身完好。仅当资源自身也损坏（或需要降级）时才会拒绝，此时请重装 CLI。",
+            "`bugx doctor --repair` 在两种情况下会重放安装资源修好引擎：(1) 安装资源版本严格高于全局引擎；(2) 同版本且安装资源自身完好。仅当资源自身也损坏（或需要降级）时才会拒绝，此时请重装 CLI。",
         ),
         (
             r"BugX 版本一致性",
             "CLI 命令入口与全局引擎、镜像清单版本声明不一致，存在环境版本漂移。",
-            "运行 `bugx doctor --repair` 前先确认安装资源 Build ID 严格高于全局引擎；不满足时升级 CLI wheel 后重试。",
+            "运行 `bugx doctor --repair` 前先确认安装资源版本高于或等于全局引擎；不满足时升级 CLI wheel 后重试。",
         ),
         (
             r"项目初始化状态",
@@ -466,13 +466,13 @@ class DiagnosticAIArbitrator:
         ),
         (
             r"MCP 离线 runtime",
-            "本地离线 MCP 运行时沙箱未建立或环境依赖缺失，导致离线代码工具链不可用。",
-            "按需运行 `bugx system mcp-runtime install` 建立隔离运行时；这不是 `bugx doctor --repair` 的修复项。",
+            "按需构建的本地离线 MCP 运行时沙箱缺失或已损坏。",
+            "如需使用需沙箱的扩展 MCP，运行 `bugx mcp-runtime install`（可选按项目启用；这不是全局必需项）。",
         ),
         (
             r"MCP 会话进程卫生",
-            "检测到系统中存在失控或遗留的 MCP 僵尸进程，可能持续占用端口与系统句柄。",
-            "运行 bugx system mcp-runtime clean 清理遗留僵尸进程。",
+            "同项目 MCP 会话进程数量过多或存在失去父进程的遗弃会话，可能持续占用句柄与资源。",
+            "运行 `bugx mcp prune --root <ROOT> --yes` 清理遗留或失联的 MCP 会话进程。",
         ),
         (
             r"BugX CLI 路径",
@@ -485,14 +485,14 @@ class DiagnosticAIArbitrator:
             "可使用包管理器安装对应外部工具（如 brew install ast-grep ripgrep）提升大规模审计速度。",
         ),
         (
-            r"Tree-sitter 多语言增强",
-            "未检测到 tree-sitter-language-pack 库，跨语言语法树深度解析回退至词法模式。",
-            "运行 `bugx doctor --repair` 可尝试安装 `tree-sitter-language-pack`；安装失败时请按错误详情检查 Python 环境和网络。",
+            r"Tree-sitter (?:多语言增强|语法解析引擎)",
+            "未检测到 `tree-sitter-language-pack==1.14.3` 核心依赖，无法执行跨语言 AST 深度解析。",
+            "这是 BugX 全局必需核心依赖，请运行 `bugx doctor --repair --root <ROOT>` 或 `bugx install` 自动安装修复。",
         ),
         (
-            r"codebase-memory 推荐加速",
-            "知识图谱组件 codebase-memory 未就绪或未启动，当前运行于基础模式。",
-            "这是可选加速组件；检查插件安装与索引状态，基础模式仍可运行。",
+            r"codebase-memory(?: 代码图谱| 推荐加速)?",
+            "核心语义图谱组件 `codebase-memory-mcp==0.12.1` 未安装或不可用（不可降级放行）。",
+            "这是 BugX 全局必需核心依赖，请运行 `bugx doctor --repair --root <ROOT>` 或 `bugx install` 自动安装修复。",
         ),
         (
             r"UI 视觉与浏览器挖掘环境(?:（可选）)?",
@@ -512,6 +512,8 @@ class DiagnosticAIArbitrator:
         "全局引擎完整性",
         "BugX 版本一致性",
         "Tree-sitter 多语言增强",
+        "Tree-sitter 语法解析引擎",
+        "codebase-memory 代码图谱",
     })
 
     def __init__(self, root: Path) -> None:

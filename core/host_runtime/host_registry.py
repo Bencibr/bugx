@@ -40,6 +40,7 @@ SUPPORTED_HOSTS: tuple[str, ...] = (
     "dsh",
     "kimi",
     "minimax",
+    "antigravity",
     "chatgpt",
     "workbuddy",
     "qoder",
@@ -66,7 +67,7 @@ HOST_MARKERS: dict[str, tuple[str, ...]] = {
         ".workbuddy",
         ".codebuddy",
     ),
-    "qoder": (".qoder", ".qoder/config.json", ".qoder/mcp.json"),
+    "qoder": (".qoder",),
     # 真实 Trae / Trae CN 打开过的项目只会有 .trae/ 或 .trae-cn/ 目录；.trea 是 BugX 安装面。
     "trea": (".trea", ".trea/agent.yml", ".trea/mcp.json", ".trae", ".trae-cn"),
     "funide": (".github/agents/bugx.agent.md",),

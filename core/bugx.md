@@ -2,7 +2,7 @@
 name: bugx
 # Frontmatter is host/Agent routing metadata. Human-facing usage guidance belongs in README.md and docs/.
 description: Use BugX when asked to perform autonomous code review, deep bug hunting, black-box testing, or automated functional and performance verification. Do NOT use BugX for normal conversation, everyday coding, minor cosmetic fixes, or documentation tasks. Normal development should proceed without activating BugX lifecycle.
-version: 0.1.3
+version: 0.1.4
 mode: all
 temperature: 0.1
 permission:
@@ -456,7 +456,7 @@ BugX 向当前项目注入了一套**只读运行态**，位于 `.bugx/` 目录�
     重搜 → 搜索兜底**——先查 `~/.bugx/core/planning/tools-kb.md`（命中且 ≤30 天用本库，
     除非用户要求重搜）；命中但 >30 天必须重搜更新；未命中才真实搜索（GitHub/Web）
     并回写本库；**禁止记忆库偷懒与过期知识复用**；**搜索是行为不是记忆**：通用性来自“本库优先（30 天）+ 搜索兜底”机制；
-     ③ 探测与定策：**代码图增强层（环境必检，非全量硬依赖）**：先运行全局引擎 `codebase_memory_probe.py check --root <项目根>`，若 codebase-memory-mcp 为 `READY`，必须优先以图谱加速；若环境为 `DEGRADED`、未安装或未建索引，**严禁消极后退与记录原因回退**，必须立即执行就地自愈装配与建索引（运行 `codebase-memory-mcp cli index_repository` 或通过 `pipx/uv/pip` 就地安装装配以满血就绪）；仅当遭遇不可抗力环境阻断且自愈失败后，才经宿主记录阻断根因安全降级到 `symbol_index.py` 与 `project_graph.py`；**基础效率工具必须探测**：运行全局引擎 `efficiency_probe.py check --root <项目根>`，结构用 codebase-memory，AST 形状与跨语言模式用 `ast-grep`，字符串/错误用 ripgrep（`rg`），JSON/SARIF 用 `jq`，依赖文档向 Context7 查询并以源码验证；**桌面/移动硬门禁**：目标含桌面 GUI、Android 或 iOS 时，必须读取全局引擎 `platform-testing.md` 并先运行 `platform_probe.py` 平台预检，模拟器或浏览器仿真结果不得冒充真机 PASS；**内存专项硬门禁**：范围含内存安全、泄漏或资源无界增长时，必须读取全局引擎 `memory-testing.md` 并先运行 `memory_probe.py` 预检，严查 RSS 高位不降；
+     ③ 探测与定策：**核心必需依赖门禁（不可降级）**：`codebase-memory-mcp==0.12.1` 与 `tree-sitter-language-pack==1.14.3` 已在 `bugx install` / `bugx doctor --repair` 阶段强制安装至隔离目录（`~/.bugx/tools/codebase-memory` 与 `~/.bugx/tools/pydeps`）。启动期运行全局引擎 `codebase_memory_probe.py check --root <项目根>` 校验版本与项目索引：若未建索引必须立即执行 `codebase-memory-mcp cli index_repository` 就地建索引；若核心二进制或 `tree-sitter-language-pack` 缺失/版本不符，**严禁消极降级或允许放行**，必须立即自愈修复或阻断并给出明确处方。**项目级可选工具按需启用**：`efficiency_probe.py`（`ast-grep`/`rg`/`jq`）、UI（`setup_ui_env.py`）、浏览器/Fuzz（`playwright`/`postmcp`）、数据库/移动/SAST 等均属按项目技术栈按需决定，不在全局安装阶段强制启用，而在进入审计准备阶段由 AI 与用户共同确认后按需装配（无外部工具时内置回退仍可用）；结构关系结合 codebase-memory 与 `symbol_index.py` / `project_graph.py` 互相印证，依赖文档向 Context7 查询并以源码验证；**桌面/移动硬门禁**：目标含桌面 GUI、Android 或 iOS 时，必须读取全局引擎 `platform-testing.md` 并先运行 `platform_probe.py` 平台预检，模拟器或浏览器仿真结果不得冒充真机 PASS；**内存专项硬门禁**：范围含内存安全、泄漏或资源无界增长时，必须读取全局引擎 `memory-testing.md` 并先运行 `memory_probe.py` 预检，严查 RSS 高位不降；
     ④ 定策与备粮：**先定测试类型（黑盒/白盒/自动化），再按项目类型选具体工具**——黑盒：Web→Playwright/postmcp、库/API→postmcp+fuzz、CLI/二进制→timeout/objdump/fuzz、TUI→agent-tty/pexpect、有数据库→redis/pgsql/mysql 等对应数据库 MCP 或 CLI；白盒：按项目语言补专项（Java→mvn/JUnit/JaCoCo/SpotBugs/jstack）；自动化：项目自带测试命令+自研 fuzz/minimize/corpus；复杂项目多工具按模块分配协作；只装需要且缺的工具（缺 postmcp 先装、缺 playwright 依赖先 `setup_ui_env.py install`、缺数据库工具配对应 MCP/CLI、缺系统工具先装/找替代）；运行 `tools_kb.py check` 验证知识库有效期，填写当前生命周期的 `state/prep-record.md` 留下项目识别、测试类型、工具来源/选择/就绪和协作记录。
      **知识库和准备记录校验通过，才进入勘察；工具没就绪或准备无证据 = 不开始挖掘。**
 3. **开局**：校验 `round == rounds_completed + 1`（中断恢复时若不符，修正为

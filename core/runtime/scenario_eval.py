@@ -141,11 +141,15 @@ def _run(argv: list[str], *, cwd: Path, timeout: float = 120.0,
     # L3 等场景验证当前 checkout；不让已安装的旧引擎成为量具。
     merged["BUGX_DEV_MODE"] = "1"
     # 源码树里的版本声明是构建模板；开发态启动门禁需要同一解析值。
-    merged["BUGX_VERSION"] = os.environ.get("BUGX_VERSION", "0.1.3")
+    merged["BUGX_VERSION"] = os.environ.get("BUGX_VERSION", "0.1.4")
     merged["HOME"] = str(_sandbox_home())
     try:
         proc = subprocess.run(
             argv, cwd=str(cwd), capture_output=True, text=True,
+            # 场景评测是无人值守量具；如果外层宿主恰好有 TTY，子命令不能
+            # 继承它再偷偷阻塞在 input()。显式关闭 stdin，让意外交互立即
+            # 得到 EOF/失败，而不是把 RSI 轮次挂成数分钟的假运行。
+            stdin=subprocess.DEVNULL,
             timeout=timeout, env=merged, check=False,
         )
         return proc.returncode, proc.stdout, proc.stderr

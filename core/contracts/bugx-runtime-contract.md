@@ -1,4 +1,4 @@
-# BugX 运行时契约（0.1.3）
+# BugX 运行时契约（0.1.4）
 
 这是部署到用户级全局引擎 `~/.bugx/core/` 的最小运行时契约。项目不再保存
 `.bugx/core` 可执行入口；需要定位本文件时使用 `bugx engine path --name bugx-runtime-contract.md`。
@@ -45,11 +45,7 @@ runtime 的 `commit_status`、`commit_boundary`、`commit_ref`、`commit_error` 
 | 宿主控制角色 | `caller_role=host` |
 | Worker 角色 | `caller_role=worker` |
 
-`bugx-docs` 是独立的本地只读 stdio MCP，不属于 Supervisor 角色通道。它只索引当前项目
-`README.md`、`docs/**/*.md` 和 `core/**/*.md` 到 `.bugx/knowledge/docs.sqlite3` 的 SQLite FTS5
-数据库；工具调用必须带匹配的 `project_id`，设置 `BUGX_DOCS_TOKEN` 时还必须通过 token 校验。
-返回结果必须带文档版本、来源、SHA-256、捕获时间和私有范围标记；scope/token/索引失败时拒绝返回
-内容，不能伪造 Context7 citation。
+`bugx-docs` 是独立的双作用域只读文档 MCP（默认本地 `stdio`，可选 `--docs-transport remote` 仅直连官方库），不属于 Supervisor 角色通道。它将 BugX 官方基线（`bugx:official`，优先挂载 `~/.bugx/cache/docs/<contract_version>/<sha256>.sqlite3` 不可变缓存，断网或只读时降级至随包 `core/bundled_docs/`）与当前项目私有文档（`project:<id>`，严格保留在 `<ROOT>/.bugx/knowledge/docs.sqlite3`，绝不上云）按 `document_sections` + `sections_fts(trigram)` 分域索引；暴露 `resolve_library`、`search_docs`、`list_sections`、`fetch_doc` 工具，调用默认联合检索 `all` 或指定作用域，设置 `BUGX_DOCS_TOKEN` 时校验访问令牌，并返回版本、来源、`heading_path`、`doc_tier` 与内容哈希；与结构化错题/经验台账（`lesson-ledger`）及语料库保持正交隔离，绝不混库或把文档正文当作可执行指令。
 
 `status`、`gate` 是只读查询；`start`、`bootstrap_coverage`、`next_round`、
 `bind_context`、`sync_finding_decisions`、`finish`、`fail`、`recover` 只允许宿主角色；`claim`、`worker_start`、
@@ -288,31 +284,25 @@ MCP 配置变化通常需要重启宿主会话。当前子进程没有 `BUGX_MCP
 Cookie 或资产秘密。`asset_summary` 是调度层复用计数，不等价于漏洞检出率，收益需通过 A/B
 测试确认。
 
-## 代码库图增强契约
+## 代码库图与语法核心契约
 
-`codebase-memory-mcp` 是环境必检的语义增强 MCP，但不是全量覆盖硬依赖。READY 且索引代际
-匹配时，启动器设置图增强标志，`codebase_memory_bridge.py` 将高可信跨文件调用关系交给
-`project_graph.py`；每条关系必须映射到当前 `symbol_index.py` 已发现的文件和符号。低可信、
-过期、部分解析、缺失或调用失败的关系不得进入业务链路，保留本地关系图并记录 DEGRADED。
-源码、配置、依赖、构建、CI、插件和部署资产的全量清单始终由本地枚举负责；图谱只能增强
-语义分组和跨模块链路，不能单独证明覆盖完成。
+`codebase-memory-mcp==0.12.1`（`critical=True`）与 `tree-sitter-language-pack==1.14.3` 是 BugX 安装与诊断期的**全局核心必装能力**，不在可选项豁免或静默降级范围内。`bugx install` / `bugx doctor --repair` 直接将其装配到隔离环境（`~/.bugx/tools/codebase-memory` 与 `~/.bugx/tools/pydeps`）并做版本校验。READY 且索引代际匹配时，启动器设置图增强标志，`codebase_memory_bridge.py` 将高可信跨文件调用关系交给 `project_graph.py`；每条关系必须映射到当前 `symbol_index.py` 已发现的文件和符号。低可信、过期或部分解析关系不得混入业务链路。源码、配置、依赖、构建、CI、插件和部署资产的全量清单始终由本地枚举负责；图谱负责语义分组和跨模块链路，与本地基线互相印证。
 
 ### 启动降级通道的四分类（机器语义，禁止文案判定）
 
 启动前探针的降级项由 `probe_registry` 产出**机器字段**，门禁只认字段、不解析任何人类文案；
 四类语义绝不可混用：
 
-1. `NOT_APPLICABLE` / `DEFERRED`（项目形态不适用）：报告状态本身即结论，降级项被**剪枝为 0 项**。
+1. `NOT_APPLICABLE` / `DEFERRED`（项目形态不适用或按需延迟）：报告状态本身即结论，降级项被**剪枝为 0 项**。
    例：纯 Python 工程的 `native`（无原生源文件）与 `desktop`（无桌面框架）探针返回
-   `NOT_APPLICABLE`，其 CLI 退出码为 `0`——"本项目没有该形态"不是"环境能力缺口"。
+   `NOT_APPLICABLE`，其 CLI 退出码为 `0`——"本项目没有该形态"不是"环境能力缺口"；可选项目 MCP/UI 工具（`playwright`、`postmcp`、`codindex` 等）在全局 `install`/非 `--strict` `doctor` 阶段延迟至进入项目审计后按需决策。
 2. `advisory`（`required=False` 建议性探针）：缺失/超时按注册表策略**不阻断**，但决策与收据
    必须留痕（`status=not_applicable`、`receipt.source=probe_advisory`），不得静默消失。
 3. `transient`（已安装但本次探测超时）：由注册中心超时路径或探针 `check.transient` 置位。
-   `critical=False` 的能力走瞬态降级并强制 `BUGX_USE_CODEBASE_MEMORY=0`（本轮走内置回退），
-   `critical=True` 的能力仍然阻断——超时不能替关键能力背书。
-4. 真实缺口：先穷尽自愈装配；仍失败时非关键能力可经项目 `.bugx/config.json` 的
-   `tooling_exemptions` 显式豁免（支持探针级前缀匹配，如 `codebase-memory-mcp` 命中
-   `codebase-memory-mcp/cli`），`critical=True` 的能力**不得**豁免。豁免读取只要求该配置文件
+   仅 `critical=False` 的可选能力允许瞬态降级，
+   `critical=True` 的能力（如 `codebase-memory`、`tree-sitter`）仍然阻断——超时不能替关键能力背书。
+4. 真实缺口：先穷尽自愈装配；仍失败时仅非关键可选能力可经项目 `.bugx/config.json` 的
+   `tooling_exemptions` 显式豁免（支持探针级前缀匹配），`critical=True` 的能力**不得**豁免（如 `codebase-memory` 不得绕过）。豁免读取只要求该配置文件
    存在且可读，不要求完整 lifecycle 布局——阻断提示指向的通道必须真的可用。
 
 启动恢复阶段对已经授权的 `share_pending` 执行幂等重放；该恢复动作位于当前 Session

@@ -92,7 +92,7 @@ It lists every AI host it detects on your machine and walks you through picking 
 
 From the repository root, confirm the account, sync scope, and sensitive-data policy. Run `bugx auth login --root .` and check that `bugx auth status --root . --verify --json` reports the expected account and `auth_verified=true`.
 
-When both the account-wide and project scopes are authorized, initialize a fresh project with `bugx init --root . --cloud-sync sync` and check the first transfer with `bugx cloud sync --root . --scope all`. Initialization installs `.agents/skills/bugx-user/SKILL.md`. Invoke `$bugx-user` in a host that discovers project Skills there. For existing projects, use `bugx cloud sync --root . --scope all` after the full scope is authorized, then check the binding and queue with `bugx cloud status --root . --scope all --json`. This flow includes project registration and profile, project knowledge, and account-wide knowledge. Decline requests for partial sync.
+When both the account-wide and project scopes are authorized, initialize a fresh project with `bugx init --root . --cloud-sync sync` and check the first transfer with `bugx cloud sync --root . --scope all`. Initialization installs `.agents/skills/bugx/SKILL.md`. Invoke `/bugx` or run `bugx guide "<query>"` for on-demand steps in a host that discovers project Skills there. For existing projects, use `bugx cloud sync --root . --scope all` after the full scope is authorized, then check the binding and queue with `bugx cloud status --root . --scope all --json`. This flow includes project registration and profile, project knowledge, and account-wide knowledge. Decline requests for partial sync.
 
 ### Option 1: use it inside your AI assistant (recommended)
 
@@ -201,7 +201,8 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 **Long term**
 - **A lessons base**: sync verified lessons and experience with `bugx cloud sync` in the authorized scope. Use `bugx lesson retrieve` to look up a symptom or module in the next review.
 - **Unattended runs**: follow your host (`bugx autonomous`), run toward a goal (`bugx goal`), or keep a resident daemon (`bugx daemon`).
-- **Diagnostics**: `bugx doctor` / `bugx log` / `bugx stats` for installation, logs, and usage.
+- **Diagnostics & feedback**: `bugx doctor` / `bugx log` / `bugx stats` for installation, logs, and usage; use `bugx issue report` or `bugx feedback` to package sanitized local diagnostics and submit feedback directly.
+- **Official documentation (Remote-First)**: built-in `bugx-docs` MCP server and `bugx guide` CLI command, connecting directly to official endpoints by default with seamless local fallback when offline.
 
 ## FAQ
 
@@ -209,7 +210,7 @@ The skill marketplace ships with `/audit` (one-shot full-surface audit with a du
 An autonomous code-audit agent that lives inside AI coding assistants: it runs via MCP in Claude Code, Codex, Cline, OpenCode, and ZCode, or as a standalone CLI, tracks audit coverage per unit, and verifies every finding with real executions.
 
 **Which AI coding tools does BugX support?**
-BugX currently supports **Claude Code, OpenAI Codex, Cursor, Trae, Windsurf, Kimi Code, MiniMax Code, Cline / Roo Code, OpenCode, ZCode, DeepSeek Harness (DSH), WorkBuddy, and Qoder**, with continuous adaptations across the Model Context Protocol (MCP) ecosystem.
+BugX currently supports **Claude Code, OpenAI Codex, Cursor, Trae, Windsurf, Kimi Code, MiniMax Code, Google Antigravity, Cline / Roo Code, OpenCode, ZCode, DeepSeek Harness (DSH), WorkBuddy, and Qoder**, with continuous adaptations across the Model Context Protocol (MCP) ecosystem.
 
 **How does BugX verify a vulnerability?**
 Rather than trusting the proposing model's self-report, findings are independently blind-reviewed: an attack input must reliably trigger the vulnerability twice, and a clean input must trigger zero times (two positive runs, one negative control) recorded with command, exit code, and artifact hashes, verified by AST syntax assertions. Refuted findings are recorded in the FP Ledger.
@@ -235,6 +236,8 @@ Multi-language static and behavioral analysis (Python, JavaScript/TypeScript, Ja
 | **Cursor / Trae / Windsurf** | Native project-level MCP integration | `bugx install --agent cursor` |
 | **Kimi Code** | Managed plugin / project MCP | `bugx install --agent kimi` |
 | **MiniMax Code** | Plugin V1 package / agent & MCP | `bugx install --agent minimax` |
+| **Google Antigravity** | Native Agent/Worker, Skills, project-level Supervisor/Worker/docs MCP, ACP direct passthrough | `bugx install --agent antigravity` |
+| **Gemini / Gemini Code** | Native MCP connection / automated audit pipelines (Full Gemini 4 Carbon / Neon support) | `bugx install --agent gemini` or standard MCP |
 | **OpenCode** | Headless ACP / native MCP | `bugx install --agent opencode` |
 | **Cline / Roo Code** | MCP chat sessions / multi-process concurrency | `bugx install --agent cline` |
 | **ZCode** | Native MCP / user-level MCP registration | `bugx install --agent zcode` |
@@ -257,10 +260,10 @@ The documentation is written in Chinese:
 - [User guide](docs/01_guides/01_USER_GUIDE.md): installation, configuration, host capabilities, lifecycle, MCP/ACP, cloud scope, results, and recovery.
 - [Command reference](docs/01_guides/02_COMMANDS.md): every command, argument, default, scope, side effect, and exit behavior.
 - [Troubleshooting](docs/01_guides/03_TROUBLESHOOTING.md) covers common symptoms and recovery steps.
-- The [BugX user skill](skills/platform/bugx-user/SKILL.md) covers setup, cloud sync, evidence review, and lesson reuse.
+- The [BugX skill](skills/platform/bugx/SKILL.md) and `bugx guide` cover on-demand setup, cloud sync, evidence review, and lesson reuse.
 - [UI audit (probe ui)](docs/01_guides/02_COMMANDS.md#63-probe): responsive layout, contrast, keyboard paths, and design tokens on a running web UI.
 - [AI reference](docs/03_ai/01_AI_REFERENCE.md): MCP, lifecycle, state, evidence, and failure contracts for hosts and agents.
-- [Docs index](docs/README.md): architecture and documentation navigation.
+- [Docs index](docs/README.md): architecture and documentation navigation (including 5 topic cookbooks in `docs/01_guides/04_*`..`08_*`, packaged into `core/bundled_docs/` for instant offline `bugx guide` / `bugx-docs` queries and versioned cloud hot-sync).
 
 ## Development
 
@@ -268,7 +271,7 @@ Repository conventions (docs sync, version contract, verification gates) live in
 
 ## Keywords
 
-vibe coding · vibe coding security · pr review · pull request review · zero false positive · poc generator · mcp security · automated code audit · ai code audit · automated code review · code review agent · ai agent · security audit · vulnerability scanner · vulnerability mining · sast · static analysis · mcp server · claude code · openai codex · opencode · cline · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
+Google Antigravity · Antigravity IDE · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini Code Assist · G4 models · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code review · GPT-4 code review · vibe coding · vibe coding security · pr review · pull request review · zero false positive · poc generator · mcp security · automated code audit · ai code audit · automated code review · code review agent · ai agent · security audit · vulnerability scanner · vulnerability mining · sast · static analysis · mcp server · claude code · openai codex · opencode · cline · zcode · coding agent · llm code review · autonomous audit · behavior diff · memory leak detection · python security · javascript security · devsecops
 
 ## License
 

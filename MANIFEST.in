@@ -1,5 +1,5 @@
 include LICENSE README.md pyproject.toml
-include skills/platform/bugx-user/SKILL.md
+include skills/platform/bugx/SKILL.md
 prune .opencode
 prune .bugx/pollings
 prune .bugx/knowledge

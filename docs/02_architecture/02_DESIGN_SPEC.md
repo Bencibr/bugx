@@ -1,6 +1,6 @@
-# BugX 0.1.3 System Architecture & Design Specification
+# BugX 0.1.4 System Architecture & Design Specification
 
-> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
+> **版本**: 0.1.4 | **更新日期**: 2026-11-25 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
 > 🔒 **内部管理资产**：本文档为 BugX 系统内部底层实现契约、历史缺陷审定修复记录与自动化验证门禁总卷，仅供核心研发团队与系统维护者查阅。  
 > 最终用户请参阅面向用户的公开文档：[用户指南 (01_USER_GUIDE.md)](../../docs/01_guides/01_USER_GUIDE.md)、[命令手册 (02_COMMANDS.md)](../../docs/01_guides/02_COMMANDS.md)、[架构总览 (01_ARCHITECTURE.md)](01_ARCHITECTURE.md) 与 [核心流程 (03_BUGX_AUDIT_FLOW.md)](03_BUGX_AUDIT_FLOW.md)。  
 > 历史提案与测试执行记录只作审计留痕，不代表当前仓库仍保留对应文件；当前资产边界以本节和 `AGENTS.md` 为准。
@@ -11,6 +11,36 @@
 生成的目标项目中执行，验证完成后删除过程文件。`verification/` 下的基准、沙箱、补丁和
 验收脚本是长期证据资产，不得误删；评测目录的规范路径是 `verification/evals/`。发布构建
 唯一入口是 `scripts/package_dist.py`，Jenkins 不再复制打包逻辑。
+
+## 问题上报与会话异常诊断协同契约 (DOC-007，2026-11-25，AUDITED_OK)
+
+### 设计目标与边界
+
+通过 `bugx issue report` 与 `bugx feedback` 命令，提供端到端现场提取、三级脱敏与异常上报闭环：
+1. **客户端提取与脱敏**：
+   - 自动探测最近一次发生异常/错误的会话并提取对话历史、事件流与最近 500 行核心日志；
+   - 提取 OS、Python、Node、Git 与宿主环境指纹；
+   - 强制执行三级隐私脱敏（API Key/Token/DSN 密码硬过滤、系统用户路径归一化为 `~`、源代码可选遮蔽）；
+   - 终端打印脱敏摘要与前 2~3 条消息脱敏预览，必须经用户确认后方可发起 Gzip 上报；
+2. **服务端领域模型与存储**：
+   - 落地于 Go 模块化单体架构 `server/internal/modules/agent/`；
+   - 领域模型 `AgentIssue` 支持异常指纹 (`error_fingerprint`) 聚类统计 (`cluster_count`)；
+   - 每日限额防护：匿名客户端限制 20 次/天/设备，已认证用户限制 50 次/天/账号；
+   - 提供 `POST /api/v1/agent/issues`、`GET /api/v1/admin/agent/issues`、`GET .../:id` 与 `PUT .../:id/status`；
+3. **管理后台诊断与会话回放**：
+   - Vue 3 管理后台 `/cloud/sync/issues`，提供大盘指标、状态筛选与工单列表；
+   - 抽屉式会话时序回放 (Timeline Replay)：完整还原用户提问、模型思考、MCP 工具调用入参与输出，错误节点高亮标红；
+   - 内置核心日志终端查看器与原始脱敏 JSON 检查，支持一键流转工单状态 (open -> investigating -> resolved -> closed)。
+
+### 对抗审计结论
+
+| 设计项 | 解决问题 | 反例与失败路径 | 结论 |
+| --- | --- | --- | --- |
+| 1. 会话现场提取与命令注册 | 缺乏自动化上报通道，异常发生后无法快速定位现场 | 项目无 `.bugx`、会话损坏、非 TTY 环境自动降级 | `AUDITED_OK` |
+| 2. 三级隐私脱敏门禁 | 泄露用户 API Key、数据库密码或系统用户名 | 复杂 DSN 密码含 `@`、不同 AI 平台 Key 形态、嵌套 JSON 字典 | `AUDITED_OK` |
+| 3. 服务端契约与领域模型 | 缺乏存储与聚合分析能力，同类异常重复建单 | 恶意刷量（受每日限额拦截）、大请求体（受 10MB 防御门禁拦截） | `AUDITED_OK` |
+| 4. 管理后台会话回放 UI | 开发者无法直观排查复杂多轮对话与工具调用堆栈 | 数据格式不规范、会话为空时优雅降级并展示纯日志切片 | `AUDITED_OK` |
+| 5. 全链路证据一致性 | 单元测试通过但端到端不通 | 协议级 E2E、Gzip 传输解压与脱敏断言全链路闭环 | `AUDITED_OK` |
 
 ## Kimi Code 与宿主跨平台注册契约（2026-11-24，AUDITED_OK）
 
@@ -45,19 +75,15 @@ managed/installed 注册和 E: 盘应用识别），macOS/Linux 真机
 
 ### 设计目标与边界
 
-MiniMax Code 3.1.0 的 Electron 包内置 local-plugin-v1、PluginSystem、MCP 和 Plugin
-subagent 契约。BugX 不把 MiniMax API provider 配置当成宿主插件配置，也不复用 Kimi
-的 installed.json 或 manifest；安装器只在 MiniMax 数据根的 plugins/bugx 下生成一个
-自包含的 Plugin V1 包。默认数据根为用户目录下的 .minimax，MINIMAX_DATA_DIR 只作为
-BugX 的受控隔离/测试覆盖入口。
+MiniMax Code 3.1.17 的 Custom Agent 列表读取 `<DATA_DIR>/agents/bugx/agent.md`。
+`<DATA_DIR>/plugins/bugx` 是宿主独立加载的 Plugin V1 包，提供 `bugx:bugx-worker`、
+Skill、MCP 和图标。默认数据根为用户目录下的 `.minimax`，`MINIMAX_DATA_DIR` 用于受控隔离。
 
-| 方案 | 已确认问题 | 反例/失败路径 | 结论 |
-| --- | --- | --- | --- |
-| MiniMax Plugin V1 包 | 原适配器完全没有 minimax 宿主，也没有 plugin.json、agents 或 servers.mcp.json | 数据根不存在、目标目录是符号链接、目标 manifest 属于其他插件、Skill/PNG 缺失 | AUDITED_OK：安装前阻断，返回结构化 receipt |
-| Agent 与 Worker | MiniMax Agent 只接受小写原生 tools，skills 预加载使用 Skill 名 | 使用 Kimi 的大写 tools、把 Skill 文件路径写进 Agent、Worker 再委派子 Agent | AUDITED_OK：写入主 Agent/Worker，Worker 明确禁止二次委派 |
-| MCP | MiniMax V1 只加载 schemaVersion + mcpServers，stdio command 不得含路径分隔符 | 写入不存在的项目 MCP、写入 Kimi/ZCode 容器键、把 bugx 可执行路径硬编码进 manifest | AUDITED_OK：插件拥有 servers.mcp.json，command 保持 PATH 名 bugx |
-| 图标 | manifest 的 icon 必须指向包内 PNG，darkIcon 可选 | 只写 URL、只写 Kimi interface.iconUrl、引用包外文件或伪造暗色图标 | AUDITED_OK：复制并校验 icon.png，未声明未经确认的 darkIcon |
-| 运行通道 | 已确认桌面 Plugin/MCP/Agent 面，未确认 headless/标准 ACP | 伪造 mcode flags 或把 MCP 文件存在当作真实会话健康 | AUDITED_OK：headless/ACP 显式 fail-closed；真实重载为 UNVERIFIED |
+| 设计 | 证据与原因 | 边界与失败处置 | 验证判定 | 结论 |
+| --- | --- | --- | --- | --- |
+| 发布 Plugin V1 Worker 包 | `app.asar` 的 `minimax-reader` 拒绝对象 `author`，`readOfficialMcpFile` 拒绝缺少 `schemaVersion` 的 MCP 清单 | `author` 为字符串，两个清单均声明 V1。依赖资源先于插件清单原子写入。安装事务保存旧文件和已删除的旧插件主 Agent，可回滚 | 真实包解析器加载一个 Worker、三个 MCP 声明和一个 Skill，旧清单返回 schema 错误 | `AUDITED_OK` |
+| 将主 Agent 注册到 Agents 列表 | `app.asar` 的 `AgentFiles` 只枚举直接子目录中的有效 `agent.md`，旧安装只写插件子 Agent | 主 Agent 使用原有 `bugx` 标识和工具声明。安装前拒绝未标记的同名入口与重解析点。重复安装保持幂等，卸载仅删除带归属标记的入口 | 真实文件存储列出 `bugx`，语言切换可解析。同名用户文件保持原字节，失败时插件尚未写入 | `AUDITED_OK` |
+| 发布主 Agent 头像和提示词 | `AgentFiles.readCanonicalAvatar` 读取 `x-mavis.avatar` 所指的 Agent 目录内图片；此前只给插件设置图标。宿主把 frontmatter 之后的内容作为系统提示词，旧版安装标记也进入了正文 | 先原子发布官方 PNG，再提交引用。拒绝不安全路径和未归属的同名文件。卸载删除仍由受管 Agent 引用的受管头像。安装标记放在 YAML 注释中 | 宿主读取到同一 SHA-256 的 PNG；缺失或冲突时诊断失败；中英文系统提示词正文无安装标记，两条文档路径命令可执行 | `AUDITED_OK` |
 
 ### MiniMax 安装时序
 
@@ -67,21 +93,48 @@ BugX 的受控隔离/测试覆盖入口。
         participant P as Plugin V1 package
         participant M as MiniMax Code
         I->>D: resolve default ~/.minimax or controlled override
-        I->>P: write .minimax-plugin/plugin.json
-        I->>P: write agents, skills, servers.mcp.json, icon.png
-        I-->>I: validate paths, schema, owned target and structured receipt
+        I->>D: verify Custom Agent ownership
+        I->>P: publish Worker, Skill, MCP, icon and .minimax-plugin/plugin.json
+        I->>D: publish local official avatar, then agents/bugx/agent.md
+        I-->>I: verify both registrations and return receipt
         M->>D: discover plugins/bugx
-        M->>P: load Agent/Worker, Skill, MCP and logo
-        M-->>I: real MCP/tool reachability remains a separate host reload gate
+        M->>P: load scoped Worker, Skill, MCP and logo
+        M->>D: list BugX in the canonical Custom Agent roster
 
 ### 验证判定
 
-模块级验证必须断言 core/hosts/minimax.py、core/host_acp/minimax.py、
-host_runtime 注册、CLI alias、Plugin V1 manifest、Agent frontmatter、MCP schema 和
-PNG 文件均来自当前源码/当前 MiniMax 包体；包体回归必须在仓库外临时数据根执行并清理。
-真实 MiniMax Code 桌面会话必须另行完成 reload → loaded → callable → healthy 以及至少一轮
-claim → worker-start → tool_call/heartbeat → checkpoint → post；缺任何一步都只能报告
-UNVERIFIED。
+Windows MiniMax Code 3.1.17.228 上，基于 `bf0f0c9b` 的本地 Build 2 用
+`python -m bugx_cli.cli install --root <临时项目> --agent minimax --non-interactive --json`
+返回 `INSTALLED`，退出码为 0。宿主的 `readMiniMaxPluginPackage` 和 `AgentFiles` 分别
+验证中文新装与英文升级后的注册。实际桌面 Agents 从 3 项增至 4 项，可以打开 `BugX`。
+真实 MCP 调用、ACP 和任务生命周期的状态为 `UNVERIFIED`。
+
+## Google Antigravity 审查插件注册
+
+按 [Google 插件规范](https://antigravity.google/docs/build-plugins) 注册用户级
+`~/.gemini/config/plugins/bugx-review`，包含标识为 `BugX` 的主 Agent、`bugx-worker`、审查 Skill 和
+`plugin.json`。插件级 `mcp_config.json` 只保留空容器，避免把 MCP 绑定到插件目录；
+安装器在当前工作区写入 `.agents/mcp_config.json`，包含 host、worker、docs 三条
+绝对根路径的 stdio 通道。依据 [Antigravity MCP 配置文档](https://antigravity.google/docs/mcp)，
+工作区文件是宿主 CLI 的正式加载面。
+
+| 设计 | 证据与状态边界 | 反例与验证 | 结论 |
+| --- | --- | --- | --- |
+| 原生 Agent、Worker、Skill、官方头像和项目 MCP 清单 | 用户级插件只拥有入口资产与 `assets/bugx-avatar.svg`；工作区 MCP 绑定当前绝对根，避免插件 cwd 污染 | 用 `agy agents`/插件清单核对发现路径，解析 `.agents/mcp_config.json` 并逐条核对 root、role、docs db；再取真实工具调用 | `AUDITED_OK` |
+| 安装所有权与原子发布 | 安装器预校验包内容，复用全局文件事务，先写组件再发布清单 | 同名外来内容、重解析点或包内多余文件必须阻断。重复安装幂等，全局卸载仅移除完全受管的文件 | `AUDITED_OK` |
+| ACP MCP 冷启动 | 完整 `bugx` CLI 在 Windows 冷启动约 6.2 秒，Antigravity ACP 预加载会在约 7.6 秒超时；项目 MCP 改为直接启动全局引擎 `bugx_mcp_server.py`/`bugx_docs_mcp_server.py`，约 2.2 秒可完成初始化 | 直通脚本、绝对项目根和隔离探活重绑定已由源码与启动计时核对；宿主工具级证据另行裁决，不能由初始化速度代替 | `AUDITED_OK`（实现设计） |
+| ACP 工具调用与生命周期 | Antigravity ACP 的 `initialize/session/new` 可以建立会话；但当前 `agy 1.5.16` 探活未形成可解析的 host/worker `tool_call` 完成帧 | 真实日志出现 `AgentBasePath is not set` 与 `unsupported_tool: call_mcp_tool`；必须先得到结构化 host/worker 工具回执，再进入 `claim → checkpoint → post` 验收 | `UNVERIFIED` |
+
+Windows `agy 1.5.16` 与 BugX `0.1.3+build.16` 的隔离验证通过 `bugx install --agent antigravity`、
+`agy plugin validate --strict`、`agy agents` 和 `agy plugin list --json`。真实 headless Agent
+会话在一次性隔离项目中实际调用 `bugx-review_docs/search_docs`，返回 `README.md`、文档 ID
+和 SHA-256 `01926179fa288e2872d8788fb085f68f8baa6ceeb7abbc7b52808f68c0abf3aa`，并确认测试
+标记存在；错误 `project_id` 仍被服务端拒绝。`agy acp` 当前握手返回协议版本 1，
+但本轮隔离探活没有形成可解析的 host/worker status 工具完成帧；日志记录了
+`AgentBasePath is not set` 和 `unsupported_tool: call_mcp_tool`。直通启动器已消除
+BugX CLI 冷启动这一已确认的实现瓶颈，但不能替代宿主工具证据。Supervisor claim、Worker
+checkpoint、Finding 裁决、post 及故障恢复尚未形成一次完整宿主闭环，仍为 `UNVERIFIED`，
+不得把 ACP 握手或模型文本当作 ACP 工具调用证据。
 
 ## 版本检查与自更新发布契约（2026-11-21）
 
@@ -2236,8 +2289,7 @@ project-root/
 │   └── discovery/                # Audit campaign & dependency DAG
 ├── .opencode/agents/bugx.md      # OpenCode Agent Entry (if selected)
 ├── .claude/agents/bugx.md        # Claude Code Subagent Entry (if selected)
-├── .agents/skills/bugx/SKILL.md   # Codex Skill Entry (if selected, DOC-169)
-├── .agents/skills/bugx-user/SKILL.md # User Skill installed by bugx init
+├── .agents/skills/bugx/SKILL.md   # Standard BugX Skill Entry (installed by bugx init, specialized by Codex if selected, DOC-004)
 ├── .cline/skills/bugx/SKILL.md   # Cline Skill Entry (if selected)
 ├── .pi/skills/bugx/SKILL.md      # Pi Skill Entry (if selected)
 ├── .dsh/skills/bugx/SKILL.md     # DeepSeek Harness Entry (if selected)
@@ -3231,16 +3283,25 @@ Claim 在 `BUDGET_EXHAUSTED` 下仍可提交；单元目标漂移则落 `unverif
    - 交互规范：对接 Qoder 结构化单选与多选交互控件，外层无 TTY 时按 `BUGX_INTERACTION_REQUEST` 协议受控推进。
 
 2. **连接器与 MCP 双通道支柱 (Connector / MCP)**：
-   - 双通道控制面：在项目级 `.qoder/mcp.json` 与用户级 `~/.qoder/settings.json`（`mcpServers`）中安全注入 `bugx-supervisor`（主控）与 `bugx-supervisor-worker`（Worker 节点）标准 stdio 服务；
-   - 连接器元数据：在 `integrations/qoder/` 提供 `connector-meta.json` 与 `CONNECTORS.md` 配置指南，定义只读探活与零外部网络权限边界。
+   - 安装器在项目根目录 `.mcp.json` 的 `mcpServers` 写入 `bugx-supervisor`、`bugx-supervisor-worker` 和 `bugx-docs` 三个 stdio 服务。三项显式传递项目绝对 `--root`，Docs 服务将相对数据库路径解释为项目内路径。Doctor 和运行时按项目级 `.qoder/settings.json` → `.mcp.json` 读取 server 定义，同名条目由后者覆盖。项目级批准由 Qoder 管理。[Qoder MCP 配置参考](https://docs.qoder.com/cli/mcp-reference)
+   - 连接器元数据和配置指南位于 `ecosystem/integrations/qoder/connector-meta.json` 与 `ecosystem/integrations/qoder/CONNECTORS.md`。
 
 3. **去重与防冲突治理 (De-duplication & Collision Defense)**：
    - 收敛为纯 Agent + MCP 方案，彻底去除导致 `overrides same-source skill` 警告的散装技能目录与 `installed_plugins.json` 插件冗余登记，实现无干扰的纯净智能体集成。
 
 4. **CLI 生命周期编排与诊断 (CLI Lifecycle & Doctor)**：
-   - `bugx install --agent qoder`：原子部署项目与用户级 Agent / MCP 资产，并自动清理旧版残留；
-   - `bugx uninstall --agent qoder`：幂等清理项目级产物，安全回退保留用户跨项目共享资产；
-   - `bugx doctor`：诊断引擎全面覆盖 Qoder Agent 完整性与 MCP 探活健康度。
+   - `bugx install --agent qoder`：原子部署 Agent 资产并合并项目 MCP。合并保留其他连接器和顶层字段，无效 JSON、非对象容器或链接目标阻断写入，后续步骤失败时回滚根配置。
+   - `bugx uninstall --agent qoder`：清理根配置中的 BugX 托管条目。Claude 或 FunIDE 仍安装在项目中时，保留共享注册。用户自行维护的 `.qoder/settings.json` 由用户管理。
+   - `bugx doctor`：检查 Agent 入口和项目 MCP 注册，`--repair` 对缺失或过期的项目注册走同一写入器。注册检查和实际 Qoder 会话加载分别取证。
+
+| 设计项 | 证据与反例 | 处置及验证判据 | 审计结论 |
+| --- | --- | --- | --- |
+| 单点安装 | Qoder 项目级入口为根配置和项目设置。根配置可能已含其他服务器、无效数据或软链接 | 写入根配置并纳入事务快照。合并须保留其他字段，非法输入须报错，后续失败须恢复原文件 | `AUDITED_OK` |
+| stdio 项目绑定 | Desktop 可能从应用目录启动子进程，启动器解析显式相对 `--root` 时使用该目录。宿主会话可能继续使用已载入的旧配置 | 三条命令传绝对 `--root`，从其他目录启动仍须绑定同一项目。安装回执指示重新加载 | `AUDITED_OK` |
+| Windows stdio 启动器 | Node 子进程从 Qoder 应用目录、精简 PATH 且禁用 shell 时，裸 `bugx` 返回 `ENOENT`，绝对 `bugx.cmd` 返回 `EINVAL`。本机 pip 与 npm 的 Build ID 也不同 | 使用安装进程的绝对 Python 和 `-P -m bugx_cli.cli`。npm 额外携带其 CLI 路径与资源根，切回 wheel 时移除 npm 启动字段。验证含空格和非 ASCII 的路径、第三方配置保留、过期启动器升级和三服务握手 | `AUDITED_OK` |
+| Windows MCP 启动参数 | Node 已把带空格的 `--root` 作为一个参数交给 Python，旧快速分派随后以 `os.execv` 转发，核心脚本报额外参数 | Windows 将 argv 列表交给 `subprocess.call`，继承 stdio 并透传退出码。用含空格和中文的项目路径核验协议与实际绑定 | `AUDITED_OK` |
+| 诊断与运行时 | 旧项目路径曾被判健康。低优先级完整条目可能被根配置中的无效同名条目覆盖 | 两层按 server 名称整体覆盖。旧路径单独存在和高优先级错误定义都须判为配置未就绪 | `AUDITED_OK` |
+| 卸载与隔离 | 根配置可能同时被其他 BugX 宿主使用，也可能含名中带 `bugx` 的独立服务 | 按剩余宿主登记保留共享配置。最后一个宿主卸载时只清理已知托管条目，保留其他服务器和用户设置 | `AUDITED_OK` |
 设计审计结论：`AUDITED_OK`。
 
 ### 0.30.76 全链路诊断日志增强与策略防卫规范 (DOC-169；Build ID 方案已落地)
@@ -3435,13 +3496,13 @@ Claim 在 `BUDGET_EXHAUSTED` 下仍可提交；单元目标漂移则落 `unverif
 ## 43. 全原生宿主 MCP 配置标准化规约 (DOC-173)
 
 ### 43.1 核心服务三位一体标准
-当前 MCP 服务集合包含 Supervisor 主控、Worker 控制通道和文档检索。DOC-174 的最小装配矩阵以控制面及按项目类型选择的外部工具为准；`bugx-docs` 是否继续默认装配仍需复审：
+当前 MCP 服务集合包含 Supervisor 主控、Worker 控制通道和双域文档检索：
 1. **`bugx-supervisor`**：`bugx mcp serve --root . --role host`，面向主控 Agent，提供生命周期仲裁、Finding 裁决与 Worker 编排。
 2. **`bugx-supervisor-worker`**：`bugx mcp serve --root . --role worker`，面向子任务 Worker，提供租约心跳续期、启动确认与最小证据提交通道。
-3. **`bugx-docs`**：`bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3`，提供项目私有版本化 Markdown 检索与 SQLite FTS5 语义 Citation。
+3. **`bugx-docs`**：`bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3`（可选 `--docs-transport remote` 仅直连官方端 URL），提供 `bugx:official`（全局 SHA-256 不可变缓存 + `core/bundled_docs/` 离线基线）与 `project:<id>`（项目私有文档）章节级 SQLite FTS5 trigram 检索。
 
 ### 43.2 宿主映射矩阵
-安装器写入的项目配置位置：OpenCode `opencode.json`、Claude `.mcp.json`、Codex `.codex/config.toml`（TOML `[mcp_servers.*]`；宿主只加载 TOML，且仅当项目在 `$CODEX_HOME/config.toml` 中 trusted）、Pi `.pi/mcp.json`、Cline `.cline/mcp.json`、ZCode `.zcode/mcp.json`、DSH `.dsh/mcp.json`、ChatGPT `.agents/mcp.json`、WorkBuddy `.workbuddy/mcp.json`、Qoder `.qoder/mcp.json`、Trea `.trea/mcp.json`。WorkBuddy CodeBuddy 模式另写项目级 `.codebuddy/mcp.json`。MCP 启动命令使用 `--root .`。
+安装器写入的项目配置位置：OpenCode `opencode.json`、Claude 与 Qoder `.mcp.json`、Codex `.codex/config.toml`（TOML `[mcp_servers.*]`；宿主只加载 TOML，且仅当项目在 `$CODEX_HOME/config.toml` 中 trusted）、Pi `.pi/mcp.json`、Cline `.cline/mcp.json`、ZCode `.zcode/mcp.json`、DSH `.dsh/mcp.json`、ChatGPT `.agents/mcp.json`、WorkBuddy `.workbuddy/mcp.json`、Trea `.trea/mcp.json`。WorkBuddy CodeBuddy 模式另写项目级 `.codebuddy/mcp.json`。Qoder 的三条 BugX MCP 命令使用绝对 `--root`。
 
 ---
 
@@ -3488,7 +3549,7 @@ Claim 在 `BUDGET_EXHAUSTED` 下仍可提交；单元目标漂移则落 `unverif
 7. **DeepSeek Harness (`dsh`)**：项目级 `.dsh/mcp.json` 与 `.dsh/patch.yml` overlay 描述；
 8. **ChatGPT (`chatgpt`)**：项目级 `.agents/plugins/` 清单与受控代理；插件清单 `interface.capabilities` 必须包含 `Interactive`、`Read`、`Write`，其中 `Interactive` 是宿主装配结构化选择控件的能力声明，不能由 Skill 文本替代；
 9. **WorkBuddy / CodeBuddy (`workbuddy`)**：全面停止向全局 `~/.workbuddy-ai/mcp.json` 注入，仅写入项目级 `.workbuddy/mcp.json` 与 `.codebuddy/mcp.json`（参数 `--root .`）；
-10. **Qoder (`qoder`)**：项目级 `.qoder/mcp.json` 原生容器；
+10. **Qoder (`qoder`)**：写入项目根目录 `.mcp.json`，同时诊断项目级 `.qoder/settings.json`；
 11. **Trea (`trea`)**：项目级 `.trea/mcp.json` 原生容器。
 
 ### 44.4 阶梯式幂等断点续做与半拉子工程自愈流水线
@@ -4203,8 +4264,8 @@ flowchart TD
     Classify -->|"4 MISSING: 真实能力缺口"| TryAutoProv{"穷尽自愈方案"}
 
     RecordAdvisory --> SmoothStart
-    TransientGate -->|"critical=False（如 codebase-memory）"| TransientDegrade["瞬态降级: 记录 + 强制关闭 MCP 通道<br>(BUGX_USE_CODEBASE_MEMORY=0)"]
-    TransientGate -->|"critical=True"| StopBlock["阻断并提示配置/人工确认"]
+    TransientGate -->|"critical=False（如可选加速工具）"| TransientDegrade["瞬态降级: 记录并切换内置回退"]
+    TransientGate -->|"critical=True（如 codebase-memory）"| StopBlock["阻断并要求修复就绪（不可豁免）"]
     TransientDegrade --> GateCheck
 
     TryAutoProv -->|支持: 如 codebase-memory / ast-grep / sast| DoInstall["执行自动就地装配并标记 READY"]
@@ -4219,15 +4280,20 @@ flowchart TD
     GateCheck -->|证明与处置齐全| SmoothPass["✓ 记录证据并继续启动"]
 ```
 
-### 52.3 核心实现与抗风险防护
-- **准入门禁与显式豁免 (`core/launch_phases/supervisor_bridge.py`)**：
+- **核心必需依赖（`codebase-memory` & `tree-sitter`）强制直接安装与隔离自愈（DOC-005 收口）**：
+  - `codebase-memory-mcp==0.12.1`（`critical=True`）与 `tree-sitter-language-pack==1.14.3` 列为全球通用核心必需依赖：在 `bugx install`、`bugx doctor`、`bugx doctor --repair` 及 `pre` 门禁全链路均直接安装校验，绝不退化为可选 `△` 或通过 `tooling_exemptions` 豁免；
+  - `codebase-memory` 自愈链除 `pipx` / `uv tool` 外新增 BugX 自托管隔离 venv 配方（`~/.bugx/tools/codebase-memory`），解决只装 npm/Node.js + 标准 Python 而无 pipx/uv 环境的即装即用问题；且因 PyPI `codebase-memory-mcp==0.12.1` wrapper 在首次执行 `--version` 时自动拉取原生二进制，自愈验活超时 floors 设为 `120.0s`；
+  - `tree-sitter-language-pack` 自愈在常规 `pip install` 受 PEP 668（externally-managed-environment）拒装时自动回退 `--target ~/.bugx/tools/pydeps`，并由 `common.py::_ensure_core_importable()` 自动挂载 `sys.path`；
+  - **用户全局安装模式 vs 项目绑定模式（DOC-005 双模式边界）**：在用户主目录（`~`）不传 `--root` 运行 `bugx install` / `bugx doctor` 时进入**用户全局模式**（只安装/校验 `~/.bugx/core`、`~/.bugx/knowledge/global.sqlite3`、必需核心工具与宿主用户级资产，DSH 全局 `cordis.patch.yml` 写入动态无 `--root` 参数；绝不将 `~` 初始化为项目、不创建 `~/.bugx/manifest.json`、不删 `~/.bugx/core`）；进入具体项目目录后执行 `bugx install [--root <PROJECT>]` 完成工作区绑定与项目运行态初始化，可选能力（`playwright`、`postmcp`、`codindex`、`efficiency`、`MCP 离线 runtime` 等）全部延迟到实际项目审计 `pre` 阶段按技术栈由 AI 与用户共同决策启用；
+  - **跨平台修复闭环**：修复 Windows `mcp_runtime` 查找 `Scripts\pip.exe`、`mcp_advisor` Windows `Get-CimInstance Win32_Process` 进程枚举及受限环境跳过、DSH CLI `staged` UI 包在 `doctor` 中的假阴性循环、MiniMax/Kimi 缺 `validate_install` 与用户级适配包校验、`ai_advisor` 幽灵命令移除（对齐 `bugx mcp-runtime install` / `bugx mcp prune --root <ROOT> --yes`）以及 `_CliProgress` 显示宽度清尾字符机制。
+- **准入门禁与显式豁免 (`core/launch_phases/supervisor_degraded.py`)**：
   - `auto_provision_accelerators()` 优先执行就地自愈；自愈失败不得以日志或旧回退字符串伪造能力就绪；
-  - `codebase-memory` 与 `ast-grep` 的自动安装严格读取 `core/runtime/tool_install_targets.py` 的固定顶层版本，仅使用 `pipx install --force` / `uv tool install --reinstall` 隔离环境；缺少这两类安装器时保留降级项，不写入当前 Python 环境；
-  - `_degraded_gate()` 读取 `.bugx/config.json` 的 `tooling_exemptions`，对非关键工具做类型 fail-closed、显式留痕；**critical 能力（描述符 `critical=True`）不得豁免**；
+  - `codebase-memory` 固定版本读取自 `core/runtime/tool_install_targets.py`（`REQUIRED_TOOL_PACKAGE_SPECS`），通过 `pipx` / `uv tool` 或 `~/.bugx/tools/codebase-memory` 隔离 venv 安装，与可选工具（`OPTIONAL_TOOL_PACKAGE_SPECS`：`ast-grep`、`semgrep`、`bandit`）明确分层；
+  - `_degraded_gate()` 读取 `.bugx/config.json` 的 `tooling_exemptions`，仅对非关键可选工具生效；**`critical=True` 核心能力（含 `codebase-memory` 与 `tree-sitter`）不得豁免**；
   - 豁免读取只要求 `<root>/.bugx/config.json` 是普通可读文件，**不要求**完整 lifecycle 布局——否则"阻断提示让用户写豁免、读取端却拒绝读同一份文件"会形成无法自救的死锁；
-  - 四条降级通道均由 `probe_registry` 的**机器字段**驱动，不解析任何人类文案：`NOT_APPLICABLE/DEFERRED` 直接剪枝；`advisory = not descriptor.required`；`transient` 由注册中心超时路径或探针 `check.transient` 置位；`critical` 取自描述符（覆盖旧的 `kind=mcp ⇒ critical` 猜测）；
-  - `_degraded_install()` 只是**有界供给尝试**（安装/配置后重探），`_autonomous_degraded_choices()` 只是四通道决策，两者都不存在"回退放行"分支；
-  - 瞬态降级只对 `critical=False` 生效，且必然把 `BUGX_USE_CODEBASE_MEMORY` 置 0，不允许"探测超时"顺带启用 MCP 通道。
+  - 四条降级通道均由 `probe_registry` 的**机器字段**驱动，不解析任何人类文案：`NOT_APPLICABLE/DEFERRED` 直接剪枝；`advisory = not descriptor.required`；`transient` 由注册中心超时路径或探针 `check.transient` 置位；`critical` 取自描述符；
+  - `_degraded_install()` 与 `_autonomous_degraded_choices()` 不存在针对 `critical=True` 的"回退放行"分支；
+  - `ast-grep` 等非核心 `critical=False` 工具的瞬态降级才允许切换内置回退，`critical=True` 核心组件永不走降级放行。
 - **技术栈形态对齐与精准剪枝 (`core/probes/probe_registry.py`, `core/probes/platform_probe.py`, `core/probes/memory_probe.py`)**：
   - `platform` 探针在非移动端项目中仅评估 `desktop` 能力，基础桌面就绪即为 `READY`；
   - `memory` 探针依据项目语言画像对齐目标，纯 Python 项目仅检查 `python`（`tracemalloc` 就绪即 `READY`），非 JVM 项目不将 Java 缺失计入状态；
@@ -4823,7 +4889,7 @@ graph TD
 1. **维度一：核心行为角色与模型等级（Core Role & Model Tier）**：
    - `Recon-Worker` (FAST, Gemini Flash / 轻量模型): 负责快速拓扑发现、暴露面与未授权路由扫描；
    - `Auth-Worker` (BALANCED, Claude Haiku / DeepSeek V3): 负责鉴权绕过、横向越权 (BOLA/IDOR) 与租户隔离边界审计；
-   - `Logic-Worker` (PRO, Claude 3.5 Sonnet / GPT-4o): 负责并发竞争、状态机失序、金融余额超扣与业务穿透；
+   - `Logic-Worker` (PRO, Claude Sonnet 5.5 / Gemini 4 Carbon / GPT-4o): 负责并发竞争、状态机失序、金融余额超扣与业务穿透；
    - `Exploit-Worker` (PRO, DeepSeek R1 / Sonnet): 负责深层注入、反序列化利用链追踪与 0/1 退出码差分复现；
    - `Patch-Worker` (BALANCED, Claude Haiku / Sonnet): 负责外科手术式修复、CWE 规范化防御与 `verify.py` 自动化回归守卫。
 2. **维度二：形态特征与动态探针（Target Form & Dynamic Probes）**：
@@ -6136,3 +6202,13 @@ RSI 引擎能力模型显式化为三方向闭环：
 **红绿验证**（仓库外 `$TMPDIR` 临时探针）：红=5 条各自最小复现均成立（pain_mining 不在分派字典 / 全新问题默认不可见 / 零负对照得 PASSED / arbitrate 返回 None / 零发现得 PASS）；绿=修复后逐条转绿，且均验证"不误伤正常路径"（正常全抑制仍 PASSED、有发现全验证仍 PASS、已消费问题仍隐藏）。语法、33 处版本声明、模块导入自检全通过；临时探针用后即删，仓库无测试残留。
 
 **判定为边界模糊、不改不报**：`_perf_baseline_ready`（基线已产出+已列缺口）与 `_q_pre_time_budget`（性能是否达标）表达两件事，行为上都导向离开性能维度，不构成用户可见错误；build.568 真机已验证"超预算拒绝执行"是设计行为。
+
+### 69.12 `bugx-docs` 混合服务端架构、双域防污染缓存与 43 命令真值对齐（DOC-006）
+
+**背景与病灶**：原单机 `bugx-docs` 存在外部空库（打包遗漏 `docs/`）、老版本全局引擎反向覆写降级 `.bugx/knowledge/docs.sqlite3`、文档更新绑死发版、大文件整篇截取截断、WebUI `mcp_inspector` 使用假命令（`bugx mcp serve --role docs`）及文档/提示词停留在 `41/42` 命令且含 3 个幽灵命令等系统性漂移。
+
+**核心设计落盘**：
+1. **服务端与客户端同构双域网关**：`core/skills/bugx_docs_mcp_server.py`（`SCHEMA_VERSION="v2-trigram-section-hybrid"`）将检索作用域切分为 `bugx:official`（优先消费全局不可变缓存 `~/.bugx/cache/docs/<contract_version>/<sha256>.sqlite3`，断网/只读回退 `core/bundled_docs/`）与 `project:<id>`（仅本地 `<ROOT>/.bugx/knowledge/docs.sqlite3`，绝不上云）；新增 `document_sections` 与 `sections_fts(tokenize='trigram')` 表、`list_sections` 工具与支持嵌套 `###` 边界保护的 `fetch_doc`。
+2. **不可变缓存热同步 (`core/skills/bugx_docs_cloud_sync.py`)**：集成 `cloud_client.py` 与 `endpoint_router.py`（新增 `cloud.docs_remote_enabled` 布尔配置、1.5s manifest 超时、`sync.lock` 单飞并发锁、SHA-256 与 `PRAGMA quick_check` 门禁、`.gc-pending` Windows 延迟清理、以及 `BUGX_DOCS_OFFLINE=1` / `--offline` 零出网守卫）。
+3. **随包基线与 5 份 Cookbook 打包**：在 `scripts/refresh_signed_mirrors.py` 新增 `refresh_bundled_docs()`（同步公开文档与 `docs/01_guides/04..08_*` 速查卡到 `core/bundled_docs/`，改写内部相对链接防止 export 死链，物理拒收 `docs/08_internal` 与敏感串），同步纳入 `pyproject.toml`、`package.json`、`core/engine-integrity.json`。
+4. **全入口对齐**：新增 `--docs-transport {stdio,remote}`（`install` / `plugin.py` / `agent.py` / `codex.py` / `mcp_advisor.py` / `mcp_process_tracker.probe_remote_docs_mcp`），修复 WebUI `mcp_inspector.py` 与 `docs_session_service.py`，升级 `guide.py`/`system.py`（`bugx mcp docs sync`），并核销 `command_routing_*.md`、`core/locales/*.json`、`ecosystem/*` 与公开文档为精确 **43** 个真实 CLI 顶层命令（零幽灵命令）。明确维持 `bugx-docs` 与 `lesson-ledger.sqlite3` / `seed_corpus` 的严格正交隔离，绝不混库。

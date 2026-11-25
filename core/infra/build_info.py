@@ -12,8 +12,8 @@ import re
 from pathlib import Path
 
 VERSION_ENV = "BUGX_VERSION"
-VERSION_TOKEN = "0.1.3"
-_DEFAULT_VERSION = "0.1.3"
+VERSION_TOKEN = "0.1.4"
+_DEFAULT_VERSION = "0.1.4"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 

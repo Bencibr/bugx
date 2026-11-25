@@ -29,7 +29,9 @@ def _config_candidates(root: Path, adapter: HostAdapter) -> tuple[Path, ...]:
     return adapter.mcp_config_paths(root)
 
 
-def _read_mcp_document(path: Path, *, require_nested_mcp: bool = False) -> dict:
+def _read_mcp_document(
+    path: Path, *, require_nested_mcp: bool = False, container_key: str | None = None,
+) -> dict:
     try:
         if not path.is_file():
             return {}
@@ -40,6 +42,9 @@ def _read_mcp_document(path: Path, *, require_nested_mcp: bool = False) -> dict:
             data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return {}
+        if container_key is not None:
+            servers = data.get(container_key)
+            return servers if isinstance(servers, dict) else {}
         if require_nested_mcp and {"plugin", "permission", "tools", "agent"}.intersection(data):
             return {}
         for key in ("mcp", "mcpServers", "mcp_servers"):
@@ -77,10 +82,13 @@ def _read_mcp_config(root: Path, adapter: HostAdapter) -> dict:
     for path in _config_candidates(root, adapter):
         for name, value in _read_mcp_document(
             path, require_nested_mcp=adapter.name == "opencode",
+            container_key=adapter.mcp_config_container,
         ).items():
             if isinstance(value, dict):
-                current = merged.setdefault(name, {})
-                current.update(value)
+                if adapter.merge_mcp_config_fields:
+                    merged.setdefault(name, {}).update(value)
+                else:
+                    merged[name] = value
             else:
                 merged[name] = {"value": value}
     return merged
@@ -505,5 +513,24 @@ def active_mcp_process_probe(
         "source": "process-liveness",
         "pids": pids,
     }
+
+
+def probe_remote_docs_mcp(
+    mcp_config: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    """检查宿主配置中 bugx-docs 是否为远程 HTTP URL 模式，防止误报缺本地 stdio 进程 (NEG-09)。"""
+    cfg = mcp_config.get("bugx-docs")
+    if not isinstance(cfg, Mapping) or cfg.get("enabled", True) is False:
+        return {"configured": False, "transport": "missing"}
+    raw_url = str(cfg.get("url") or "").strip()
+    if not raw_url:
+        cmd = _configured_server_command(cfg)
+        return {"configured": bool(cmd), "transport": "stdio", "command": cmd}
+    from core.cloud_sync.endpoint_router import validate_base_url
+    try:
+        normalized = validate_base_url(raw_url.split("?", 1)[0])
+        return {"configured": True, "transport": "remote-http", "url": normalized, "healthy": True}
+    except ValueError as exc:
+        return {"configured": True, "transport": "remote-http", "url": raw_url, "healthy": False, "error": str(exc)}
 
 

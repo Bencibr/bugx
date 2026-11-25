@@ -7,7 +7,7 @@
 
 | 文件 | 定位 |
 |---|---|
-| [`01_ENVIRONMENT_VARIABLES.md`](01_ENVIRONMENT_VARIABLES.md) | **全部 `BUGX_*` 环境变量速查**：141 个直接消费变量，按 7 类分组，含默认值与主消费点（从代码真值提取） |
+| [`01_ENVIRONMENT_VARIABLES.md`](01_ENVIRONMENT_VARIABLES.md) | **全部 `BUGX_*` 环境变量速查**：144 个直接消费变量，按 7 类分组，含默认值与主消费点（从代码真值提取） |
 | [`design-system/`](design-system/README.md) | **大厂设计规范基准**：9 个品牌 DESIGN.md（Apple/Airbnb/Vercel/Stripe 等）+ 外部规范链接——BugX UI 设计质量审计的对照基准 |
 | [`UI_DESIGN_DEFECT_REPORT.md`](UI_DESIGN_DEFECT_REPORT.md) | **首份 UI 设计缺陷报告**：报告引擎 Formal/Visual Delivery 双主题实测审计（Playwright 截图 + 像素分析），5 项改进建议与 F-023 CSS 架构立案 |
 | 见[根目录 CHANGELOG.md](../../CHANGELOG.md) | 面向外部使用者的语义版本大颗粒度变更汇总（按 AGENTS.md 必须置于仓库根目录） |

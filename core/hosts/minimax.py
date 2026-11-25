@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """core/hosts/minimax.py - MiniMax Code desktop Plugin V1 host.
 
-Facts captured from the installed MiniMax Code 3.1.0 package on Windows and its
+Facts captured from the installed MiniMax Code 3.1.17 package on Windows and its
 embedded local-plugin-v1 contract:
 
 * user plugins are discovered below ~/.minimax/plugins/<plugin>/;
 * the package manifest is .minimax-plugin/plugin.json;
 * MCP servers are declared in servers.mcp.json;
-* plugin Agents are Markdown files under agents/ and Skills under skills/.
+* plugin subagents are Markdown files under agents/ and Skills under skills/;
+* the Agents roster uses ~/.minimax/agents/<name>/agent.md for Custom Agents.
 
 The desktop package exposes the PluginSystem/MCP/Agent surface, but this
 repository has not verified a MiniMax Code headless or standard ACP entry point.
@@ -125,7 +126,7 @@ def _mcp_config_paths(_root: Path) -> tuple[Path, ...]:
 
 
 def _agent_config_path(_root: Path) -> Path:
-    return _minimax_plugin_root() / ".minimax-plugin" / "plugin.json"
+    return _minimax_data_dir() / "agents" / "bugx" / "agent.md"
 
 
 def _resolve_minimax_cli() -> str | None:
@@ -230,7 +231,7 @@ def run_static_degraded(root: Path | None = None) -> dict:
             "aliases": list(PLUGIN.identity.aliases),
             "markers": list(PLUGIN.identity.markers),
         },
-        "agent_entry": str(plugin_root / "agents" / "bugx.md"),
+        "agent_entry": str(_agent_config_path(root or Path.cwd())),
         "worker_entry": str(plugin_root / "agents" / "bugx-worker.md"),
         "plugin_manifest": str(manifest),
         "mcp_config": str(plugin_root / "servers.mcp.json"),

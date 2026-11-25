@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "bugx-pi",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "host": "pi",
   "kind": "extension",
   "entry": "index.ts",

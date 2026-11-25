@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from .. import __version__
 from ..common import *
 from ..host_adapters import HOST_ADAPTERS
 from ..hosts.registry import (
+    QODER_PROJECT_MCP_PATHS,
     engine_host_label,
     engine_host_mcp_config_paths,
     engine_host_mcp_write,
@@ -717,8 +719,81 @@ def _host_global_mcp_target(host_name: str, root: Path) -> Path | None:
     return paths[0] if paths else None
 
 
+def _resolve_docs_remote_url(explicit: str | None = None) -> str:
+    """解析并校验 bugx-docs remote HTTP MCP 端点 URL。"""
+    import re as _re
+    from ..common import __version__
+
+    try:
+        from core.cloud_sync.endpoint_router import load_cloud_config, validate_base_url
+    except Exception as exc:  # noqa: BLE001
+        raise CliError(f"无法加载云端路由校验器以配置远程 bugx-docs：{exc}") from exc
+
+    ver_match = _re.match(r"([0-9]+\.[0-9]+\.[0-9]+)", str(__version__))
+    contract_ver = ver_match.group(1) if ver_match else str(__version__)
+    raw = str(explicit or "").strip()
+    if raw:
+        base_part, _, query = raw.partition("?")
+        try:
+            normalized = validate_base_url(base_part)
+        except ValueError as exc:
+            raise CliError(f"非法 --docs-remote-url: {exc}") from exc
+        if "/api/v1/mcp/docs" not in normalized:
+            normalized = f"{normalized}/api/v1/mcp/docs"
+        return f"{normalized}?{query}" if query else f"{normalized}?contract_version={contract_ver}"
+
+    cfg = load_cloud_config()
+    base = str(cfg.get("base_url") or "https://bugx.dev").strip()
+    try:
+        normalized_base = validate_base_url(base)
+    except ValueError as exc:
+        raise CliError(f"云端 base_url 无法用于远程 bugx-docs: {exc}") from exc
+    return f"{normalized_base}/api/v1/mcp/docs?contract_version={contract_ver}"
+
+
+def _probe_docs_remote_connectivity(url: str, timeout: float = 1.0) -> bool:
+    """快速探测远程文档服务连通性（1s 有界超时）。"""
+    import urllib.error
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "bugx-install-probe"}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status < 500
+    except urllib.error.HTTPError as exc:
+        return exc.code < 500
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
+def resolve_effective_docs_transport(
+    docs_transport: str | None,
+    docs_remote_url: str | None = None,
+) -> str:
+    """确定当前环境应采用的 bugx-docs 传输模式（远程优先，无法联网时自动降级本地）。"""
+    if docs_transport in {"stdio", "remote"}:
+        return docs_transport
+    try:
+        from core.skills.bugx_docs_cloud_sync import docs_offline_disabled
+        if docs_offline_disabled():
+            return "stdio"
+    except Exception:
+        pass
+
+    try:
+        target_url = _resolve_docs_remote_url(docs_remote_url)
+        if _probe_docs_remote_connectivity(target_url, timeout=1.0):
+            return "remote"
+    except Exception:
+        pass
+    return "stdio"
+
+
 def _host_supervisor_server_definitions(
-    *, shape: str, optional_names: set[str] | None = None,
+    *,
+    shape: str,
+    optional_names: set[str] | None = None,
+    docs_transport: str | None = None,
+    docs_remote_url: str | None = None,
 ) -> dict[str, dict[str, object]]:
     """构建 Cline / Claude Code / ZCode / Qoder / Trea / FunIDE 的最小 BugX MCP 注册。
 
@@ -736,6 +811,7 @@ def _host_supervisor_server_definitions(
     if shape not in _mcp_shape_names():
         raise CliError(_i18n_exc("plugin.unknown_mcp_shape", f"未知宿主 MCP 配置形态: {shape}", shape=shape))
     entry_extra = _host_mcp_entry_extra(shape)
+    effective_transport = resolve_effective_docs_transport(docs_transport, docs_remote_url)
     result: dict[str, dict[str, object]] = {}
     for name in HOST_SUPERVISOR_MCP:
         role = HOST_SUPERVISOR_MCP_ROLES[name]
@@ -750,16 +826,24 @@ def _host_supervisor_server_definitions(
         if entry_extra:
             entry.update(copy.deepcopy(entry_extra))
         result[name] = entry
-    docs_entry: dict[str, object] = {
-        "type": "stdio",
-        "command": "bugx",
-        "args": [
-            "mcp", "docs", "serve", "--root", ".",
-            "--db", ".bugx/knowledge/docs.sqlite3",
-        ],
-    }
-    if entry_extra:
-        docs_entry.update(copy.deepcopy(entry_extra))
+    if effective_transport == "remote":
+        resolved_url = _resolve_docs_remote_url(docs_remote_url)
+        docs_entry = (
+            {"url": resolved_url}
+            if shape == "codex"
+            else {"type": "http", "url": resolved_url}
+        )
+    else:
+        docs_entry = {
+            "type": "stdio",
+            "command": "bugx",
+            "args": [
+                "mcp", "docs", "serve", "--root", ".",
+                "--db", ".bugx/knowledge/docs.sqlite3",
+            ],
+        }
+        if entry_extra:
+            docs_entry.update(copy.deepcopy(entry_extra))
     result["bugx-docs"] = docs_entry
     for name in sorted(optional_names or set()):
         if name not in {"playwright", "postmcp"}:
@@ -797,9 +881,29 @@ def _host_mcp_command_tokens(entry: object) -> list[str] | None:
 
 
 _PYTHON_MODULE_LAUNCHER_PREFIX = ["-m", "bugx_cli.cli"]
+_SAFE_PYTHON_MODULE_LAUNCHER_PREFIX = ["-P", *_PYTHON_MODULE_LAUNCHER_PREFIX]
+_QODER_NPM_ENV_KEYS = ("BUGX_CLI_SOURCE", "BUGX_ASSET_ROOT", "PYTHONPATH")
 
 
-def _absolute_bugx_launcher() -> tuple[str, list[str]]:
+def _qoder_windows_mcp_launcher() -> tuple[str, dict[str, str]]:
+    """Keep Qoder's Windows stdio launch independent of PATH and npm shims."""
+    python = Path(sys.executable)
+    if not python.is_absolute() or python.suffix.casefold() != ".exe" or not python.is_file():
+        raise CliError(f"Qoder MCP 需要可直接启动的 Windows Python 解释器: {python}")
+    if os.environ.get("BUGX_CLI_SOURCE") != "npm":
+        return str(python), {}
+    # npm adds its Python module and engine paths to the installer's environment.
+    # Qoder runs in a different process and does not inherit either of them.
+    return str(python), {
+        "BUGX_CLI_SOURCE": "npm",
+        "BUGX_ASSET_ROOT": str(asset_root()),
+        "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+    }
+
+
+def _absolute_bugx_launcher(
+    *, direct_engine: bool = False, script_name: str = "bugx_mcp_server.py",
+) -> tuple[str, list[str]]:
     """解析 bugx 启动入口，返回 ``(command, 前缀参数)``。
 
     候选按可信度排序，**绝不落盘伪造路径**（旧实现无条件取 ``sys.argv[0]``，
@@ -810,6 +914,21 @@ def _absolute_bugx_launcher() -> tuple[str, list[str]]:
     3. 与当前解释器同目录的 ``bugx`` —— venv / pip 安装；
     4. 兜底：``<当前解释器> -m bugx_cli.cli`` —— 绝对、可执行、不伪造路径。
     """
+
+    if direct_engine:
+        # Antigravity ACP has a short MCP pre-load window.  Starting the full
+        # CLI first adds several seconds on Windows, while the engine script
+        # is self-bootstrapping and reaches the same ``serve`` implementation
+        # directly.  Keep the interpreter and script absolute because the ACP
+        # process is not guaranteed to inherit the user's PATH or cwd.
+        engine_roots = (global_engine_root(), asset_root())
+        for engine_root in engine_roots:
+            script = engine_root / "skills" / script_name
+            if script.is_file():
+                return str(Path(sys.executable).resolve()), [str(script.resolve())]
+        raise CliError(
+            f"全局 BugX 引擎缺少 skills/{script_name}，无法为 Antigravity ACP 写入快速 MCP 启动器"
+        )
 
     override = shutil.which("bugx")
     if override:
@@ -840,10 +959,23 @@ def _absolutize_server_definitions(
     spawn——常驻 Hub Daemon 的 cwd 不是工作区，``--root .`` 会解析到宿主 cwd
     而不是本项目，因此必须写绝对项目根。
     """
-    command, prefix = _absolute_bugx_launcher()
     root_str = str(root)
     for entry in desired.values():
+        direct_engine = entry.pop("_bugx_direct_engine_script", False) is True
         args = entry.get("args")
+        script_name = "bugx_mcp_server.py"
+        if direct_engine and isinstance(args, list):
+            if args[:2] == ["mcp", "docs"]:
+                script_name = "bugx_docs_mcp_server.py"
+                args = args[2:]
+            elif args[:1] == ["mcp"]:
+                args = args[1:]
+            else:
+                raise CliError("Antigravity 直通 MCP 条目缺少受支持的 `mcp` 子命令")
+            entry["args"] = args
+        command, prefix = _absolute_bugx_launcher(
+            direct_engine=direct_engine, script_name=script_name,
+        )
         if entry.get("command") == "bugx":
             entry["command"] = command
             if prefix and isinstance(args, list):
@@ -860,7 +992,7 @@ def _absolutize_server_definitions(
     return desired
 
 
-def _mcp_entry_has_relative_paths(entry: object) -> bool:
+def _mcp_entry_has_relative_paths(entry: object, *, include_db: bool = True) -> bool:
     """宿主 MCP 条目 argv 是否仍携带相对 ``--root`` / ``--db`` 路径 token。
 
     ``mcp_write.requires_absolutize=True`` 宿主的**声明性过期**判据：这类宿主的
@@ -882,7 +1014,7 @@ def _mcp_entry_has_relative_paths(entry: object) -> bool:
             continue
         if token == "--root" and not Path(value).is_absolute():
             return True
-        if token == "--db" and value.startswith(".bugx/"):
+        if include_db and token == "--db" and value.startswith(".bugx/"):
             return True
     return False
 
@@ -938,8 +1070,8 @@ def _same_mcp_arg(got: object, want: object, root: Path | None = None) -> bool:
 
 def _launcher_kind(command: str) -> str:
     """启动器类别：``bugx``（原生启动器）/ ``python``（解释器）/ ``other:<name>``。"""
-    name = Path(command).name
-    if name in {"bugx", "bugx.js"}:
+    name = os.path.normcase(Path(command).name)
+    if name in {"bugx", "bugx.exe", "bugx.js"}:
         return "bugx"
     if name.startswith("python") or name.startswith("pypy"):
         return "python"
@@ -955,18 +1087,17 @@ def _launchers_equivalent(got_cmd: str, got_args: list, want_cmd: str, want_args
         return got_cmd == want_cmd
     if {got_kind, want_kind} != {"bugx", "python"}:
         return False
-    prefix = _PYTHON_MODULE_LAUNCHER_PREFIX
-    if got_kind == "python" and list(got_args[: len(prefix)]) != prefix:
+    if got_kind == "python" and _strip_launcher_prefix(got_args) == list(got_args):
         return False
-    if want_kind == "python" and list(want_args[: len(prefix)]) != prefix:
+    if want_kind == "python" and _strip_launcher_prefix(want_args) == list(want_args):
         return False
     return True
 
 
 def _strip_launcher_prefix(args: list) -> list:
-    prefix = _PYTHON_MODULE_LAUNCHER_PREFIX
-    if list(args[: len(prefix)]) == prefix:
-        return list(args[len(prefix):])
+    for prefix in (_SAFE_PYTHON_MODULE_LAUNCHER_PREFIX, _PYTHON_MODULE_LAUNCHER_PREFIX):
+        if list(args[: len(prefix)]) == prefix:
+            return list(args[len(prefix):])
     return list(args)
 
 
@@ -1174,7 +1305,7 @@ def _expand_pinned_expected(expected: list[str], root: Path | None) -> list[str]
 
 
 def _mcp_tokens_match(
-    actual: list[str], expected: list[str], root: Path | None = None,
+    actual: list[str] | None, expected: list[str], root: Path | None = None,
 ) -> bool:
     """比较宿主 MCP 条目 tokens 与 pinned 模板，按**语义**而非字面。
 
@@ -1186,7 +1317,7 @@ def _mcp_tokens_match(
     ``_tokens_equivalent``（启动器类别 + 逐参路径等价）。角色/子命令/顺序仍严格
     相等，所以「指向别的项目」「角色写错」「db 写错」依旧判过期。
     """
-    return _tokens_equivalent(actual, _expand_pinned_expected(expected, root), root)
+    return bool(actual) and _tokens_equivalent(actual, _expand_pinned_expected(expected, root), root)
 
 
 def _host_mcp_entry_is_current(
@@ -1197,11 +1328,42 @@ def _host_mcp_entry_is_current(
         return False
     if entry.get("disabled") is True or entry.get("enabled") is False:
         return False
+    if name == "bugx-docs" and isinstance(entry.get("url"), str) and entry["url"].strip():
+        try:
+            from core.host_runtime.mcp_process_tracker import probe_remote_docs_mcp
+            return bool(probe_remote_docs_mcp({"bugx-docs": entry}).get("healthy"))
+        except Exception:
+            return False
     expected = OPENCODE_PINNED_MCP_COMMANDS.get(name)
     if not expected:
         return False
     actual = _host_mcp_command_tokens(entry)
     return _mcp_tokens_match(actual, expected, root)
+
+
+def _qoder_mcp_entry_is_current(name: str, entry: object, root: Path | None) -> bool:
+    """Check project binding and the Windows launcher used by Qoder Desktop."""
+    # The Docs server resolves a relative database path under its explicit root.
+    if not (
+        isinstance(entry, dict)
+        and not _mcp_entry_has_relative_paths(entry, include_db=False)
+        and _host_mcp_entry_is_current(name, entry, root)
+    ):
+        return False
+    if os.name != "nt":
+        return True
+    command, environment = _qoder_windows_mcp_launcher()
+    args = entry.get("args")
+    current_env = entry.get("env", {})
+    return (
+        isinstance(entry.get("command"), str)
+        and os.path.normcase(entry["command"]) == os.path.normcase(command)
+        and isinstance(args, list)
+        and args[:len(_SAFE_PYTHON_MODULE_LAUNCHER_PREFIX)] == _SAFE_PYTHON_MODULE_LAUNCHER_PREFIX
+        and isinstance(current_env, dict)
+        and all(current_env.get(key) == value for key, value in environment.items())
+        and (bool(environment) or current_env.get("BUGX_CLI_SOURCE") != "npm")
+    )
 
 
 def _load_json_object(path: Path, label: str) -> dict[str, object]:
@@ -1221,7 +1383,12 @@ def _load_json_object(path: Path, label: str) -> dict[str, object]:
 
 
 def write_host_mcp_config(
-    root: Path, host_name: str, *, optional_names: set[str] | None = None,
+    root: Path,
+    host_name: str,
+    *,
+    optional_names: set[str] | None = None,
+    docs_transport: str | None = None,
+    docs_remote_url: str | None = None,
 ) -> tuple[str, Path, Path | None, bool]:
     """Idempotently register both BugX MCP channels in a host-native file.
 
@@ -1293,7 +1460,10 @@ def write_host_mcp_config(
         # 产出死配置（Codex 从不加载 ``.codex/config.json``），因此直接委托插件，
         # 不再复制一份宿主实现。
         desired = _host_supervisor_server_definitions(
-            shape=str(host_name).strip().casefold(), optional_names=optional_names,
+            shape=str(host_name).strip().casefold(),
+            optional_names=optional_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
         )
         result = migrated.bootstrap(root, desired)
         relpath = migrated.project_relpath or ""
@@ -1333,7 +1503,10 @@ def write_host_mcp_config(
                 )
             )
         desired = _host_supervisor_server_definitions(
-            shape=str(host_name).strip().casefold(), optional_names=optional_names,
+            shape=str(host_name).strip().casefold(),
+            optional_names=optional_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
         )
         if migrated.requires_absolutize:
             # 宿主声明 ``requires_absolutize=True`` 时按契约落盘**绝对**根（D3
@@ -1352,7 +1525,12 @@ def write_host_mcp_config(
             payload[servers_key] = servers
         if not isinstance(servers, dict):
             raise CliError(_i18n_exc("plugin.funide_servers_not_object", f"FunIDE 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
-        desired = _host_supervisor_server_definitions(shape="funide", optional_names=optional_names)
+        desired = _host_supervisor_server_definitions(
+            shape="funide",
+            optional_names=optional_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
+        )
     elif host_name in {"chatgpt", "workbuddy", "codebuddy"}:
         # pi / dsh 已迁移为插件：分别走上方通用 JSON 骨架分支（requires_absolutize
         # 声明绝对化）与全局分支（project_relpath=None），这里的遗留路径已不可达。
@@ -1369,18 +1547,32 @@ def write_host_mcp_config(
         desired = _host_supervisor_server_definitions(
             shape="workbuddy" if host_name == "codebuddy" else host_name,
             optional_names=optional_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
         )
     elif host_name == "qoder":
-        target = root / ".qoder" / "mcp.json"
+        target = root / QODER_PROJECT_MCP_PATHS[0]
         payload = _load_json_object(target, "Qoder")
         servers_key = "mcpServers"
         servers = payload.get(servers_key)
-        if servers is None:
+        if servers_key not in payload:
             servers = {}
             payload[servers_key] = servers
         if not isinstance(servers, dict):
             raise CliError(_i18n_exc("plugin.qoder_servers_not_object", f"Qoder 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
         desired = _host_supervisor_server_definitions(shape="qoder", optional_names=optional_names)
+        windows_launcher = _qoder_windows_mcp_launcher() if os.name == "nt" else None
+        # Qoder Desktop can spawn stdio from its application directory.
+        for entry in desired.values():
+            args = entry.get("args")
+            if isinstance(args, list):
+                entry["args"] = _expand_pinned_expected(args, root)
+                if windows_launcher is not None:
+                    command, environment = windows_launcher
+                    entry["command"] = command
+                    entry["args"] = [*_SAFE_PYTHON_MODULE_LAUNCHER_PREFIX, *entry["args"]]
+                    if environment:
+                        entry["env"] = environment
     elif host_name == "trea":
         # DOC-169：补全 Trea 的项目级 MCP 写入（flat 形态，与 qoder 同构）。
         target = root / ".trea" / "mcp.json"
@@ -1406,6 +1598,9 @@ def write_host_mcp_config(
         # 全局作用域宿主按「与本次绝对化期望逐字段相等」判定时效，不能用相对 token。
         def _entry_is_current(name: str, current: object) -> bool:
             return _absolute_entry_is_current(name, current, desired)
+    elif host_name == "qoder":
+        def _entry_is_current(name: str, current: object) -> bool:
+            return _qoder_mcp_entry_is_current(name, current, root)
     else:
         _absolutize_facet = engine_host_mcp_write(host_name)
         if _absolutize_facet is not None and _absolutize_facet.requires_absolutize:
@@ -1415,13 +1610,24 @@ def write_host_mcp_config(
                 # 同根重跑逐字段相等 ⇒ unchanged（幂等，不依赖 CLI 进程 cwd）。
                 if _mcp_entry_has_relative_paths(current):
                     return False
+                # 直通引擎脚本等宿主专属启动器也属于声明性契约的一部分；
+                # 不能只拿通用 pinned ``bugx mcp`` 模板比较，否则旧启动器会
+                # 被误判为 current，导致 ACP 冷启动超时的修复永远不落盘。
+                return _absolute_entry_is_current(name, current, desired)
+        elif target == root / QODER_PROJECT_MCP_PATHS[0]:
+            # Other hosts sharing the root manifest can reuse Qoder's absolute binding.
+            def _entry_is_current(name: str, current: object) -> bool:
                 return _host_mcp_entry_is_current(name, current, root)
         else:
             _entry_is_current = _host_mcp_entry_is_current
     optional_managed = {"playwright", "postmcp"}
     for name in optional_managed - set(optional_names or set()):
         current = servers.get(name)
-        if _entry_is_current(name, current):
+        is_managed = (
+            _host_mcp_entry_is_current(name, current, root)
+            if host_name == "qoder" else _entry_is_current(name, current)
+        )
+        if is_managed:
             servers.pop(name, None)
             changed = True
     for name, expected in desired.items():
@@ -1430,9 +1636,37 @@ def write_host_mcp_config(
             servers[name] = copy.deepcopy(expected)
             changed = True
             continue
-        if not _entry_is_current(name, current):
+        drop_cwd = host_name == "qoder" and name in HOST_ALL_MCP and "cwd" in current
+        entry_is_current = _entry_is_current(name, current)
+        if name == "bugx-docs" and entry_is_current:
+            effective_transport = resolve_effective_docs_transport(docs_transport, docs_remote_url)
+            if effective_transport == "remote" and current.get("url") != expected.get("url"):
+                entry_is_current = False
+            elif effective_transport == "stdio" and isinstance(current.get("url"), str):
+                entry_is_current = False
+        if drop_cwd or not entry_is_current:
             merged = copy.deepcopy(current)
-            merged.update(copy.deepcopy(expected))
+            if not entry_is_current:
+                merged.update(copy.deepcopy(expected))
+                if host_name == "qoder" and os.name == "nt":
+                    old_env = current.get("env")
+                    if isinstance(old_env, dict):
+                        environment = dict(old_env)
+                        if environment.get("BUGX_CLI_SOURCE") == "npm":
+                            for key in _QODER_NPM_ENV_KEYS:
+                                environment.pop(key, None)
+                        environment.update(expected.get("env", {}))
+                        merged["env"] = environment
+                    elif "env" not in expected:
+                        merged.pop("env", None)
+                if name == "bugx-docs":
+                    if "url" in expected:
+                        merged.pop("command", None)
+                        merged.pop("args", None)
+                    elif "command" in expected:
+                        merged.pop("url", None)
+            if drop_cwd:
+                merged.pop("cwd")
             servers[name] = merged
             changed = True
             upgraded = True
@@ -1501,20 +1735,30 @@ def _read_host_json_servers(path: Path, shape: str) -> dict[str, object]:
 def _validate_host_supervisor_mcp(
     candidates: tuple[tuple[Path, str], ...],
     root: Path | None = None,
+    *,
+    merge_servers: bool = False,
+    entry_is_current: Callable[[str, object, Path | None], bool] = _host_mcp_entry_is_current,
 ) -> tuple[bool, str]:
-    """Require current, enabled host and worker entries in one native config.
+    """Require current, enabled BugX entries in the host's effective config.
 
     ``root`` 用于判定用户级绝对 ``--root`` 是否指向**本项目**（语义等价比对），
     缺省时只接受 pinned 相对形式。
     """
+    configs = [
+        (str(path), servers)
+        for path, shape in candidates
+        if (servers := _read_host_json_servers(path, shape))
+    ]
+    if merge_servers and configs:
+        # Candidates are in load order. A higher-priority definition replaces
+        # the whole server entry, including an explicitly disabled entry.
+        merged = {name: entry for _, servers in configs for name, entry in servers.items()}
+        configs = [(" + ".join(path for path, _ in configs), merged)]
     partial: list[str] = []
-    for path, shape in candidates:
-        servers = _read_host_json_servers(path, shape)
-        if not servers:
-            continue
+    for path, servers in configs:
         missing_or_stale = [
             name for name in HOST_ALL_MCP
-            if not _host_mcp_entry_is_current(name, servers.get(name), root)
+            if not entry_is_current(name, servers.get(name), root)
         ]
         if not missing_or_stale:
             return True, _i18n_prompt("plugin.mcp_registered", f"已在 {path} 注册并启用 bugx-supervisor host/worker 双通道与 docs 服务", path=path)
@@ -2100,7 +2344,7 @@ def _host_project_mcp_config_target(root: Path, host_name: str) -> tuple[Path, s
         }
         return root / rel_map[host_name], "mcpServers"
     if host_name == "qoder":
-        return root / ".qoder" / "mcp.json", "mcpServers"
+        return root / QODER_PROJECT_MCP_PATHS[0], "mcpServers"
     if host_name == "trea":
         return root / ".trea" / "mcp.json", "mcpServers"
     if host_name == "opencode":
@@ -2156,7 +2400,14 @@ def _remove_host_mcp_entry(
         preserved.extend(str(item) for item in (outcome.get("preserved") or ()))
         return
 
-    def _is_bugx_mcp_entry(name: str, entry: object) -> bool:
+    def _is_bugx_mcp_entry(name: str, entry: object, *, shared: bool) -> bool:
+        if shared:
+            return name in HOST_ALL_MCP or (
+                name in {"playwright", "postmcp"}
+                and _mcp_tokens_match(
+                    _host_mcp_command_tokens(entry), OPENCODE_PINNED_MCP_COMMANDS[name], root,
+                )
+            )
         if name in HOST_ALL_MCP or "bugx" in name.lower():
             return True
         tokens = _host_mcp_command_tokens(entry)
@@ -2203,7 +2454,8 @@ def _remove_host_mcp_entry(
         if not isinstance(servers, dict):
             continue
 
-        bugx_keys = [k for k, v in servers.items() if _is_bugx_mcp_entry(k, v)]
+        shared = path == root / QODER_PROJECT_MCP_PATHS[0]
+        bugx_keys = [k for k, v in servers.items() if _is_bugx_mcp_entry(k, v, shared=shared)]
         if not bugx_keys:
             continue
 
@@ -2253,17 +2505,6 @@ def _remove_claude_mcp_entry(
     """Remove BugX supervisor MCP channels from .mcp.json on claude uninstall."""
     _remove_host_mcp_entry(
         root, "claude", removed, preserved,
-        backup_host=backup_host, backup_dir=backup_dir,
-    )
-
-
-def _remove_qoder_mcp_entry(
-    root: Path, removed: list[str], preserved: list[str], *, backup_host: str = "qoder",
-    backup_dir: Path | None = None,
-) -> None:
-    """Remove BugX supervisor MCP channels from .qoder/mcp.json on qoder uninstall."""
-    _remove_host_mcp_entry(
-        root, "qoder", removed, preserved,
         backup_host=backup_host, backup_dir=backup_dir,
     )
 

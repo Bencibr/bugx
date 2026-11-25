@@ -1,8 +1,8 @@
 # BugX 审计流程
 
-> **版本**: 0.1.3 | **更新日期**: 2026-11-24 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
+> **版本**: 0.1.4 | **更新日期**: 2026-11-25 | **定位**: Diátaxis - Explanation (核心生命周期与状态机时序)
 > 本文是 BugX 全生命周期审计时序、状态流转与门禁判定依据。面向人类工程师与系统架构师。
-> **当前基线**：0.1.3 / Build 1　|　**更新日期**: 2026-11-24　|　**读者**：使用 BugX 的项目维护者
+> **当前基线**：0.1.4 / Build 1　|　**更新日期**: 2026-11-25　|　**读者**：使用 BugX 的项目维护者
 
 本文按首次接入、启动预飞、审查执行和结果处理，说明一轮 BugX 审计如何走完。安装细节见 [01_USER_GUIDE.md](../../docs/01_guides/01_USER_GUIDE.md)，系统分层见 [01_ARCHITECTURE.md](01_ARCHITECTURE.md)，宿主命令契约见 [01_AI_REFERENCE.md](../../docs/03_ai/01_AI_REFERENCE.md)。
 
@@ -351,7 +351,7 @@ flowchart LR
     B -->|缺失或路径不安全| F[返回错误]
     B -->|通过| C[完成云同步策略门禁]
     C -->|已决| D[初始化项目布局]
-    D --> E[安装或保留 bugx-user Skill]
+    D --> E[安装或保留 bugx 极简 Skill]
     E --> G[记录 onboarding 与打印 Skill 路径]
 ```
 
@@ -378,6 +378,19 @@ bugx install
 `bugx install` 会自动接入本机可用的宿主（亦可通过 `--agent` 指定宿主，如 `opencode`, `claude`, `codex`, `cline`, `zcode`, `dsh`, `chatgpt`, `workbuddy`, `qoder`, `trea`, `funide` 等）。
 **关键隔离准则**：项目级 MCP 默认写入当前项目目录（`--root .`）。FunIDE 设置页另有已确认的用户 profile `mcp.json` 数据源，安装器会在该文件的 `servers` 中登记同样的工作区相对命令，并在 profile `settings.json` 写入 `chat.mcp.autostart = newAndOutdated`，保证设置 → MCP 可见且 Agent 消息按需自动拉起新/过期服务；其它宿主仍不写入无契约的用户全局配置。
 
+```mermaid
+sequenceDiagram
+    participant I as BugX 安装器
+    participant P as 项目 .mcp.json
+    participant Q as Qoder Desktop
+    I->>P: 原子合并三项带绝对 --root 的 stdio 注册，Windows 指定 Python .exe
+    I-->>Q: 安装回执提示重新加载
+    Q->>P: 新会话读取项目连接器
+    Q->>Q: 处理项目级 MCP 批准并启动 stdio
+```
+
+Qoder 的项目配置诊断按 `.qoder/settings.json` → `.mcp.json` 合并，后者覆盖同名条目。Windows 以可直接启动的 Python `.exe` 运行 stdio，不经 shell 展开。真实会话中的连接器加载及工具调用需要独立证据。
+
 宿主平台兼容性按宿主逐一取证：Kimi Code 1.4.x 使用
 `<KIMI_CODE_HOME>/plugins/managed/bugx` 与 `<KIMI_CODE_HOME>/plugins/installed.json`
 （默认 `~/.kimi-code`），Windows 不再依赖 macOS `daimon-share`；Kimi CLI/六面插件层均覆盖非系统盘；Claude/Trae 的逻辑盘
@@ -386,17 +399,20 @@ Kimi 的 managed 注册走宿主专用注册器，不生成 ZCode 的 `.zcode-pl
 所有用户级注册能力都要求结构化回执，空回执直接阻断安装；不能以项目入口已写入推断用户级
 插件已加载。Windows 本轮完成真实路径、非系统盘识别与实际注册回归，macOS/Linux 仍需各自宿主真实加载证据。
 
-MiniMax Code 3.1.0 采用独立的 Plugin V1 用户级包，不写项目 MCP 配置：
+MiniMax Code 3.1.17 的主 Agent 和 Plugin V1 包均注册在用户数据根。
 
     sequenceDiagram
         participant I as BugX Installer
         participant P as ~/.minimax/plugins/bugx
+        participant D as ~/.minimax/agents/bugx/agent.md
         participant A as MiniMax Agent
         participant W as MiniMax Worker Agent
-        I->>P: write plugin.json, agents, skill, servers.mcp.json, icon.png
-        P-->>I: structured receipt with paths and statuses
-        A->>P: load bugx Agent and bugx Skill
-        W->>P: load bugx-worker and worker MCP allowlist
+        I->>P: publish plugin.json and its Worker, Skill, MCP and icon
+        I->>D: publish the owned Custom Agent and its official avatar reference
+        D-->>I: verify both entries and return receipt
+        A->>D: load BugX from the Custom Agent roster
+        A->>P: load BugX Skill and MCP declarations
+        W->>P: load bugx:bugx-worker and worker MCP allowlist
         A->>A: reload gate required before MCP/tool assertions
 
 MiniMax 用户级注册已从项目级 native MCP 写入循环中拆出，避免“没有项目 MCP 文件”
@@ -404,6 +420,15 @@ MiniMax 用户级注册已从项目级 native MCP 写入循环中拆出，避免
 web_fetch 等小写原生名，Worker 不允许继续委派；servers.mcp.json 只声明 PATH 名
 bugx，不硬编码解释器或仓库路径。静态包与安装回执通过后，仍必须由真实宿主完成
 loaded/callable/healthy 和生命周期闭环，缺失证据只能记为 UNVERIFIED。
+
+Google Antigravity 审查插件安装顺序为校验已有包 → 发布主 Agent、Worker Agent、Skill、官方头像
+和 `plugin.json` → 写入当前项目 `.agents/mcp_config.json` 的 Supervisor/Worker/docs
+三通道 → 由宿主发现。项目 MCP 的 Supervisor/Worker 使用全局引擎脚本直通启动，避免
+完整 CLI 冷启动导致 ACP 预加载超时；ACP 探针使用官方 `--dangerously-skip-permissions`
+并保留隔离项目重绑定。当前握手可以建立，但 `agy 1.5.16` 尚未给出可解析的
+host/worker 工具完成帧，故用户在 Agent 选择器中启动的代码审查仍需独立闭环验收。
+Doctor 对该宿主必须沿同一双层边界校验：用户级插件由 `plugin_antigravity.validate_install()`
+读取，项目侧只校验 `.agents/mcp_config.json`；禁止复用项目相对 `install_path` 检查。
 
 ### DSH 安装器的安全分支
 
@@ -784,7 +809,7 @@ pre ──► bugx engine judge N ──► N 个 bugx-judge 并行（各一回�
    - 穷尽自愈只执行代码内登记的工具配方；未知工具名称以 `unregistered_tool` 阻断，不能由探针或 Worker 输出直接变成 pip 包名。
    - codebase-memory 探针逐个检查 PATH 候选并优先查找配置/默认用户工具目录，只接受与 `core/runtime/tool_install_targets.py` 固定 pin 完全一致的 CLI；旧版本首个命中会被跳过，不会遮蔽后面的正确版本。项目列表使用 `cli --quiet list_projects --format json --detail stats`，显式请求节点/边统计；统计字段缺失代表无法判定，不能当作空图。没有匹配版本时，在列表/建图前保留原因并触发固定规格的隔离安装自愈，安装后精确复核版本；匹配后缺少当前仓库索引才使用 `cli --quiet index_repository --repo-path <root>` 并复查。输出格式不符、建图失败或项目仍未出现时保留原因，不猜测上游版本边界。
    - Codebase Memory 自愈桥接复用 `codebase_memory_probe.inspect`；图增强桥接也调用同一固定版本解析器，并复用直接 JSON 的 `list_projects`/`index_status` 命令及当前 flag 形式的 `query_graph`。PATH 前置旧副本会被跳过，外层 MCP envelope 不会被误当作状态对象；只有当前项目复核 `status=READY` 才移除降级项与设置环境标记，索引子命令单独 exit 0 或同名可执行文件存在都不代表已就绪。只发生索引错误时不重复安装包，图增强只读路径不安装工具。
-   - `codebase-memory` / `ast-grep` 通用自愈只从 `core/runtime/tool_install_targets.py` 读取固定顶层包规格，并通过 `pipx install --force` 或 `uv tool install --reinstall` 替换隔离环境；Homebrew 与当前 Python `pip` 不属于自动回退路径。传递依赖哈希和 Codebase Memory PyPI provenance 尚未验证。
+   - `codebase-memory` 与 `tree-sitter-language-pack` 均属于全局必需核心能力（`critical=True`）：`bugx install` 与 `bugx doctor --repair` 会直接安装与校验（`codebase-memory` 支持 `pipx` / `uv tool` 与 BugX 托管隔离 venv `~/.bugx/tools/codebase-memory`，验活超时地板为 120s 以兼容 PyPI wrapper 首次解压二进制；`tree-sitter-language-pack` 支持 `pip` 及 PEP 668 `--target ~/.bugx/tools/pydeps` 回退）；可选效率加速工具（如 `ast-grep`）则从 `core/runtime/tool_install_targets.py` 的 `OPTIONAL_TOOL_PACKAGE_SPECS` 按需在审计期自愈安装。
    - SAST 自愈只认活动阶段选择的 `sast`、`bandit`、`semgrep` 规范探针名；探针按 PATH 顺序选取满足最低兼容版本的候选。无兼容候选时，Bandit/Semgrep 的包规格只从 `core/runtime/tool_install_targets.py` 读取，并仅用 `pipx` / `uv tool` 隔离安装。安装后清探针缓存并校验固定版本；无隔离安装器、安装失败或复核不通过时保留降级项，不写入当前 Python 环境；上游索引与传递依赖哈希仍待供应链验证。安装版 `core/` 是平铺资源目录，预检直接执行 `sast_probe.py`；探针必须同时支持包导入和脚本导入，脚本模式只能按同目录模块名解析依赖。
    - 移动端 `20-masvs-static` 另有精确版本契约：使用 lock 固定的 `pysemgrep 1.182.0`，从 `bugx mcp-runtime start --root <项目根目录> --server semgrep --print-command` 的经校验 `runtime_dir` 取得绝对路径，并核对 runtime manifest 与二进制版本。缺失或版本不符时只调用一次 `bugx mcp-runtime install --root <项目根目录>`（会重建整套共享 MCP runtime），复核失败即 `UNVERIFIED` 停止；禁止从 PATH 降级选择宿主 Semgrep。
    - 先读取只读 `engine status --json`：仅 `UNINITIALIZED` 可调用 `engine pre`，由 `pre` 持锁复核并准备新项目；`FATAL_BLOCKED`、其他阻断与检查失败都保留现场并停止。状态通过后，已就绪项目比较构建指纹，未就绪配置才进入准备流程；验活失败按 `NOT_APPLICABLE` 剪枝、`MISSING_REPAIRABLE` 穷尽自愈或 `CRITICAL_MISSING` 阻断裁决，缺少当前会话证明时按实际门禁阻断或要求 `RESTART_REQUIRED`，不以 warning 或内置模式伪造就绪；
@@ -1269,3 +1294,35 @@ flowchart LR
 标准基线对失败和缺证据分别输出 `FAIL`、`UNVERIFIED` 或 `BLOCKED`。视觉点评单独保存
 为 `ADVISORY`。复测超时、结论退化或出现超阈值的新差异时，恢复原始 CSS。无法在不覆盖
 并发编辑的情况下回滚时，保留恢复收据和文件备份。
+
+## `bugx-docs` 双域热同步、章节检索与离线降级时序
+
+`bugx mcp docs serve`、`bugx guide` 与 WebUI 工作台共用双域只读检索流水线，确保在线实时同步官方修正的同时绝不外泄被测项目文档：
+
+```mermaid
+sequenceDiagram
+    participant U as Host / CLI (bugx guide) / WebUI
+    participant D as bugx_docs_mcp_server
+    participant S as bugx_docs_cloud_sync
+    participant C as ~/.bugx/cache/docs/<ver>/
+    participant B as core/bundled_docs/
+    participant P as .bugx/knowledge/docs.sqlite3
+
+    U->>D: search_docs / list_sections / fetch_doc (library_id="all")
+    alt mode=hybrid 且未设 OFFLINE / docs_remote_enabled=true
+        D->>S: 持 sync.lock 执行 1.5s ETag manifest 校验
+        alt 服务端返回新 sha256 且 contract_version 匹配
+            S->>S: 解压 + SHA-256 + PRAGMA quick_check
+            S->>C: 原子切换 current.json 并物理删旧包(.gc-pending 兜底)
+        else 离线 / 超时 / 404 / 验签失败
+            S-->>D: 静默降级不阻塞主流程
+        end
+    end
+    D->>P: 确保仅索引当前工作区 project:<id> (只读目录退化 :memory:)
+    par 双域并联召回与排序
+        D->>C: 查 bugx:official (若缺则降级查 B)
+        D->>P: 查 project:<id>
+    end
+    D-->>U: 返回含 library_id / heading_path / doc_tier / snippet / sha256 的结构化章节
+```
+

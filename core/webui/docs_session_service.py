@@ -358,11 +358,49 @@ def _search_docs_fts5(self, proj_root: Path, query: str) -> dict[str, Any]:
         return {"ok": True, "query": "", "results": []}
     root = proj_root.resolve()
     results: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
 
-    # Scan indexed docs tree for fast substring/token match with line numbers
+    # 1. 优先对接 bugx-docs 双作用域章节级 FTS5 trigram 检索引擎（DOC-006 设计项 7）
+    try:
+        from core.skills import bugx_docs_mcp_server as docs_server
+        db_path = root / ".bugx" / "knowledge" / "docs.sqlite3"
+        project_id = root.name
+        rag = docs_server.call_tool(
+            db_path,
+            "search_docs",
+            {"query": q, "limit": 20, "library_id": "all", "project_id": project_id},
+            project_id=project_id,
+            expected_token=None,
+        )
+        for item in rag.get("results") or []:
+            rel = str(item.get("source") or "")
+            if not rel:
+                continue
+            lib = str(item.get("library_id") or "")
+            key = f"{lib}:{rel}:{item.get('section') or ''}"
+            if key in seen_paths:
+                continue
+            seen_paths.add(key)
+            results.append({
+                "path": rel,
+                "name": rel.rsplit("/", 1)[-1],
+                "category": "official_docs" if lib == docs_server.OFFICIAL_LIBRARY_ID else "project_docs",
+                "library_id": lib,
+                "section": item.get("section") or "",
+                "heading_path": item.get("heading_path") or "",
+                "line": 1,
+                "snippet": str(item.get("snippet") or "")[:300],
+            })
+    except Exception:
+        pass
+
+    # 2. 补充扫描未纳入 bugx-docs 的本地报告/配置 (.bugx/ 报告及顶层配置)
     tree = self._get_docs_tree(root)
     q_lower = q.lower()
     for grp in tree.get("groups", []):
+        grp_id = grp.get("id")
+        if grp_id not in {"audit_reports", "config_files"} and results:
+            continue
         for item in grp.get("items", []):
             rel = item["path"]
             fpath = root / rel
@@ -384,7 +422,7 @@ def _search_docs_fts5(self, proj_root: Path, query: str) -> dict[str, Any]:
                         break
             except Exception:
                 continue
-    return {"ok": True, "query": q, "results": results}
+    return {"ok": True, "query": q, "results": results[:50]}
 
 def _list_fs(self, sub_path: str) -> dict[str, Any]:
     """List subdirectories and files in sub_path (supports ~, absolute, and relative paths)."""

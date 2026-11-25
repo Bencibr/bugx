@@ -1,14 +1,14 @@
 # 环境变量参考（Environment Variables）
 
 > **生成方式**：从 `core/` + `interfaces/` 代码真值自动提取（扫描 `os.environ` 消费点与写入点），
-> 覆盖 **141 个**直接消费的 `BUGX_*` 变量（另 56 个为 f-string 动态构造形态，以各消费点代码为准）。
-> **最后对账**：2026-11-10。新增变量必须同一次提交内同步本表。
+> 覆盖 **144 个**直接消费的 `BUGX_*` 变量（另 56 个为 f-string 动态构造形态，以各消费点代码为准）。
+> **最后对账**：2026-11-25。新增变量必须同一次提交内同步本表。
 
 ## 三级配置权限（先读这里）
 
 | 级别 | 含义 | 谁该设置 | 数量 |
 |---|---|---|---|
-| **USER 用户可配** | 值格式与影响见下表；设置错误最多功能不生效，不会破坏状态 | 用户/宿主 AI 按需 | 113 |
+| **USER 用户可配** | 值格式与影响见下表；设置错误最多功能不生效，不会破坏状态 | 用户/宿主 AI 按需 | 116 |
 | **AUTO 系统自动** | 引擎在生命周期内自动写入的状态管道——**手动设置会被下次运行覆盖，或干扰进行中的会话** | 引擎自动 | 20 |
 | **INTERNAL 禁止修改** | 测试注入/内部管道专用——手动设置可能破坏哈希链校验或隔离边界 | 仅测试框架 | 8 |
 
@@ -335,13 +335,16 @@ bugx update --check --root /path/to/project
 | `BUGX_TELEMETRY_ENDPOINT` | URL | 遥测上报端点覆盖；必须是 HTTPS，HTTP 仅允许 localhost 回环 | `无默认(None/空)`；未设置时跟随 cloud API 配置/正式端点 | `core/cloud_sync/flywheel_client.py` |
 | `BUGX_TELEMETRY_PASSPHRASE` | 口令 | 遥测载荷加密口令 | `无默认(None/空)` | `core/cloud_sync/flywheel_client.py (+1 处)` |
 
-### 网络与安全（5）
+### 网络与安全（8）
 
 | 变量 | 值格式 | 设置后的影响 | 默认值 | 主消费点 |
 |---|---|---|---|---|
 | `BUGX_CA_BUNDLE` | PEM 文件路径 | 自定义 CA 证书包（企业自签 TLS） | `""` | `core/cloud_sync/network_transport.py (+1 处)` |
 | `BUGX_DISABLE_VERSION_CHECK` | 1 | 禁用云端版本检查 | `""` | `core/launch_phases/startup_version_gate.py (+2 处)` |
+| `BUGX_DOCS_CACHE_DIR` | 目录路径 | 覆盖 `bugx-docs` 官方文档不可变缓存根目录 | `~/.bugx/cache/docs` | `core/skills/bugx_docs_cloud_sync.py` |
+| `BUGX_DOCS_OFFLINE` | 1 / true / yes | 强制 `bugx-docs` 严格零出网离线模式 | `未设置（遵循 cloud.docs_remote_enabled）` | `core/skills/bugx_docs_cloud_sync.py` |
 | `BUGX_DOCS_PROJECT` | 项目标识 | bugx-docs MCP 的项目标识 | `无默认(None/空)` | `core/skills/bugx_docs_mcp_server.py` |
+| `BUGX_DOCS_REMOTE_URL` | HTTPS URL（本机测试允许 HTTP） | 覆盖 `bugx-docs` 云端官档同步与直查基地址 | `跟随 cloud.base_url` | `core/skills/bugx_docs_cloud_sync.py` |
 | `BUGX_DOCS_TOKEN` | 令牌 | bugx-docs MCP 的访问令牌 | `无默认(None/空)` | `core/skills/bugx_docs_mcp_server.py` |
 | `BUGX_DOCS_VERSION` | 版本号 | bugx-docs MCP 检索的文档版本 | `无默认(None/空)` | `core/skills/bugx_docs_mcp_server.py` |
 

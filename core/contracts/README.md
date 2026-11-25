@@ -1,6 +1,6 @@
 # BugX 智能体执行协议与交互契约子系统 (Agent Runtime Contracts & Protocols)
 
-> **版本契约**: `0.1.3` | **父系统**: `core/`
+> **版本契约**: `0.1.4` | **父系统**: `core/`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 索引对齐防漂移)
 

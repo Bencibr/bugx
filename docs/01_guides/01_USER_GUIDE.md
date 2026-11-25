@@ -72,12 +72,15 @@ BUDGET_EXHAUSTED
 
 - Python `>=3.11`：Python 包和 `bugx` CLI 的运行时要求。
 - Node.js `>=18`：仅在使用 npm wrapper 时需要。
-- 可选 Python extra：
+- 核心必需依赖（`bugx install` / `bugx doctor --repair` 会自动安装并强制校验）：
+  - `codebase-memory-mcp==0.12.1`（隔离安装于 `~/.bugx/tools/codebase-memory`，语义图谱核心）；
+  - `tree-sitter-language-pack==1.14.3`（跨语言 AST 解析核心；PEP 668 受限环境自动装配至 `~/.bugx/tools/pydeps`）。
+- 可选 Python extra（按需手动或审计前决定启用）：
   - `tui`：终端交互相关依赖；
-  - `graph`：Tree-sitter 语言包；
+  - `graph`：`tree-sitter-language-pack` wheel 声明（未在 pip 安装阶段附带 `--extra` 时由 `bugx install` / `bugx doctor --repair` 补齐）；
   - `crypto`：加密相关依赖。
 
-可选 extra 不会由基础包自动安装。仓库声明的两个分发入口是：
+可选项目能力（浏览器 `playwright`、Fuzz `postmcp`、数据库/移动 MCP、效率加速工具、`MCP 离线 runtime`）默认延迟到进入具体项目审计准备阶段后按技术栈由 AI 与用户共同决定启用。仓库声明的两个分发入口是：
 
 ```
 python -m pip install bugx-cli
@@ -124,7 +127,7 @@ bugx auth status --root . --verify --json
 4. 准备全局 engine、CLI 入口和项目所需的静态材料；
 5. 创建本地知识、索引、日志和备份目录；
 6. 把可执行 engine 放在全局 BugX engine 根。
-7. 把用户 Skill 安装到项目的 `.agents/skills/bugx-user/SKILL.md`。在支持该路径的宿主里调用 `$bugx-user`，可以继续上手、同步和排障。重复初始化会保留已有 Skill。显式传 `--force` 更新不同内容时，原文件备份到 `.bugx/backups/bugx-user/`，终端会打印备份路径。
+7. 把标准 Skill 安装到项目的 `.agents/skills/bugx/SKILL.md`（DOC-004 极简 RAG 架构）。在支持该路径的宿主里调用 `/bugx` 或运行 `bugx guide "<关键词>"`，可以按需获取步骤并推进审计。重复初始化会保留已有 Skill。显式传 `--force` 更新不同内容时，原文件备份到 `.bugx/backups/bugx/`，终端会打印备份路径。
 
 非交互 shell 中，`bugx init` 必须显式指定云同步策略，除非已有 preset 提供。仅在用户明确要求离线时才选 `--cloud-sync local`。`local` 不会把全局数据分享同意改成撤销；它表示这次初始化采用本地同步模式。要撤销用户级数据分享并阻断知识推拉，使用：
 
@@ -195,24 +198,26 @@ BugX 当前有四套有意不同的 Host 列表。使用前先确定你需要的
 
 | 能力层 | 当前源码事实 |
 |---|---|
-| 安装/检测适配器 | `chatgpt`、`claude`、`cline`、`codex`、`dsh`、`funide`、`opencode`、`pi`、`qoder`、`trea`、`workbuddy`、`zcode` |
-| ready engine plugin | `opencode`、`codex`、`cline`、`dsh`、`claude`、`pi`、`zcode` |
-| ACP ready | `cline`、`opencode` |
+| 安装/检测适配器 | `antigravity`、`chatgpt`、`claude`、`cline`、`codex`、`dsh`、`funide`、`kimi`、`minimax`、`opencode`、`pi`、`qoder`、`trea`、`workbuddy`、`zcode` |
+| ready engine plugin | `antigravity`、`opencode`、`codex`、`cline`、`dsh`、`claude`、`kimi`、`minimax`、`pi`、`zcode` |
+| ACP ready | `antigravity`、`cline`、`opencode` |
 | ACP todo | `chatgpt`、`workbuddy`、`qoder`、`trea`、`funide` |
-| ACP unavailable | `claude`、`codex`、`dsh`、`pi`、`zcode` |
-| autonomous CLI choices | `claude`、`codex`、`opencode`、`dsh`、`cline`、`zcode` |
+| ACP unavailable | `claude`、`codex`、`dsh`、`kimi`、`minimax`、`pi`、`zcode` |
+| autonomous CLI choices | `antigravity`、`claude`、`codex`、`opencode`、`dsh`、`cline`、`zcode` |
 
 因此，“可安装”不等于“有 ready engine plugin”，更不等于“支持 ACP 或自治闭环”。`bugx hosts --json` 是当前机器检测结果；源码矩阵是能力上限，不能代替本机 Host 的安装和登录状态。
 
-### 5.1 安装指定 Host
+### 5.1 全局安装与指定项目安装
 
 ```
+bugx install                          # 在用户主目录 (~) 运行时执行用户全局安装
 bugx install --root . --agent opencode
 bugx install --root . --agent cline --non-interactive --json
 bugx doctor --root . --agent opencode --strict
 ```
 
-`bugx install` 的作用是写入或更新 BugX 所有权范围内的 Host 配置；`--force` 只在你确认由 BugX 管理的静态资产可以更新时使用。`--allow-missing` 允许安装流程在缺少某些可选 Host 资产时继续，但不会把缺失能力变成 ready。`--agent` 可以重复传入；不指定时不要假定会自动配置全部 Host。
+- **双模式工作流**：在用户主目录（`~`）不传 `--root` 执行 `bugx install` / `bugx doctor` 时进入**用户全局模式**（装配全局引擎 `~/.bugx/core`、全球知识库 `global.sqlite3`、必需核心工具 `codebase-memory-mcp` + `tree-sitter-language-pack` 及宿主用户级资产，绝不把主目录当作被测项目）；进入具体项目目录运行 `bugx install`（或传入 `--root <PROJECT>`）时绑定该项目并初始化 `.bugx/`。
+- `bugx install` 的作用是写入或更新 BugX 所有权范围内的 Host 配置并确保核心必需依赖（`codebase-memory` / `tree-sitter` / 所选宿主 MCP 通道）直接就绪；`--force` 只在你确认由 BugX 管理的静态资产可以更新时使用。`--allow-missing` 允许安装流程在缺少某些可选 Host 资产时继续，但不会把缺失必需能力变成 ready。`--agent` 可以重复传入；不指定时不要假定会自动配置全部 Host。
 
 卸载时，普通 `bugx uninstall` 只应移除记录的 owned files，并尽量保留用户文件或已变更文件。`--all`、`--purge-data` 和 `--purge-global-data` 是范围更大的动作，见第 13 节。
 
@@ -235,13 +240,14 @@ bugx goal --root . --host opencode --max-turns 20 --max-wall-time 3600
 
 ```
 bugx auth status
+bugx auth verify
 bugx auth status --verify
-bugx auth login
+bugx auth login [--non-blocking] [--device-code CODE]
 bugx auth set-key --api-key '<key>'
 bugx auth logout
 ```
 
-`auth status` 只显示是否存在、认证状态、来源和验证结果等元信息，不打印 token。`--verify` 可能访问网络，并可能返回 `valid`、`expired`、`local_network_blocked`、`tls_untrusted` 或 `unavailable`。`logout` 清理登录凭据，但保留设备身份和本地同步状态。
+`auth status` 只显示是否存在、认证状态、来源和验证结果等元信息，不打印 token。`auth verify`（等价 `auth status --verify`）会访问网络，并可能返回 `valid`、`expired`、`local_network_blocked`、`tls_untrusted` 或 `unavailable`。非交互终端/Agent 场景下使用 `auth login --non-blocking` 可先下发授权入口并写入 `cloud-auth-pending.json`，再配合 `--device-code` 完成闭环。`logout` 清理登录凭据，但保留设备身份和本地同步状态。
 
 凭据文件由实现拒绝 symlink，并采用原子写入。请不要把凭据文件内容粘贴到 issue、聊天、日志或本手册中；遇到认证问题只提供状态字段和错误码。
 
@@ -474,9 +480,13 @@ bugx report serve --root . --host 127.0.0.1 --port 8080 --once
 ```
 bugx mcp serve --root . --role host
 bugx mcp serve --root . --role worker
+bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3 [--mode hybrid|local-only|remote-only]
+bugx mcp docs sync --root . [--force|--offline]
 bugx mcp schema --role host
 bugx mcp schema --role worker
 ```
+
+`bugx-docs` 为所有宿主提供双作用域只读文档检索（`bugx:official` 优先通过云端只读 HTTP MCP 实时获取官方最新文档，断网时自动降级到 `~/.bugx/cache/docs/<contract_version>/` 经 SHA-256 验签的官方缓存及随包 `core/bundled_docs/`；`project:<id>` 严格隔离在 `<ROOT>/.bugx/knowledge/docs.sqlite3` 且永不上云）。安装时默认采用「远程优先（Remote-First）」策略直连官方只读端 URL，仅当无法联网或显式传入 `--docs-transport stdio` / 设置 `BUGX_DOCS_OFFLINE=1` 时自动无感降级为本地 `stdio` 网关。也可通过 `bugx guide "<关键词>"` 在终端毫秒查手册。可用 `bugx config set cloud.docs_remote_enabled false` 或 `BUGX_DOCS_OFFLINE=1` 关闭官方库远端拉取。
 
 Host 角色拥有 Supervisor 控制面动作，例如 start、finish、recover、verify/confirm；Worker 角色拥有 claim、worker-start、tool-call、heartbeat、checkpoint、submit-finding 以及受控探针动作。部分查询工具为 shared。Worker 需要由宿主注入真实的 native agent identity；不要用固定字符串冒充多个 Worker。
 
@@ -738,6 +748,25 @@ bugx cloud log-report --root <ROOT> --tail-kb 256 --kind cli-diagnostics --json
 - `log-report` 读取 BugX 诊断日志的尾部，而不是任意文件；默认 `--tail-kb=256`，有效范围被限制为 1..1024 KB，`--kind` 默认 `cli-diagnostics`。空日志/不存在日志时不上传并退出 0；有内容时会把日志 payload 发到诊断报告接口，成功/配额不足/认证失败均应保留输出和退出码。
 
 诊断日志可能包含路径、错误上下文和参数摘要。上传前必须人工确认尾部内容不含凭据或业务秘密；若不能确认，停止并改为本地 `bugx log --errors --json` 或 `bugx telemetry export` 收集。
+
+### 12.6b 异常工单与会话现场脱敏上报 (bugx issue report / feedback)
+
+当在审计、生命周期或宿主交互中遇到偶发崩溃、未捕获异常或模型死锁时，使用内置的工单诊断命令可一键安全提取会话现场并上报至服务端：
+
+```bash
+# 1. 本地预览脱敏后的诊断现场（不发起网络连接）
+bugx issue report --dry-run
+
+# 2. 确认无敏感数据后直接提交上报（自动抓取最近异常会话）
+bugx issue report --title "问题标题" --desc "补充排查描述"
+
+# 3. 快捷方式（带源码遮蔽与匿名防护）
+bugx feedback --mask-source --anonymous
+```
+
+- **三级隐私脱敏防护**：系统在打包前自动对 API Key、Bearer Token、数据库 DSN 密码与敏感绝对路径执行哈希与掩码替换；
+- **源码保护**：传入 `--mask-source` 会强行将上下文中的代码块替换为 `[SOURCE_CODE_REDACTED]`；
+- **按需附带日志**：默认抓取相关核心错误日志切片，可传 `--no-logs` 完全排除日志。
 
 ### 12.7 冲突、死信和上传失败恢复
 

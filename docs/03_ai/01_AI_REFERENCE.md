@@ -2,9 +2,9 @@
 title: BugX AI Host and Worker Reference
 audience: AI hosts and native agents
 status: DOCUMENTATION_UNVERIFIED
-version: 0.1.3
+version: 0.1.4
 protocol: MCP 2024-11-05
-server: bugx-supervisor 0.1.3
+server: bugx-supervisor 0.1.4
 last-verified: 2026-11-17
 ---
 
@@ -60,6 +60,10 @@ engine/host/doctor failure after install -> RECOVERY_REQUIRED
 receipt final_state=COMPLETE + doctor success -> update COMPLETE
 ```
 
+Windows 上若用户级 wheel 与旧系统级 `share/bugx-agent` 并存，`asset_root()` 必须先解析当前
+`bugx-cli` distribution 的资源，再回退系统 data-files；看到旧 Build ID 时不得把它当成当前
+CLI 的安装源，也不得用它覆盖更高的全局引擎。
+
 更新收据位于用户级 `~/.bugx/update/receipts/<operation_id>.json`，成功状态必须为 `COMPLETE`；安装器之后任一阶段失败时状态为 `RECOVERY_REQUIRED`。没有真实 receipt、版本核对、引擎 integrity 和 doctor 结果时，不得把 CLI 返回 0、模型文本、Task 打印、服务端配置写入或工具列表当作更新完成。启动阶段的版本检查是后台提示，`BUGX_DISABLE_VERSION_CHECK=1` 或 cloud-config 的 `disable_version_check=true` 只禁用启动提示，不禁用显式命令。
 
 ### 1.3 Host capability sets
@@ -96,15 +100,29 @@ autonomous host 选取不是独立事实表：baseline 五宿主来自 `AUTONOMO
 `user-agent-registration`；Kimi 的 managed 插件注册由该宿主专用注册器完成，不能落入
 ZCode 专用的 `distribution-plugin` 分支（`core/hosts/kimi.py`）。
 
-MiniMax Code 3.1.0 的桌面 Plugin V1 注册面是
-%USERPROFILE%\\.minimax\\plugins\\bugx（测试/隔离时可用 MINIMAX_DATA_DIR），
-manifest 为 .minimax-plugin/plugin.json，Agent 清单为 agents/*.md，Skill 为
-skills/bugx/SKILL.md，MCP 为 servers.mcp.json，图标为经过校验的 icon.png（没有伪造
-darkIcon）。plugin_minimax.py 负责整包写入并返回结构化 receipt；MiniMax 的 Agent
-frontmatter 使用原生小写工具名，主 Agent 通过 `x-mavis.displayName: BugX` 统一显示，
-内部 `name: bugx` 和 Skill 预加载的 `bugx` 名称保持不变。MiniMax
-当前只声明桌面 Plugin/MCP/Agent 面，headless、自治 CLI 和标准 ACP 均保持未取证/不可用，
-不得把安装文件存在误报为宿主闭环。
+Qoder `install --agent qoder` 合并根 `.mcp.json:mcpServers`，以项目绝对 `--root` 登记 `bugx-supervisor`、`bugx-supervisor-worker`、`bugx-docs`。Windows 使用安装进程的绝对 Python `.exe` 与 `-P -m bugx_cli.cli`，npm 额外传递该安装的 `PYTHONPATH`、`BUGX_ASSET_ROOT`、`BUGX_CLI_SOURCE`。Doctor 和运行时读取项目级 `.qoder/settings.json` 与根 `.mcp.json`，根定义覆盖同名 server。Doctor 将相对 `--root` 或过期 Windows 启动器判为过期。工具调用需要 Qoder 新会话加载配置并完成项目级批准。卸载依据 Claude / FunIDE / Qoder 的剩余登记决定是否保留根配置中的共享条目。
+
+MiniMax Code 3.1.17 使用 `<DATA_DIR>/agents/bugx/agent.md` 注册 `BugX` 自定义 Agent。
+`<DATA_DIR>/plugins/bugx/.minimax-plugin/plugin.json` 的 `author` 为字符串，
+`servers.mcp.json` 用 `schemaVersion: 1` 和 `mcpServers` 声明插件 MCP。插件提供
+`bugx:bugx-worker` 和 `bugx` Skill。默认 `<DATA_DIR>` 为 `~/.minimax`，可用
+`MINIMAX_DATA_DIR` 隔离。主 Agent 的 `x-mavis.avatar` 相对引用同目录的 `bugx-avatar-512.png`。
+`minimax_user_agents` 回执含主 Agent、头像、Worker 与 MCP 路径。
+注册验证覆盖两个入口，实际 MCP 调用、headless 和标准 ACP 尚未验证。
+
+`bugx install --agent antigravity` 安装用户级 `~/.gemini/config/plugins/bugx-review`。
+原生主 Agent 为 `BugX`（插件内部 slug 为 `bugx-review`），同一插件还包含 `bugx-worker`、审查 Skill 和官方
+`assets/bugx-avatar.svg`；插件级
+`mcp_config.json` 保持空容器，项目级 `.agents/mcp_config.json` 承载
+`bugx-supervisor`、`bugx-supervisor-worker` 与 `bugx-docs`。安装回执键为
+`antigravity_user_agents`，`doctor` 必须调用 Antigravity 专用校验读取用户级受管文件，不能
+把 `.gemini/config/plugins` 拼成项目相对路径。Windows `agy 1.5.16` 已由真实
+headless Agent 调用 docs MCP 并返回隔离 README 的引用哈希；错误项目作用域被拒绝。
+ACP `initialize → session/new` 已用直通引擎启动器真实建立会话；本轮没有得到可解析的
+Supervisor/Worker `tool_call` 完成证据，日志出现 `AgentBasePath is not set` 与
+`unsupported_tool: call_mcp_tool`。真实 headless Agent 的 docs MCP 调用已通过，但这
+不能替代 ACP 工具级证据。完整 claim→worker-start→checkpoint→post 生命周期仍为
+`UNVERIFIED`，不得标记为 `COMPLETE`。
 
 ### 1.4 宿主逐平台路径审计（2026-11-24）
 
@@ -112,7 +130,7 @@ frontmatter 使用原生小写工具名，主 Agent 通过 `x-mavis.displayName:
 
 | 宿主 | Windows | macOS | Linux | 结论 |
 | --- | --- | --- | --- | --- |
-| MiniMax Code | %USERPROFILE%\\.minimax\\plugins\\bugx；MiniMax Code.exe 与逻辑盘 Program Files 候选；Agent/Skill/MCP/图标整包 | ~/.minimax/plugins/bugx；应用包候选 | ~/.minimax/plugins/bugx；XDG/PATH 候选 | AUDITED_OK（安装契约；真实重载未验收） |
+| MiniMax Code | `~/.minimax/agents/bugx/agent.md` 和 `~/.minimax/plugins/bugx`；MiniMax Code.exe 与逻辑盘 Program Files 候选 | 同布局，应用包候选 | 同布局，XDG/PATH 候选 | Windows 3.1.17 包解析与注册验证通过，其他平台未取证 |
 | Kimi Code | `KIMI_CODE_HOME`/`%USERPROFILE%\\.kimi-code`；补齐 `Kimi Code.exe`、非系统盘逻辑驱动器与 `.exe/.cmd/.bat` CLI | `KIMI_CODE_HOME`/`~/.kimi-code`；补齐 `Kimi Code.app` 候选 | `KIMI_CODE_HOME`/`~/.kimi-code`；补齐 `kimi-code` 桌面候选 | `AUDITED_OK`（当前协议） |
 | Claude Code | `~/.claude`；补齐逻辑盘 `Program Files` 候选 | `~/.claude` + `~/Library/Application Support/Claude` | `~/.claude` + XDG/Claude 候选 | `AUDITED_OK` |
 | ZCode | `storage.dir` 现在接受 Windows 绝对路径；逻辑盘候选补齐 | `~/.zcode`/`storage.dir` | `~/.zcode`/`storage.dir` | `AUDITED_OK` |
@@ -254,9 +272,7 @@ CLI 的布尔选项统一按开关解析：`--force`、`--json`、`--execute` �
 启用，省略即为关闭，不生成 `--force=True`、`--json=False` 或 `force=True`。MCP/内部
 Python API 的布尔字段仍按各自协议传递，不能把协议字段拼接到 CLI 参数后。
 
-帮助可通过 `bugx help <COMMAND> [ACTION]` 查询。显式项目根在业务分发前解析，重复的
-`--root` 会拒绝。引擎先校验结算参数，快照预览不创建 CLI 日志，报告共享策略由启动时
-的 `--report-policy` 决定。安装载荷缺失时通过显式的 `bugx update --repair-assets` 恢复。项目缺失 `cloud-onboard.json` 时可通过 `bugx doctor --repair-assets` 自动自愈为本地模式，或显式执行 `bugx cloud onboard off`。CLI 输出端默认强制 UTF-8 编码与替代码保护，确保在 Windows GBK 及无终端管道下稳定运行；UI 视觉挖掘环境要求 Node >= 20。
+帮助可通过 `bugx help <COMMAND> [ACTION]` 查询。显式项目根在业务分发前解析，重复的 `--root` 会拒绝。引擎先校验结算参数，快照预览不创建 CLI 日志，报告共享策略由启动时的 `--report-policy` 决定。在用户主目录（`~`）不带 `--root` 执行 `bugx install` / `bugx doctor` 时进入用户全局模式：仅装配/校验 `~/.bugx/core`、`~/.bugx/knowledge/global.sqlite3`、全局核心依赖（`codebase-memory-mcp==0.12.1` 与 `tree-sitter-language-pack==1.14.3`，二者在 `install` 与 `doctor --repair` 直接安装、绝不降级放行）及宿主用户级资产（DSH 全局 `cordis.patch.yml` 写入动态无 `--root` 参数），绝不将 `~` 初始化为项目或删除 `~/.bugx/core`；项目级 `hosts.json` + `startup-todo.md` 就绪后即允许等待首次 `pre` 确认云端模式。可选能力（`playwright`/`postmcp`/`codindex`/UI/TUI/效率工具/`MCP 离线 runtime`）延迟至实际进入项目审计时按技术栈由 AI 与用户共同决策启用；修复 MCP 离线 runtime 使用 `bugx mcp-runtime install`，清理遗留 MCP 会话使用 `bugx mcp prune --root <ROOT> --yes`。安装载荷缺失时通过显式的 `bugx update --repair-assets` 恢复，CLI 输出端默认强制 UTF-8 编码与替代码保护，确保在 Windows GBK 及无终端管道下稳定运行；UI 视觉挖掘环境要求 Node >= 20。
 
 帮助调用 help、--help、-h 必须只读。pre/audit 明确拒绝 --allow-degraded；不要通过该参数请求静默降级。
 
@@ -339,7 +355,7 @@ report source 语义：
 
     protocolVersion: 2024-11-05
     serverName: bugx-supervisor
-    serverVersion: 0.1.3
+    serverVersion: 0.1.4
     hostHeartbeatIntervalSeconds: 5.0
     transport: local stdio
 
@@ -476,6 +492,15 @@ run ID、Chromium、视口、原生缩放、截图哈希、axe-core 和场景结
 提供 token、组件、对比度、重排、`journeys` 与 `keyboard`。`--journeys` 执行两类场景。
 `--reference-url` 使用同配置的浏览器对照截图。`--repair-css` 默认预览，`--apply` 需要
 回环目标，验证 `repair.json` 和二次收据，新增视觉退化会回滚。模型 `ADVISORY` 独立保存。
+
+### 3.5 bugx-docs dual-scope server contract
+
+- **Transport & Channels**：默认采用「远程优先（Remote-First）」策略直连只读官方官档端点 `/api/v1/mcp/docs?contract_version=<X.Y.Z>`；网络不可达或传入 `--docs-transport stdio` / `BUGX_DOCS_OFFLINE=1` 时自动无感降级为本地 `stdio` 网关 (`bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3`)。项目私有文档（`project:<id>`）严格本地隔离，永不上云。
+- **Dual-Scope Isolation**：
+  - `bugx:official`：优先读取 `~/.bugx/cache/docs/<contract_version>/<sha256>.sqlite3`（经 `sync.lock` 单飞锁、1.5s manifest 超时、`contract_version` 前缀校验、SHA-256 + `PRAGMA quick_check` 验签并原子切换 `current.json`，旧文件即时或 `.gc-pending` 延迟物理删除）；离线、未配置或服务端未就绪时自动回退至随包基线 `core/bundled_docs/`。
+  - `project:<id>`：仅扫描当前工作区可控 Markdown（`README*`、`docs/**/*.md`、`core/**/*.md`），严格落盘在 `<ROOT>/.bugx/knowledge/docs.sqlite3`，绝不上云。
+- **Section-Chunked Schema & Tools**：索引层采用 `document_sections` + `sections_fts (tokenize='trigram')`，提供 `resolve_library`、`search_docs`、`list_sections`、`fetch_doc`（按标题路径切分且保留嵌套 `###` 子标题，匹配失败返回规范 TOC 清单）。
+- **Airgap & Orthogonality**：`BUGX_DOCS_OFFLINE=1`、`cloud.docs_remote_enabled=false` 或 `--mode local-only` 下保证 `bugx-docs` 零出网；`bugx-docs` 只做无状态只读操作指导 RAG，与 18 张表的结构化错题/经验台账 `lesson-ledger.sqlite3` 及语言数据集 `seed_corpus` 严格正交分离、互不合并。
 
 Storybook 使用 `--storybook <base> --list-stories` 或 `--story <id>`，从 v4/v5 index 取证，
 绑定 story ID、预览路径及 index 哈希。场景通过 `story` 选组件画布，`--reference-url`
@@ -769,7 +794,7 @@ AI 在用户要求“上传数据”时仍必须先分类并说明 telemetry 数
 
 ### 10.2 Cloud state machine and recovery
 
-`bugx init` 从 CLI 发行资产安装 `.agents/skills/bugx-user/SKILL.md`，包括重新初始化已有项目的路径。普通初始化保留已有文件，`--force` 刷新不同内容前备份。用户上手以云登录、项目绑定、首轮推拉和经验复用为主线，见 [BugX 用户 Skill](../../skills/platform/bugx-user/SKILL.md)。仅当用户明确要离线才引导 Local。已有 `local` 先核对当前账号和授权，获得全量授权后再执行 `cloud sync --scope all`。只授权部分数据时拒绝该同步请求。同步包含 project 且成功时设置 `done`。认证验收看 `auth_verified=true`，同步验收看本次各层推拉和队列证据。初始化成功和 `onboarding=done` 都可早于本轮实际同步成功。
+`bugx init` 从 CLI 发行资产安装标准通用 Skill `.agents/skills/bugx/SKILL.md`（DOC-004 极简 RAG 架构），包括重新初始化已有项目的路径。普通初始化保留已有文件，`--force` 刷新不同内容前备份。用户上手以云登录、项目绑定、首轮推拉和经验复用为主线，按需运行 `bugx guide "<关键词>"` 获取操作指引，见 [BugX 平台 Skill](../../skills/platform/bugx/SKILL.md)。仅当用户明确要离线才引导 Local。已有 `local` 先核对当前账号和授权，获得全量授权后再执行 `cloud sync --scope all`。只授权部分数据时拒绝该同步请求。同步包含 project 且成功时设置 `done`。认证验收看 `auth_verified=true`，同步验收看本次各层推拉和队列证据。初始化成功和 `onboarding=done` 都可早于本轮实际同步成功。
 
 AI 处理 cloud 命令时必须先执行以下只读分流：
 

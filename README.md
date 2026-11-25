@@ -8,7 +8,9 @@
 
 # BugX — 自主代码审查与智能测试智能体（Autonomous Code Review & Automated Testing Agent）
 
-BugX 是一款装在 AI 编程助手里的**自主代码审查与自主测试智能体（Agent）**，严把代码交付关：**它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能完全符合要求、在各种复杂环境下都能稳定运行、不崩溃不卡死，上线放心不翻车。** 目前已适配宿主：Claude Code、Codex、Cursor、Trae、Windsurf、Cline、OpenCode、Kimi Code、ZCode、MiniMax Code、DSH、WorkBuddy、Qoder；其余宿主持续适配中。静态分析、行为差分、内存检查与 UI 测试全部自动化执行；通过 MCP 协议接入宿主，测试审查过程断点可续、透明可查。
+BugX 是一款装在 AI 编程助手与智能体开发环境里的**自主代码审查与自主测试智能体（Agent）**，严把代码交付关：**它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能完全符合要求、在各种复杂环境下都能稳定运行、不崩溃不卡死，上线放心不翻车。** 
+
+目前已原生适配全球主流 AI 编程助手与智能体开发平台：**Google Antigravity（反重力）、Gemini Code Assist / Gemini CLI、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline、OpenCode、Kimi Code、ZCode、MiniMax Code、DSH、WorkBuddy、Qoder**；全面支持以 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰大模型**为底座的深层代码推理与漏洞发现。静态分析、行为差分、内存检查与 UI 测试全部自动化执行；通过标准化 MCP 协议接入宿主，测试审查过程断点可续、透明可查。
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -70,32 +72,35 @@ bugx update --channel alpha  # 明确选择预发布通道
 
 更新会联网下载并校验服务端返回的 `release_id`、SHA-256 和制品类型，随后刷新全局 BugX 引擎、已登记宿主并执行安装诊断。源码 checkout 或 editable 安装不会被自动覆盖；更新失败时请先查看 `~/.bugx/update/receipts/` 和 `bugx doctor --installation-only`，不要用 `--force` 掩盖未知状态。启动阶段的版本提示可用 `BUGX_DISABLE_VERSION_CHECK=1` 临时关闭，但不影响显式 `bugx update --check`。
 
-装好后，在目标仓库运行：
+装好后先完成用户级或项目级安装：
 
 ```bash
+# 1. 在用户主目录 (~) 运行：执行用户全局安装（全局引擎、必需核心依赖 codebase-memory + tree-sitter、宿主用户级入口）
 bugx install
+
+# 2. 进入待审计项目目录运行（或显式传 --root <项目目录>）：绑定当前项目工作区
+bugx install --root .
 ```
 
-> ⚠️ **重要提示（配置生效必须重启）**：配置或更新项目 MCP 后，**必须完全退出并重启宿主 IDE / AI 编程助手**（如 Cursor、Trae、VSCode、Kimi Code、MiniMax Code、ZCode 等），宿主进程重新加载项目级 MCP 服务配置后方可识别并调用 BugX 工具。
+> ⚠️ **重要提示（配置生效必须重启）**：配置或更新宿主 MCP 后，**必须完全退出并重启宿主 IDE / AI 编程助手**（如 Cursor、Trae、VSCode、Kimi Code、MiniMax Code、ZCode、DSH 等），宿主进程重新加载 MCP 服务配置后方可识别并调用 BugX 工具。
 
-命令行里的布尔选项都是开关：启用时直接写 `--force`、`--json` 等选项，关闭时删除该选项；不要写 `--force=True`、`--json=False` 或 `force=True`。
+- **必装核心能力 direct-ready**：`bugx install` 与 `bugx doctor --repair` 会直接安装与校验通用必需依赖（`codebase-memory-mcp==0.12.1` 语义图谱与 `tree-sitter-language-pack==1.14.3` AST 解析、已选宿主核心 MCP 通道），绝不沉默降级放行；其余与项目技术栈相关的可选能力（`playwright`、`postmcp`、`dbhub`、`redis`、`mobile`、`semgrep`、`bandit`、效率工具等）延迟到进入实际项目审计时由 AI 与用户按需决定启用。
+- 命令行里的布尔选项都是开关：启用时直接写 `--force`、`--json` 等选项，关闭时删除该选项；不要写 `--force=True`、`--json=False` 或 `force=True`。
+- 它会列出本机检测到的 AI 宿主，按提示选择即可；想跳过选择一次全装，用 `bugx install --agent all`。
+- 用户主目录安装不会污染 `~` 或删除 `~/.bugx/core`，其中 DSH 全局配置文件会写入动态无 `--root` 参数；需要把安装直接绑定到某个仓库时传入 `--root <项目目录>`（如 `bugx install --agent dsh --root <项目目录>`）。
 
-它会列出本机检测到的 AI 宿主，按提示选择即可；想跳过选择一次全装，用 `bugx install --agent all`。
-安装事务只检查共享 `.bugx` 和本次选中的宿主目录；用户目录里其他宿主的符号链接不会阻断安装。
-需要明确工作区时可传 `bugx install --agent dsh --root <项目目录>`。
+在 Qoder Desktop 的项目根目录运行 `bugx install --agent qoder`，将 BugX 连接器和项目绝对路径写入 `.mcp.json`。Windows 使用安装时的 Python 绝对路径启动连接器。安装后重新打开工作区并启动新会话，在 Qoder 提示时批准该项目的 BugX 连接器。
 
 Kimi Code 会自动注册到当前 Kimi Code 数据根：默认是 `~/.kimi-code`，也可以用
 `KIMI_CODE_HOME` 指定。插件文件位于 `plugins/managed/bugx`，启用状态位于
 `plugins/installed.json`；Windows、macOS、Linux 使用同一契约，不需要手动复制旧的
 `daimon-share` 目录。
 
-MiniMax Code 会自动注册当前 MiniMax Plugin V1 包：默认数据根为
-%USERPROFILE%\\.minimax，插件目录为 plugins/bugx，包含 agents/bugx.md、
-agents/bugx-worker.md、skills/bugx/SKILL.md、servers.mcp.json 和 icon.png 主图标。
-Agents 列表中的主入口统一显示为 `BugX`；插件清单和 Agent 的内部名称仍为小写
-`bugx`，供宿主调用和 MCP 路由使用。
-可用 MINIMAX_DATA_DIR 指定受控数据根做隔离安装。MiniMax Code 当前按桌面 Agent/MCP
-插件接入；headless 和标准 ACP 入口未宣称支持，宿主重载后的真实 MCP 调用仍需现场验收。
+运行 `bugx install --agent minimax` 后，可在 MiniMax Code 的 **Agents** 页找到带官方头像的 `BugX`，
+在 **插件** 页找到配套的 `BugX` 插件。插件提供 Worker、Skill 和 MCP。安装契约已在
+Windows MiniMax Code 3.1.17 上验证。可用 `MINIMAX_DATA_DIR` 指定隔离安装目录。
+
+运行 `bugx install --agent antigravity` 后，可在 **Google Antigravity（反重力）**智能体开发平台的 Agent 选择器中直接选用 `BugX`。用户级插件提供专属主 Agent、Worker Agent、审查 Skill 与官方头像；同时为当前项目工作区自动配置 `bugx-supervisor`、`bugx-supervisor-worker` 与 `bugx-docs` 三条核心 MCP 服务通道，完美适配 Google 最新 Gemini 4（Gemini 4 Carbon / Neon）与 Claude 5.5 级大模型进行全生命周期的代码审查与真实漏洞验证。
 
 DSH 有一条额外的安全边界：安装器始终先把 BugX UI 包暂存到
 `~/.dsh/plugins/bugx-ui`。只有能确认是 DSH Desktop 自带的 launcher 时，才会调用
@@ -105,7 +110,7 @@ Skill、MCP 和 preset 不依赖这个可选 UI 包，仍可正常使用。
 Windows Desktop 的 `app.asar` 运行时包名会在有界安装候选中递归读取 ASAR 文件树，
 兼容当前 `files/dsh/files/node_modules` 的嵌套布局；不做全盘扫描。
 
-用 `bugx help install` 或 `bugx supervisor install --help` 查看用法。发现安装资源缺失时，CLI 会报告错误，需要修复时单独运行 `bugx update --repair-assets`。
+用 `bugx help install` 或 `bugx supervisor install --help` 查看用法。发现安装资源缺失时，CLI 会报告错误，需要修复时单独运行 `bugx update --repair-assets`。Windows 用户级 wheel 与旧系统级 Python 资源并存时，CLI 优先使用当前发行版自带的资源，避免旧引擎被误判为当前版本。
 
 ### 首次使用，先接通云端
 
@@ -116,7 +121,7 @@ bugx auth login --root .
 bugx auth status --root . --verify --json
 ```
 
-确认 `auth_verified=true`。如果账号全局知识和当前项目知识均已授权，新项目执行 `bugx init --root . --cloud-sync sync`，随后用 `bugx cloud sync --root . --scope all` 验证首次推拉。`bugx init` 会把用户 Skill 安装到项目的 `.agents/skills/bugx-user/SKILL.md`，可在支持该目录的宿主里调用 `$bugx-user`。已有项目在授权全量范围后直接用 `bugx cloud sync --root . --scope all`，并用 `bugx cloud status --root . --scope all --json` 核对绑定和状态。全量范围包含项目登记与画像、项目知识和账号全局知识。只授权部分数据时停止同步。
+确认 `auth_verified=true`。如果账号全局知识和当前项目知识均已授权，新项目执行 `bugx init --root . --cloud-sync sync`，随后用 `bugx cloud sync --root . --scope all` 验证首次推拉。`bugx init` 会把标准通用 Skill 安装到项目的 `.agents/skills/bugx/SKILL.md`，可在支持该目录的宿主里调用 `/bugx` 或按需运行 `bugx guide "<关键词>"` 查询操作步骤。已有项目在授权全量范围后直接用 `bugx cloud sync --root . --scope all`，并用 `bugx cloud status --root . --scope all --json` 核对绑定和状态。全量范围包含项目登记与画像、项目知识和账号全局知识。只授权部分数据时停止同步。
 
 ### 方式一：在 AI 编程助手里用（推荐）
 
@@ -216,7 +221,7 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 **复现与验证**
 - **独立盲审与真实复现**：每个漏洞都由独立验证员执行隔离盲审与环境验证，给出你能亲手运行的 PoC 验证命令。同一段坏数据跑两次都出事，换正常数据跑一次零触发，外加 AST 语法反空壳断言，三份真实记录留案才算数。
 - **误报账本学习**：实跑被证伪的假阳性案例自动沉淀入误报账本（FP Ledger），代码未改动前不再重复报假警；文件被修改后自动解除过时守卫。
-- **模型风控自适应**：内置声明式提示词策略引擎，针对 OpenAI 等模型自动切换防御性 QA 视角，解决漏洞审查触发平台 `cyber policy` / Daybreak 拦截的痛点。
+- **模型风控与多模型底座自适应（Gemini 4 / Claude 5.5 / G4 / GPT）**：深度适配 Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Argon）、Claude 5.5 旗舰系列（Claude Sonnet 5.5 / Opus 5.5）与 OpenAI GPT-4o 系列，内置声明式提示词策略引擎，针对不同模型自动切换防御性 QA 视角，彻底解决漏洞审查触发平台 `cyber policy` / Daybreak 拦截的痛点。
 - **测试变异检验**：测试用例的战斗力也能验：`bugx test-verify` 用代码变异检验测试真的抓得住 Bug。
 
 **修复与产出**
@@ -227,15 +232,16 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 **长期使用**
 - **错题集**：将本轮核实后写入账本的错题和经验按授权范围推拉到云端（`bugx cloud sync`）。下一轮可用 `bugx lesson retrieve` 按故障症状或模块检索。
 - **无人值守**：跟着宿主跑（`bugx autonomous`）、带目标长跑（`bugx goal`）、常驻守护（`bugx daemon`）。
-- **诊断**：`bugx doctor` / `bugx log` / `bugx stats` 查安装、日志与消耗。
+- **诊断与反馈**：`bugx doctor` / `bugx log` / `bugx stats` 查安装、日志与消耗；遇到异常或改进建议时运行 `bugx issue report` 或 `bugx feedback`，支持本地安全脱敏打包并直接一键反馈。
+- **官方文档支持 (Remote-First)**：内置 `bugx-docs` MCP 服务与 `bugx guide` 命令，默认直连官方端点获取最新官方文档与最佳实践；离线时毫秒级自动降级至随包离线文档。
 
 ## 常见问题
 
 **BugX 是什么？**
 一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode、MiniMax Code 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
 
-**支持哪些 AI 编程工具？**
-Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode、MiniMax Code 已适配；DeepSeek Harness（DSH）、WorkBuddy、Cursor / Windsurf 等持续适配中。
+**支持哪些 AI 编程工具与大模型？**
+原生支持 **Google Antigravity（反重力）**、**Gemini Code Assist / Gemini CLI**、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline / Roo Code、OpenCode、Kimi Code、ZCode、MiniMax Code、DeepSeek Harness (DSH)、WorkBuddy、Qoder 等主流 AI 编程助手与 Agent 开发平台；深度兼容 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰模型等全系列主力模型**。
 
 **如何验证一个漏洞？**
 不靠首发模型的自说自话，由独立的验证员执行盲审验证：一段攻击输入必须两次成功触发该漏洞，一段正常输入必须零触发；三次执行（两正例一负对照）连同命令、退出码与产物哈希全部记录在案，并通过 AST 语法断言防止空壳测试。
@@ -259,7 +265,9 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode、MiniMax Code 
 | **Cline / Roo Code** | MCP 交互会话（单 Claim 串行）/ CLI 多进程池并发 | `bugx install --agent cline` |
 | **Kimi Code** | Headless ACP / 原生 MCP | `bugx install --agent kimi` |
 | **ZCode** | 原生 MCP / 用户级 MCP 注册 | `bugx install --agent zcode` |
-| **MiniMax Code** | Plugin V1：主 Agent / Worker Agent / Skill / MCP / 明暗图标 | bugx install --agent minimax |
+| **MiniMax Code** | 自定义 Agent、Plugin V1 Worker、Skill 和 MCP | `bugx install --agent minimax` |
+| **Google Antigravity（反重力）** | 原生 Agent/Worker、Skill、项目级 Supervisor/Worker/docs MCP、ACP 直通 | `bugx install --agent antigravity` |
+| **Gemini / Gemini Code** | 原生 MCP 连接 / 自动化审查管道（全面支持最新 Gemini 4 体系） | `bugx install --agent gemini` 或标准 MCP 接入 |
 
 其余宿主（DeepSeek Harness、WorkBuddy、Cursor / Windsurf 等）持续适配中。
 
@@ -278,10 +286,10 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode、MiniMax Code 
 - [用户指南](docs/01_guides/01_USER_GUIDE.md)：安装、配置、宿主能力、生命周期、MCP/ACP、云端范围、结果与恢复。
 - [命令参考](docs/01_guides/02_COMMANDS.md)：全部命令、参数、默认值、作用域、副作用与退出行为。
 - [故障排查](docs/01_guides/03_TROUBLESHOOTING.md)按症状定位问题与可恢复的下一步。
-- [BugX 用户 Skill](skills/platform/bugx-user/SKILL.md)覆盖安装、云同步、审查收尾、经验复用和常见故障。
+- [BugX 极简 Skill](skills/platform/bugx/SKILL.md) 配合 `bugx guide` 提供秒级操作检索、云同步、审查收尾与自愈指引。
 - [UI 审计（probe ui）](docs/01_guides/02_COMMANDS.md#63-probe)：对运行中的 Web UI 做响应式布局、对比度、键盘路径与设计 Token 审计。
 - [AI 参考](docs/03_ai/01_AI_REFERENCE.md)：面向宿主/Agent 的 MCP、生命周期、状态、证据与失败契约。
-- [文档索引](docs/README.md)：架构与文档导航。
+- [文档索引与官方知识库](docs/README.md)：架构与文档导航（内置 `bugx-docs` 远程优先 MCP 与随包离线速查知识库，支持宿主直接调用 `search_docs` / `fetch_doc` 查询全套操作指南）。
 
 ## 交流群
 
@@ -295,7 +303,7 @@ Claude Code、OpenAI Codex、Cline / Roo Code、OpenCode、ZCode、MiniMax Code 
 
 ## 关键词
 
-自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Claude Code 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
+Google Antigravity · 反重力 · 反重力智能体 · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini 编程助手 · Gemini Code Assist · G4 模型 · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code 审计 · GPT-4 代码审计 · 自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
 
 ## 许可
 

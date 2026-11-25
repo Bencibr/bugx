@@ -205,7 +205,7 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
        bugx project rebind --root . --json
 
    只有明确需要迁移并已确认目标时才使用 --migrate。
-5. `init` 报用户 Skill 缺失时，检查当前 CLI 的安装来源，重新安装包含该资产的版本。若报目标路径不安全，检查 `.agents/skills/bugx-user/SKILL.md` 的父目录和目标类型。`--force` 适用于刷新已有的普通 Skill 文件，刷新前会备份。
+5. `init` 报标准 Skill 缺失时，检查当前 CLI 的安装来源，重新安装包含该资产的版本。若报目标路径不安全，检查 `.agents/skills/bugx/SKILL.md` 的父目录和目标类型。`--force` 适用于刷新已有的普通 Skill 文件，刷新前会备份。
 
 ### 终态
 
@@ -394,16 +394,18 @@ Worker 自报不能确认 Finding。Host verify 需要两条独立正向用例�
 ### 证据
 
     bugx auth status
+    bugx auth verify
     bugx auth status --verify
     bugx autonomous --root . --host opencode --json
 
-只收集状态字段，不收集 credential 内容。
+只收集状态字段，不收集 credential 内容。若在外部项目里需要即时核对认证/配置规范或排障命令，可运行 `bugx guide "登录"`（离线加 `--offline`），或运行 `bugx mcp docs sync --root . --offline` 修复双域文档索引。
 
 ### 处置
 
 先看报错来自宿主 Provider 还是 BugX 云端。对于宿主返回的 429，按该 Provider 的等待窗口处理。下面的认证命令用于已确认的 BugX 云端登录问题：
 
-    bugx auth login
+    bugx auth login [--non-blocking]
+    bugx auth verify
     bugx auth set-key --api-key '<key>'
 
 auth status 只显示 presence 和状态；--verify 可能访问网络。provider rate limit 有持久化的 .bugx/state/provider-window.json；先等待窗口结束或根据结构化输出恢复，不要删除该文件绕过限制。检查 shell history、项目 diff 和日志是否已经泄露 key；若已泄露，按 Provider 的撤销/轮换流程处理，并只保留脱敏证据。
@@ -736,3 +738,26 @@ runtime 文件/hash、server、project root、MCP session proof 和 daemon/lifec
 8. 未验证边界：真实 Host ACP、远端同步、跨平台安装、硬件或无法自动化的部分。
 
 如果报告缺少其中一项，不能把“命令没有报错”升级为功能验收。
+
+## 16. 一键异常诊断与会话现场脱敏上报 (bugx issue report / bugx feedback)
+
+当排查遇到偶发死锁、模型解析失败、未知异常或需要维护团队介入时，可直接通过 `bugx issue report`（或等价别名 `bugx feedback`）打包现场并上报排查：
+
+### 快速用法
+
+```bash
+# 1. 本地预览脱敏诊断包（仅打印摘要，不联网）
+bugx issue report --dry-run
+
+# 2. 一键上报最近一次错误会话现场
+bugx issue report --title "问题简述" --desc "复现步骤说明"
+
+# 3. 极速反馈（开启源码遮蔽与匿名防护）
+bugx feedback --mask-source --anonymous
+```
+
+### 脱敏与安全特性
+- **三级隐私过滤**：系统在打包前严格执行三级脱敏，自动匹配并哈希/掩码消除已知 AI API Key、Bearer Token、DSN 密码与本地敏感路径；
+- **源码与隐私保护**：使用 `--mask-source` 会强行将上下文代码块遮蔽为 `[SOURCE_CODE_REDACTED]`，使用 `--anonymous` 自动剥离设备指纹与机器名；
+- **自包含与按需控制**：默认提取最近一次发生异常的会话现场与错误日志切片，可传 `--no-logs` 排除日志。
+

@@ -19,17 +19,24 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from core.runtime.tool_install_targets import OPTIONAL_TOOL_PACKAGE_SPECS
+from core.runtime.tool_install_targets import (
+    OPTIONAL_TOOL_PACKAGE_SPECS,
+    REQUIRED_TOOL_PACKAGE_SPECS,
+    TOOL_PACKAGE_SPECS,
+)
 
 DEFAULT_MAX_ATTEMPTS = 6
 DEFAULT_ATTEMPT_TIMEOUT = 120.0
@@ -125,15 +132,20 @@ def resolve_budget() -> Budget:
 PLAN_REGISTRY: dict[str, tuple[Plan, ...]] = {
     "codebase-memory": (
         Plan("pipx 隔离重装固定版本", (
-            "pipx", "install", "--force", OPTIONAL_TOOL_PACKAGE_SPECS["codebase-memory"],
+            "pipx", "install", "--force", REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"],
         ),
              requires="pipx", verify=("codebase-memory-mcp",),
-             verify_version_spec=OPTIONAL_TOOL_PACKAGE_SPECS["codebase-memory"]),
+             verify_version_spec=REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"]),
         Plan("uv tool 隔离重装固定版本", (
-            "uv", "tool", "install", "--reinstall", OPTIONAL_TOOL_PACKAGE_SPECS["codebase-memory"],
+            "uv", "tool", "install", "--reinstall", REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"],
         ),
              requires="uv", verify=("codebase-memory-mcp",),
-             verify_version_spec=OPTIONAL_TOOL_PACKAGE_SPECS["codebase-memory"]),
+             verify_version_spec=REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"]),
+        Plan("BugX 隔离 venv 安装固定版本", (
+            "__bugx_venv_pip__", "codebase-memory", REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"],
+        ),
+             requires=None, verify=("codebase-memory-mcp",),
+             verify_version_spec=REQUIRED_TOOL_PACKAGE_SPECS["codebase-memory"]),
     ),
     "ast-grep": (
         Plan("pipx 隔离重装固定版本", (
@@ -217,7 +229,65 @@ Which = Callable[[str], str | None]
 Clock = Callable[[], float]
 
 
+def _bugx_home_root() -> Path:
+    configured = os.environ.get("BUGX_HOME", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".bugx").resolve()
+
+
+def bugx_pydeps_dir() -> Path:
+    return _bugx_home_root() / "tools" / "pydeps"
+
+
+def mount_bugx_pydeps() -> Path | None:
+    target = bugx_pydeps_dir()
+    if target.is_symlink() or not target.is_dir():
+        return None
+    text = str(target)
+    if text not in sys.path:
+        sys.path.insert(0, text)
+    return target
+
+
+def _run_isolated_venv_pip(tool_dir_name: str, package_spec: str, timeout: float) -> tuple[int | None, str]:
+    venv_dir = _bugx_home_root() / "tools" / tool_dir_name
+    scripts = "Scripts" if os.name == "nt" else "bin"
+    py_name = "python.exe" if os.name == "nt" else "python"
+    venv_py = venv_dir / scripts / py_name
+    outputs: list[str] = []
+    if not venv_py.is_file():
+        if venv_dir.exists() and not venv_dir.is_symlink():
+            shutil.rmtree(venv_dir, ignore_errors=True)
+        venv_dir.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                capture_output=True, text=True, timeout=min(timeout, 120.0), check=False,
+            )
+            outputs.append(f"{proc.stdout or ''}\n{proc.stderr or ''}")
+            if proc.returncode != 0 or not venv_py.is_file():
+                return proc.returncode or 1, "\n".join(outputs)
+        except subprocess.TimeoutExpired:
+            return None, f"timeout creating venv after {timeout}s"
+        except OSError as exc:
+            return None, f"{exc.__class__.__name__}: {exc}"
+    try:
+        proc = subprocess.run(
+            [str(venv_py), "-m", "pip", "install", "--no-input", "--upgrade", package_spec],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        outputs.append(f"{proc.stdout or ''}\n{proc.stderr or ''}")
+        return proc.returncode, "\n".join(outputs)
+    except subprocess.TimeoutExpired:
+        return None, f"timeout after {timeout}s"
+    except OSError as exc:
+        return None, f"{exc.__class__.__name__}: {exc}"
+
+
 def _default_runner(argv: tuple[str, ...], timeout: float) -> tuple[int | None, str]:
+    if len(argv) >= 3 and argv[0] == "__bugx_venv_pip__":
+        return _run_isolated_venv_pip(argv[1], argv[2], timeout)
     try:
         proc = subprocess.run(list(argv), capture_output=True, text=True,
                               timeout=timeout, check=False)
@@ -383,21 +453,29 @@ def _verified(
         )
         if not match:
             return False
-        if plan.verify_version_spec not in OPTIONAL_TOOL_PACKAGE_SPECS.values():
+        if plan.verify_version_spec not in TOOL_PACKAGE_SPECS.values():
             return False
         package = match.group("package")
         expected = match.group("version")
         if package == "codebase-memory-mcp":
+            used_default = False
             if version_resolver is None:
                 try:
                     from core.probes import codebase_memory_probe
                     version_resolver = codebase_memory_probe.resolve_compatible_binary
+                    used_default = True
                 except ImportError:
                     return False
             try:
+                if used_default:
+                    return bool(version_resolver(expected_version=expected, timeout_seconds=120.0))
                 return bool(version_resolver(expected_version=expected))
             except Exception:
                 return False
+        if package == "tree-sitter-language-pack":
+            mount_bugx_pydeps()
+            importlib.invalidate_caches()
+            return importlib.util.find_spec("tree_sitter_language_pack") is not None
         try:
             if package in {"semgrep", "bandit"}:
                 from core.probes import sast_probe
@@ -602,3 +680,79 @@ def escalation_lines(report: HealReport) -> list[str]:
     if not lines:
         lines.append("  · 无可用方案（该工具未登记方案阶梯）")
     return lines
+
+
+def ensure_codebase_memory_ready(root: Path | None = None) -> tuple[bool, str]:
+    """校验并在缺失/错版时直接安装 codebase-memory-mcp 固定版本，禁止降级。"""
+    try:
+        from core.probes import codebase_memory_probe
+        expected = codebase_memory_probe._pinned_cli_version()
+        executable = codebase_memory_probe.resolve_compatible_binary(
+            expected_version=expected, timeout_seconds=30.0,
+        )
+        if executable:
+            return True, f"已就绪 ({executable} == {expected})"
+    except Exception:
+        pass
+
+    ok, heal_report = heal_tool(
+        "codebase-memory",
+        detail=f"缺失必装核心图谱组件 {REQUIRED_TOOL_PACKAGE_SPECS['codebase-memory']}",
+        root=root,
+    )
+    if ok:
+        detail = "; ".join(heal_report.healed) or f"已安装 {REQUIRED_TOOL_PACKAGE_SPECS['codebase-memory']}"
+        return True, detail
+    details = [line.strip() for line in escalation_lines(heal_report)]
+    return False, "；".join(details) if details else f"安装失败：{REQUIRED_TOOL_PACKAGE_SPECS['codebase-memory']}"
+
+
+def ensure_tree_sitter_ready(timeout: float = 120.0) -> tuple[bool, str]:
+    """校验并在缺失时安装 tree-sitter-language-pack（含 PEP 668 隔离目录兜底）。"""
+    mount_bugx_pydeps()
+    importlib.invalidate_caches()
+    if importlib.util.find_spec("tree_sitter_language_pack") is not None:
+        return True, "已就绪"
+
+    spec = REQUIRED_TOOL_PACKAGE_SPECS["tree-sitter"]
+    errors: list[str] = []
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--no-input", spec, "--no-warn-script-location"],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        importlib.invalidate_caches()
+        if proc.returncode == 0 and importlib.util.find_spec("tree_sitter_language_pack") is not None:
+            return True, f"已安装 {spec}"
+        tail = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()[-300:]
+        if tail:
+            errors.append(f"pip: {tail}")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"pip: {exc}")
+
+    target_dir = bugx_pydeps_dir()
+    if target_dir.is_symlink():
+        return False, f"隔离依赖路径不能是符号链接: {target_dir}"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for cmd in (
+            [sys.executable, "-m", "pip", "install", "--no-input", "--upgrade", "--target", str(target_dir), spec],
+            *(
+                [[uv_bin, "pip", "install", "--python", sys.executable, "--target", str(target_dir), spec]]
+                if (uv_bin := shutil.which("uv")) else []
+            ),
+        ):
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+            mount_bugx_pydeps()
+            importlib.invalidate_caches()
+            if proc.returncode == 0 and importlib.util.find_spec("tree_sitter_language_pack") is not None:
+                return True, f"已安装到隔离目录 {target_dir}"
+            tail = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()[-300:]
+            if tail:
+                errors.append(tail)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        errors.append(str(exc))
+
+    return False, "；".join(errors[-2:]) if errors else f"无法安装 {spec}"
+

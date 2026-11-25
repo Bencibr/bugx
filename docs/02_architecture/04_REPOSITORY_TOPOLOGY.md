@@ -1,6 +1,6 @@
 # 全域全景架构与权威目录拓扑 (System Architecture & Repository Topology)
 
-> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.3` | **更新日期**: 2026-11-24
+> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.4` | **更新日期**: 2026-11-25
 > **文档定位**: Diátaxis - Explanation (工程拓扑、架构正交性与目录层级权威白皮书)  
 > **关联规范**: [`docs/02_architecture/01_ARCHITECTURE.md`](01_ARCHITECTURE.md) (系统高层架构设计), [`docs/02_architecture/02_DESIGN_SPEC.md`](02_DESIGN_SPEC.md) (设计规约总账), [`AGENTS.md`](../../AGENTS.md) (工程开发宪法)
 
@@ -13,7 +13,7 @@
 ```mermaid
 graph TD
     subgraph PRESENTATION["1. interfaces/ · 交付与交互层"]
-        CLI["cli/bugx_cli/<br/>• 终端命令分发器<br/>• 41 个顶层命令实现<br/>• 诊断/门禁/状态机"]
+        CLI["cli/bugx_cli/<br/>• 终端命令分发器<br/>• 43 个顶层命令实现<br/>• 诊断/门禁/状态机"]
         BIN["bin/bugx.js<br/>• Node CLI 包装器<br/>• 运行环境自愈"]
         WEB["web/<br/>• Security Workbench<br/>• 双轨报告可视化引擎<br/>• 前端静态与 HTTP 服务"]
     end

@@ -185,11 +185,13 @@ def degraded_item_transient(item: Mapping[str, Any]) -> bool:
 
 
 def degraded_item_critical(item: Mapping[str, Any]) -> bool:
-    """能力是否 critical：以描述符机器声明为准，缺失时才回落到 ``kind=mcp`` 猜测。"""
+    """能力是否 critical：codebase-memory 为必装核心能力，其余以描述符或 mcp 判定。"""
+    name = str(item.get("name", "")).casefold()
+    if "codebase-memory" in name or "tree-sitter" in name:
+        return True
     declared = item.get("critical")
     if isinstance(declared, bool):
         return declared
-    name = str(item.get("name", "")).casefold()
     return bool(item.get("kind") == "mcp" or "mcp" in name)
 
 
@@ -370,12 +372,12 @@ def auto_provision_accelerators(
                     if isinstance(probe_report, dict) else "invalid-report"
                 )
                 print(
-                    f"[launch_bugx] Codebase Memory 复核未 READY（{failed}），保留降级选项"
+                    f"[launch_bugx] Codebase Memory 必装组件未 READY（{failed}），将阻断放行"
                 )
             except Exception as exc:
                 print(
-                    "[launch_bugx] Codebase Memory 自愈/复核异常 "
-                    f"({type(exc).__name__})，保留降级选项"
+                    "[launch_bugx] Codebase Memory 必装组件自愈/复核异常 "
+                    f"({type(exc).__name__})，将阻断放行"
                 )
 
         # 2. bugx-supervisor / 宿主 MCP 自动就地配置注入

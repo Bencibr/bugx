@@ -16,7 +16,8 @@ flowchart TD
 
     subgraph MCPServer["2. MCP 协议服务 (Model Context Protocol Services)"]
         BMS["bugx_mcp_server.py<br/>BugX 官方标准 MCP Server 入口与状态机暴露"]
-        BDMS["bugx_docs_mcp_server.py<br/>本地项目文档与架构知识库检索服务"]
+        BDMS["bugx_docs_mcp_server.py<br/>双作用域章节级文档与架构知识库检索服务"]
+        BDCS["bugx_docs_cloud_sync.py<br/>官方文档不可变内容寻址缓存与热同步引擎"]
         MSP["mcp_session_proof.py<br/>MCP 会话自证明与受控退休协议"]
         MR["mcp_runtime.py<br/>离线锁定版本 MCP 包安装与生命周期管理"]
     end
@@ -36,7 +37,8 @@ flowchart TD
 | 文件名 | 职责与功能定位 | 关键类 / 函数 |
 | :--- | :--- | :--- |
 | `__init__.py` | 技能与 MCP 子系统聚合导出与包入口 | `__all__` |
-| `bugx_docs_mcp_server.py` | 文档 MCP 服务端，基于 SQLite FTS5 提供本地代码库架构与知识检索 | `DocsMcpError`, `index_documents`, `call_tool`, `serve` |
+| `bugx_docs_cloud_sync.py` | 官方文档云端热同步客户端，管理不可变 SHA-256 缓存、单飞锁与安全 GC | `sync_official_docs`, `current_cached_db`, `remote_search_docs` |
+| `bugx_docs_mcp_server.py` | 双作用域文档 MCP 服务端，基于 FTS5 trigram 与章节索引提供检索与目录浏览 | `DocsMcpError`, `index_documents`, `call_tool`, `serve` |
 | `bugx_mcp_server.py` | BugX 核心 Supervisor MCP 服务端，向外部 Agent 暴露审计状态机 | `BugxMcpService`, `SERVER_NAME`, `SERVER_VERSION` |
 | `mcp_runtime.py` | 离线 MCP 运行时，负责包隔离安装、版本回滚与沙箱启动 | `install_runtime`, `rollback_runtime`, `start_server`, `doctor_runtime` |
 | `mcp_session_proof.py` | MCP 会话自证明与安全退役握手协议，防止 PID 复用与状态竞争 | `write_proof`, `read_proof`, `validate_proof`, `retire_target` |

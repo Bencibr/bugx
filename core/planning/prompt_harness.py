@@ -150,13 +150,13 @@ _STAGE_TIER_MAP: dict[str, dict[str, Any]] = {
     },
     "mutate": {
         "tier": "tier_2_deep_reasoning",
-        "description": "深度推理模型 (Sonnet / DeepSeek-R1 / GPT-4o)，适用于并发竞态、状态推演与差分验证",
+        "description": "深度推理模型 (Claude Sonnet 5.5 / Gemini 4 Carbon / DeepSeek-R1 / GPT-4o)，适用于并发竞态、状态推演与差分验证",
         "allowed_actions": ["fuzz", "perturb", "differential_test", "race_detect", "test_verify"],
         "recommended_tools": ["bugx_test_verify", "bugx_test_mutate", "bugx_fuzz_input", "bugx_fuzz_concurrency", "bugx_fuzz_stateful"],
     },
     "repair": {
         "tier": "tier_3_precise_code",
-        "description": "高精度工程代码模型 (Claude 3.5 Sonnet / Codex)，适用于 TDD 最小修复与单测闭环",
+        "description": "高精度工程代码模型 (Claude Sonnet 5.5 / Opus 5.5 / Codex)，适用于 TDD 最小修复与单测闭环",
         "allowed_actions": ["minimize_repro", "tdd_fix", "directed_test", "post_settle", "test_verify"],
         "recommended_tools": ["bugx_minimize_repro", "bugx_test_verify"],
     },

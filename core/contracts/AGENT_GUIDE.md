@@ -102,9 +102,7 @@ Worker checkpoint 后串行处理 confirmed Finding：红测、最小修复、�
 仅测试通过都不是成功停止条件；仍有未修复/延期/未确认 Finding 时继续下一 Round，无法继续时报告
 `BLOCKED`/`RECOVERY_REQUIRED`。
 
-`bugx-docs` 是本地项目文档 MCP MVP：只索引 `README.md`、`docs/**/*.md` 和 `core/**/*.md`，
-使用 SQLite FTS5，调用必须提供 project scope；设置 `BUGX_DOCS_TOKEN` 后还必须通过 token 校验。
-它不访问 Context7，也不把文档内容当作可执行指令。
+`bugx-docs` 是双作用域只读文档 MCP（`bugx:official` + `project:<id>`）：`bugx:official` 优先挂载经 SHA-256 校验的全局不可变官档缓存（`~/.bugx/cache/docs/<contract_version>/`），离线或只读时自动回退至随包基线（`core/bundled_docs/`）；`project:<id>` 仅索引当前项目可控 Markdown（`README*`、`docs/**/*.md`、`core/**/*.md`）到 `.bugx/knowledge/docs.sqlite3`（严格本地隔离，绝不上云）。提供 `resolve_library`、`search_docs`、`list_sections`、`fetch_doc` 四工具；设置 `BUGX_DOCS_TOKEN` 时强制令牌校验，严禁伪造引用或与结构化 `lesson-ledger` 混库。
 
 宿主 Agent 的 JSON 事件捕获由 `RealHooks` 使用 16 MiB 有界预算；普通 Worker 仍使用 2 MiB 上限。
 输出超限必须终止并进入失败状态，禁止将截断事件流视为完成。
@@ -136,7 +134,7 @@ Worker stdio 通道可补齐遗漏的 `caller_role`，但显式错误角色仍�
 开工顺序固定为：
 
 1. 读取 README、构建文件、配置、测试、已知问题和安全边界。
-2. 必须检查 codebase-memory-mcp。若 READY 且代际匹配，优先用其架构调用关系增强功能最小化；`symbol_index.py` 仍负责全量基线，`project_graph.py` 交叉校验。若未暴露、未装或未建索引，**严禁消极回退**，必须立即尝试就地自愈装配与建索引（`codebase-memory-mcp cli index_repository` 或包管理安装）；仅在不可抗力阻断且自愈失败后，按启动交互记录本地回退，禁静默跳过。
+2. 必须检查核心依赖 `codebase-memory-mcp==0.12.1` 与 `tree-sitter-language-pack==1.14.3`（两者均为 `critical=True` 必装核心能力，已在 `bugx install` / `bugx doctor --repair` 阶段装配至 `~/.bugx/tools/`）。优先使用 codebase-memory 图谱做架构调用关系分析，并以 `symbol_index.py` / `project_graph.py` 做全量基线交叉校验。若未建索引须立即执行 `codebase-memory-mcp cli index_repository`；若核心包缺失或版本不匹配，**严禁消极降级或绕过放行**，必须立即运行 `bugx doctor --repair` 自愈或阻断停止。按项目栈按需使用的**可选项**（`playwright`、`postmcp`、`codindex`、`dbhub`、`redis`、`mobile`、`semgrep`、`bandit`、`ast-grep` 等）则在审计启动 `pre` 阶段由 AI 与用户共同决策启用。
 3. 识别入口、模块、数据流、权限、外部服务、状态和并发资源。
 4. 生成内部最小单元与模块间业务链路。
 5. 在覆盖清单中记录负责人、工具、证据和状态。
@@ -150,11 +148,7 @@ Web 项目必须额外加入 `web-standards` 审计轨道，先运行
 
 最终目标是内部最小单元 100% 且业务链路 100%。环境、授权、设备或依赖导致无法覆盖时，必须标为 `BLOCKED/UNVERIFIED` 并写明原因，不能宣称完成。
 
-**环境加速器降级必须显式汇报**：`pre` 运行 `codebase_memory_probe.py` /
-`efficiency_probe.py` 后，任何 `DEGRADED` 项不得静默吞掉。交互模式必须在探针完成后弹出菜单提供
-「立即安装配置 / 本轮跳过使用回退 / 下次再说（停止本轮）」；空回车不默认跳过。自治模式
-不弹菜单，只能自动选探针明确声明的回退并将处置写入开工准备记录；未声明回退的
-降级项仍须停止。无交互终端、配置未完成或存在未决策降级项时交互启动须停止返回待决策状态。
+**项目可选项降级与核心必选项阻断**：`codebase-memory-mcp` 与 `tree-sitter-language-pack` 属于核心必选项（`critical=True`），不得豁免或降级放行；其余项目栈相关可选项（如 `efficiency_probe` 外部工具、SAST/Mobile/UI 驱动）按项目适用性裁剪，仅在适用且未就绪时于交互模式弹出菜单提供「立即安装配置 / 本轮跳过使用回退 / 下次再说（停止本轮）」（空回车不默认跳过）。自治模式不弹菜单，只能自动选探针明确声明的非关键回退并将处置写入开工准备记录；未声明回退或 `critical=True` 的核心能力缺失仍须阻断停止。无交互终端、配置未完成或存在未决策降级项时交互启动须停止返回待决策状态。
 自治回退不改探针为 READY，不伪造设备或图谱证据；Context7 缺 Key 时使用本地文档检索。禁只看退出码 0 当环境就绪。
 自动化测试或上层明确批准回退时方可显式传入 `pre --allow-degraded`；不得由宿主默认添加。
 

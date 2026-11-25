@@ -104,8 +104,8 @@ def _version_from_text(path: Path, pattern: re.Pattern[str],
     except (OSError, UnicodeError):
         return None
     value = match.group(1) if match else None
-    if value == "0.1.3":
-        value = os.environ.get("BUGX_VERSION", "0.1.3").strip()
+    if value == "0.1.4":
+        value = os.environ.get("BUGX_VERSION", "0.1.4").strip()
     return value if value and VERSION_RE.fullmatch(value) else None
 
 
@@ -220,6 +220,14 @@ def project_core_integrity_status(root: Path, engine_root: Path) -> dict[str, An
     """
     project = bugx_root(root) / "core"
     try:
+        if not project.is_symlink():
+            resolved_project = project.resolve()
+            if resolved_project in {engine_root.resolve(), global_engine_root().resolve()}:
+                return {
+                    "available": True,
+                    "ok": True,
+                    "detail": "全局引擎目录不在旧项目核心清理范围",
+                }
         if project.is_symlink() or project.exists():
             return {
                 "available": True,

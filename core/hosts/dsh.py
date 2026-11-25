@@ -250,18 +250,34 @@ def _uninstall_hint() -> str:
     )
 
 
-def _mcp_insert_block(root: Path) -> str:
+def _dynamic_mcp_args(argv: list[str]) -> list[str]:
+    """Strip ``--root {ROOT}`` / ``--db {ROOT}/...`` for unbound user-global overlays."""
+    out: list[str] = []
+    skip_next = False
+    for token in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "--root":
+            skip_next = True
+            continue
+        if token == "--db":
+            skip_next = True
+            continue
+        out.append(token)
+    return out
+
+
+def _mcp_insert_block(root: Path | None) -> str:
     """生成官方 ``dsh-mcp-client`` 的三条 stdio 条目（顶层 ``- insert:``），根绝对化。
 
     ``serverName`` 是**必填**且必须唯一（README 的 Config 表）；缺它会让
-    ``loader entries failed to apply``。
-
-    历史缺陷：这里原本写死 ``--root .``，假设 dsh 以自己的项目目录为 cwd 启动。
-    真机不成立——MCP server 由**长驻宿主进程** spawn，cwd 是宿主自己的目录，
-    ``.`` 于是指向那个目录而不是被审计项目，Supervisor 在错的 ``.bugx`` 上跑并
-    报「缺少有效的 .bugx 项目运行布局」。根必须写成绝对路径。
+    ``loader entries failed to apply``。当 ``root`` 为 None 或指向用户家目录时，
+    写动态工作区解析参数，禁止把用户根目录写死成 ``--root``。
     """
-    root_str = str(Path(root).expanduser().resolve())
+    home_resolved = Path.home().resolve()
+    resolved_root = Path(root).expanduser().resolve() if root is not None else None
+    global_unbound = resolved_root is None or resolved_root == home_resolved
     lines = [_OVERLAY_MARKER, "- insert:"]
     for server_name, argv in _MCP_SERVERS:
         lines.extend([
@@ -273,29 +289,32 @@ def _mcp_insert_block(root: Path) -> str:
             "        command: bugx",
             "        args:",
         ])
-        lines.extend(f"          - '{token.replace('{ROOT}', root_str)}'" for token in argv)
+        if global_unbound:
+            for token in _dynamic_mcp_args(argv):
+                lines.append(f"          - '{token}'")
+        else:
+            root_str = str(resolved_root)
+            lines.extend(f"          - '{token.replace('{ROOT}', root_str)}'" for token in argv)
     return "\n".join(lines) + "\n"
 
 
-def _bootstrap(root: Path, servers) -> dict:
-    """把三条 BugX MCP 通道写进用户级 profile patch（幂等、根绝对化）。
-
-    dsh 没有项目级配置层：实测 ``dsh --profile headless --dump-config`` 里项目级
-    ``.dsh/patch.yml`` 与 ``.dsh/mcp.json`` 零命中，真正被 compose 的是
-    ``$DSH_HOME/profiles/<profile>/cordis.patch.yml``。
-
-    ``root`` 必须真正参与写入（条目里的 ``--root``/``--db`` 要绝对化到本项目）；
-    并且这里**不能**用「命中就跳过」的幂等：那会让换了项目的用户永远停留在旧根，
-    Supervisor 于是继续在错的 ``.bugx`` 上跑。已存在的自有 overlay（以
-    :data:`_OVERLAY_MARKER` 开头、第二行为顶层 ``- insert:``）由引擎全权拥有，
-    直接按本次根重写；他人的块逐字保留。
-    """
+def _bootstrap(root: Path | None, servers) -> dict:
+    """把三条 BugX MCP 通道写进用户级 profile patch（幂等、根绝对化）。"""
     del servers
     path = _profile_patch_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-    block = _mcp_insert_block(root)
+    home_resolved = Path.home().resolve()
+    resolved_root = Path(root).expanduser().resolve() if root is not None else None
+    global_unbound = resolved_root is None or resolved_root == home_resolved
     owned = _owned_overlay_span(existing)
+    if global_unbound and owned is not None:
+        existing_block = existing[owned[0]:owned[1]]
+        home_marker = f"'{home_resolved}'"
+        if home_marker not in existing_block and "--root" in existing_block:
+            # 用户级安装不覆写已有的具体项目绑定。
+            return {"path": str(path), "changed": False, "inserted": False}
+    block = _mcp_insert_block(root)
     if owned is not None:
         begin, finish = owned
         if existing[begin:finish].rstrip("\n") == block.rstrip("\n"):

@@ -364,7 +364,12 @@ def _install_pypi_environment(
     python = executable
     venv_dir = _venv_dir(staging, env_id)
     _create_venv(venv_dir, python, python_spec)
-    pip = _venv_bin_dir(staging, env_id) / "pip"
+    bin_dir = _venv_bin_dir(staging, env_id)
+    pip = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
+    if not pip.is_file() and os.name == "nt":
+        alt_pip = bin_dir / "pip"
+        if alt_pip.is_file():
+            pip = alt_pip
     if not pip.is_file() or pip.is_symlink():
         raise McpRuntimeError(f"venv 未提供普通文件形式的 pip，拒绝受限安装: {pip}")
     command = [str(pip), "install", *PYPI_INSTALL_FLAGS, "-r", str(requirements)]

@@ -97,7 +97,7 @@ include = ["bugx_cli*"]
 
 [tool.setuptools.data-files]
 "share/bugx-agent" = ["ecosystem/integrations/opencode/opencode.json", "ecosystem/integrations/opencode/mcp-lock.json", "ecosystem/integrations/opencode/bugx-mcp-manifest.json"]
-"share/bugx-agent/skills/platform/bugx-user" = ["skills/platform/bugx-user/SKILL.md"]
+"share/bugx-agent/skills/platform/bugx" = ["skills/platform/bugx/SKILL.md"]
 "share/bugx-agent/dsh" = ["ecosystem/integrations/dsh/dsh-patch.yml"]
 "share/bugx-agent/dsh/skills/bugx" = ["ecosystem/integrations/dsh/skills/bugx/SKILL.md"]
 "share/bugx-agent/dsh/skills/bugx-dsh" = ["ecosystem/integrations/dsh/skills/bugx-dsh/SKILL.md"]
@@ -150,7 +150,20 @@ include = ["bugx_cli*"]
   "core/contracts/*.md",
   "core/contracts/*.py",
 ]
-"share/bugx-agent/core/assets" = ["core/assets/*.png", "core/assets/*.svg", "core/assets/*.md"]
+"share/bugx-agent/core/assets" = [
+  "core/assets/*.png",
+  "core/assets/*.svg",
+  "core/assets/*.jpg",
+  "core/assets/*.md",
+]
+"share/bugx-agent/core/bundled_docs" = [
+  "core/bundled_docs/*.md",
+  "core/bundled_docs/*.json",
+]
+"share/bugx-agent/core/bundled_docs/guides" = ["core/bundled_docs/guides/*.md"]
+"share/bugx-agent/core/bundled_docs/ai" = ["core/bundled_docs/ai/*.md"]
+"share/bugx-agent/core/bundled_docs/reference" = ["core/bundled_docs/reference/*.md"]
+"share/bugx-agent/core/bundled_docs/hosts" = ["core/bundled_docs/hosts/*.md"]
 "share/bugx-agent/core/assets/axe-core" = [
   "core/assets/axe-core/axe.min.js",
   "core/assets/axe-core/LICENSE.txt",
@@ -197,6 +210,9 @@ include = ["bugx_cli*"]
   "core/webui/static/*.html",
   "core/webui/static/*.js",
   "core/webui/static/*.png",
+  "core/webui/static/*.jpg",
+  "core/webui/static/*.txt",
+  "core/webui/static/*.xml",
   "core/webui/static/*.webmanifest",
 ]
 "share/bugx-agent/core/webui/static/assets" = [
@@ -208,6 +224,7 @@ include = ["bugx_cli*"]
 "share/bugx-agent/core/prompts" = ["core/prompts/*.md"]
 "share/bugx-agent/core/prompts/rules" = ["core/prompts/rules/*.md"]
 "share/bugx-agent/core/prompts/stages" = ["core/prompts/stages/*.md"]
+"share/bugx-agent/core/prompts/policies" = ["core/prompts/policies/*.json"]
 "share/bugx-agent/core/audit_packs" = ["core/audit_packs/*.md"]
 "share/bugx-agent/core/audit_packs/web-audit" = [
   "core/audit_packs/web-audit/manifest.json",
@@ -217,6 +234,9 @@ include = ["bugx_cli*"]
 ]
 "share/bugx-agent/core/audit_packs/web-audit/stages" = [
   "core/audit_packs/web-audit/stages/*.md",
+]
+"share/bugx-agent/core/audit_packs/pitfalls" = [
+  "core/audit_packs/pitfalls/*.json",
 ]
 "share/bugx-agent/core/audit_packs/mobile-audit" = [
   "core/audit_packs/mobile-audit/manifest.json",

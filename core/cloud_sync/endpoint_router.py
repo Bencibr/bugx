@@ -90,6 +90,9 @@ def load_cloud_config(path: str | Path | None = None) -> dict[str, Any]:
     dvc = data.get("disable_version_check")
     if isinstance(dvc, bool):
         result["disable_version_check"] = dvc
+    dre = data.get("docs_remote_enabled")
+    if isinstance(dre, bool):
+        result["docs_remote_enabled"] = dre
     # DOC-211：同步内容策略三键；非法值 fail-closed（绝不静默回退默认）。
     for key, vocab in SYNC_POLICY_VOCABS.items():
         raw = data.get(key)
@@ -329,9 +332,12 @@ def set_cloud_base_url(base_url: str, path: str | Path | None = None) -> str:
         dvc = raw.get("disable_version_check")
         if isinstance(dvc, bool):
             existing["disable_version_check"] = dvc
+        dre = raw.get("docs_remote_enabled")
+        if isinstance(dre, bool):
+            existing["docs_remote_enabled"] = dre
     payload = {"schema_version": 1, "base_url": normalized}
     for key, value in existing.items():
-        if key in SYNC_POLICY_VOCABS or key == "disable_version_check":
+        if key in SYNC_POLICY_VOCABS or key in {"disable_version_check", "docs_remote_enabled"}:
             payload[key] = value
     atomic_write_nofollow(
         p, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -349,31 +355,38 @@ def read_cloud_config_raw(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def update_cloud_config(updates: dict[str, str]) -> dict[str, str]:
-    """DOC-211：raw-read 改写云端同步策略键（保留未知键，坏值状态可自修复）。
-
-    只接受 SYNC_POLICY_VOCABS 内的键，值必须命中词表，否则 ValueError。
-    """
+def update_cloud_config(updates: dict[str, Any]) -> dict[str, Any]:
+    """DOC-211 / DOC-006：raw-read 改写云端配置键（保留未知键，坏值状态可自修复）。"""
+    normalized_updates: dict[str, Any] = {}
     for key, value in updates.items():
+        if key == "docs_remote_enabled":
+            if isinstance(value, bool):
+                normalized_updates[key] = value
+            elif isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+                normalized_updates[key] = value.strip().lower() == "true"
+            else:
+                raise ValueError(f"云端配置 {key} 非法: {value!r}（允许值: true/false）")
+            continue
         vocab = SYNC_POLICY_VOCABS.get(key)
         if vocab is None:
             raise ValueError(
-                f"不支持的云端配置键: {key}（支持: {'、'.join(sorted(SYNC_POLICY_VOCABS))}）")
+                f"不支持的云端配置键: {key}（支持: {'、'.join(sorted(SYNC_POLICY_VOCABS) + ['docs_remote_enabled'])}）")
         if value not in vocab:
             raise ValueError(f"云端配置 {key} 非法: {value!r}（允许值: {'/'.join(vocab)}）")
+        normalized_updates[key] = value
     p = cloud_config_path()
     try:
         reject_symlink_components(p)
     except AtomicWriteError as exc:
         raise ValueError(f"云端配置路径不安全: {p}") from exc
     data = read_cloud_config_raw(p)
-    data.update(updates)
+    data.update(normalized_updates)
     p.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_nofollow(
         p, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
         parent_mode=0o700,
     )
-    return {key: data[key] for key in updates}
+    return {key: data[key] for key in normalized_updates}
 
 
 def clear_cloud_base_url(path: str | Path | None = None) -> None:

@@ -60,6 +60,21 @@ _SENSITIVE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     )),
 )
 
+# DOC-007 强化凭据与密码脱敏正则
+_ADDITIONAL_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    ("ai_api_key", re.compile(r"(?i)\b(?:sk-ant|sk|kimi|moonshot|deepseek)-[a-zA-Z0-9_\-\.]{15,}\b"), "{{REDACTED_API_KEY}}"),
+    ("bearer_token", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9_.\-~+/=]{20,}\b"), "Bearer {{REDACTED_TOKEN}}"),
+    ("dsn_password", re.compile(r"(?i)(\b(?:postgres(?:ql)?|mysql|redis|rediss|mongo(?:db)?(?:\+srv)?|amqp|amqps)://[^:/@\s]+:)(.*?)(@[a-zA-Z0-9_\-\.:]+(?:/[^\s]*)?)"), r"\1[REDACTED_PASSWORD]\3"),
+)
+
+# DOC-007 用户主路径与用户名归一化正则
+_PATH_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"/(?:Users|home)/[a-zA-Z0-9_\-\.]+"), "~"),
+    (re.compile(r"[a-zA-Z]:\\\\Users\\\\[a-zA-Z0-9_\-\.]+"), "~"),
+)
+
+_SOURCE_CODE_PATTERN = re.compile(r"```[\w\s]*?\n[\s\S]*?```")
+
 
 def scan_sensitive_text(value: object, *, field: str) -> list[str]:
     """Return sensitive categories found in a wire field without returning values."""
@@ -128,21 +143,76 @@ def scan_kind(kind: str, items: list[dict[str, Any]], *,
             raise_sensitive_hit(f"{kind}[{index}]", hits, policy=policy)
 
 
-def redact_sensitive_text(text: str) -> tuple[str, list[str]]:
-    """DOC-211 redact：按出网闸命中 span 整段替换为 typed 占位符。
+class RedactedTextResult(str):
+    """Dual-mode text result: behaves as str (e.g. `assert 'x' in r`) and unpacks as `(str, list[str])`."""
 
-    禁止用通用 redact_text 做闸内脱敏（审计实证：`token: Bearer <真值>` 会把
-    方案词掩掉而残留真值，复扫双 miss）。占位符不含 key[:=]16+ 值形态，
-    天然不命中 _SENSITIVE_PATTERNS 复扫。
+    def __new__(cls, text: str, categories: list[str] | None = None):
+        obj = super().__new__(cls, text)
+        obj.categories = categories or []
+        return obj
+
+    def __iter__(self):
+        yield str(self)
+        yield self.categories
+
+
+def redact_sensitive_text(text: str, mask_source: bool = False) -> RedactedTextResult:
+    """DOC-211 / DOC-007 redact：按出网闸命中 span 与三级脱敏管道替换敏感信息。
+
+    支持三级过滤：
+    - Level 1: 凭据/密钥硬过滤 (API Keys, Bearer tokens, DSN passwords)
+    - Level 2: 系统路径与用户身份脱敏 (/Users/<name>, /home/<name> -> ~)
+    - Level 3: 源代码片段可选遮蔽 (mask_source=True)
+    返回 RedactedTextResult，既兼容元组解包 (text, categories)，又可直接当 str 使用。
     """
     categories: list[str] = []
-    out = text
+    out = text or ""
+
     for category, pattern in _SENSITIVE_PATTERNS:
         replaced, count = pattern.subn("{{REDACTED_%s}}" % category.upper(), out)
         if count:
             categories.append(category)
             out = replaced
-    return out, categories
+
+    for category, pattern, replacement in _ADDITIONAL_SECRET_PATTERNS:
+        replaced, count = pattern.subn(replacement, out)
+        if count:
+            categories.append(category)
+            out = replaced
+
+    for pattern, replacement in _PATH_REDACT_PATTERNS:
+        replaced, count = pattern.subn(replacement, out)
+        if count:
+            categories.append("user_path")
+            out = replaced
+
+    if mask_source:
+        replaced, count = _SOURCE_CODE_PATTERN.subn("[SOURCE_CODE_REDACTED]", out)
+        if count:
+            categories.append("source_code")
+            out = replaced
+
+    return RedactedTextResult(out, sorted(set(categories)))
+
+
+def redact_diagnostics_payload(data: Any, mask_source: bool = False) -> tuple[Any, list[str]]:
+    """递归遍历并深度脱敏任意嵌套字典、列表或字符串结构。"""
+    categories: set[str] = set()
+
+    def _walk(val: Any) -> Any:
+        if isinstance(val, dict):
+            return {k: _walk(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_walk(v) for v in val]
+        if isinstance(val, str):
+            res = redact_sensitive_text(val, mask_source=mask_source)
+            if res.categories:
+                categories.update(res.categories)
+            return str(res)
+        return val
+
+    processed = _walk(data)
+    return processed, sorted(categories)
 
 
 def redact_records_for_sync(records: Mapping[str, list]) -> tuple[dict[str, list], list[str], int]:

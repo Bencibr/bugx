@@ -383,7 +383,7 @@ def _default_mcp_command(name: str, reg_entry: dict[str, Any]) -> tuple[str, lis
     if name == "bugx-supervisor-worker":
         return "bugx", ["mcp", "serve", "--root", ".", "--role", "worker"]
     if name == "bugx-docs":
-        return "bugx", ["mcp", "serve", "--root", ".", "--role", "docs"]
+        return "bugx", ["mcp", "docs", "serve", "--root", ".", "--db", ".bugx/knowledge/docs.sqlite3"]
     if name in ONLINE_MCP_CATALOG:
         on_item = ONLINE_MCP_CATALOG[name]
         return str(on_item.get("command") or "npx"), list(on_item.get("args") or [])
@@ -482,7 +482,7 @@ def inspect_workspace_mcp(workspace_path: Path | str) -> dict[str, Any]:
     if not servers:
         for def_name, def_tools, def_cmd in (
             ("bugx-supervisor", 12, "bugx mcp serve --root . --role host"),
-            ("bugx-docs", 4, "bugx mcp serve --root . --role docs"),
+            ("bugx-docs", 4, "bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3"),
         ):
             is_dis = def_name in disabled_mcps
             servers.append({
@@ -536,10 +536,10 @@ MCP_TOOLS_CATALOG: dict[str, list[dict[str, str]]] = {
         {"name": "bugx_supervisor_status", "description": "查询 Supervisor 全局健康状态与运行指标", "parameters": "verbose"},
     ],
     "bugx-docs": [
-        {"name": "docs_search", "description": "基于 SQLite FTS5 的项目架构与安全文档全文检索", "parameters": "query, top_k, namespace"},
-        {"name": "docs_read", "description": "高效只读读取指定规范文档或 ADR 提案", "parameters": "path, line_range"},
-        {"name": "docs_schema", "description": "获取文档元数据、目录结构与章节索引", "parameters": "category"},
-        {"name": "docs_tree", "description": "检索工程文档树与 Diátaxis 架构规范", "parameters": "depth, filter"},
+        {"name": "resolve_library", "description": "解析当前项目或 BugX 官方受控文档库", "parameters": "name, project_id"},
+        {"name": "search_docs", "description": "在官方与当前项目文档章节级 FTS5 trigram 索引中检索", "parameters": "query, project_id, library_id, limit"},
+        {"name": "fetch_doc", "description": "高效只读读取指定文档或精确章节（保留子标题完整边界）", "parameters": "document_id, section, project_id"},
+        {"name": "list_sections", "description": "获取文档完整 Markdown 标题目录 (TOC) 与字符估算", "parameters": "document_id, project_id"},
     ],
     "postmcp": [
         {"name": "postmcp_http_request", "description": "构造并执行受控 HTTP/REST 请求（支持全动词）", "parameters": "url, method, headers, body, timeout"},

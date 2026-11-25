@@ -62,6 +62,8 @@ from .infra import (
     _ensure_global_cli_symlinks,
     _find_current_cli_executable,
     _find_repo_root,
+    _global_bugx_dir,
+    _is_global_home_scope,
     _engine_manifest_payload,
     _file_record,
     _fsync_engine_tree,
@@ -256,18 +258,41 @@ def _ensure_core_importable() -> None:
         candidate = Path(engine_override).expanduser()
         if not engine_override or not candidate.is_dir():
             raise CliError(f"BUGX_GLOBAL_ENGINE_ROOT 指向不存在的引擎目录: {engine_override}")
-    asset = asset_root()
     global_engine = global_engine_root()
-    if global_engine.is_dir() and not (global_engine / "launch_bugx.py").is_file():
-        print(
-            f"[bugx] 全局引擎目录 {global_engine} 缺失 launch_bugx.py，"
-            f"回落至 asset_root: {asset}",
-            file=sys.stderr,
-        )
+    asset: Path | None = None
+    try:
+        asset = asset_root()
+    except CliError:
+        asset = None
+
+    if asset is None:
+        try:
+            repo_root = _source_checkout_root()
+            repo_core = repo_root / "core"
+            if repo_core.is_dir() and (repo_core / "launch_bugx.py").is_file():
+                asset = repo_core
+        except Exception:
+            pass
+
     candidates = []
     for cand in (asset, global_engine):
-        if cand.is_dir() and (cand / "launch_bugx.py").is_file():
+        if cand is not None and cand.is_dir() and (cand / "launch_bugx.py").is_file():
             candidates.append(cand)
+
+    if not candidates:
+        raise MissingAgentAssetError(_i18n_exc(
+            "common.agent_asset_missing",
+            "找不到 BugX Agent 资源；请重新安装 bugx-cli，或设置 BUGX_ASSET_ROOT "
+            "指向完整资源目录。仅在源码仓库开发时，显式设置 BUGX_DEV_ASSET_ROOT=1。",
+        ), repairable=True)
+
+    if global_engine.is_dir() and not (global_engine / "launch_bugx.py").is_file():
+        if asset is not None:
+            print(
+                f"[bugx] 全局引擎目录 {global_engine} 缺失 launch_bugx.py，"
+                f"回落至 asset_root: {asset}",
+                file=sys.stderr,
+            )
     # 后插入者位于 sys.path[0]，故按 (asset, global_engine) 顺序插入 ⇒
     # 最终 global_engine 优先。契约见 `docs/03_ai/01_AI_REFERENCE.md`「副本升级门禁」：
     # Python 导入必须优先 `global_engine_root()`（共享引擎是运行时真源），
@@ -277,6 +302,12 @@ def _ensure_core_importable() -> None:
         while s in sys.path:
             sys.path.remove(s)
         sys.path.insert(0, s)
+    try:
+        from core.repair.self_heal import mount_bugx_pydeps
+
+        mount_bugx_pydeps()
+    except Exception:
+        pass
 
 
 # 宿主启动子进程时会通过环境变量指明工作区。MCP / 引擎入口若拿不到显式

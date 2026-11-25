@@ -55,12 +55,17 @@ def normalized_tool_environment(environ: Mapping[str, str] | None = None) -> dic
     """Return a child environment that can see common user tool locations."""
     environment = dict(os.environ if environ is None else environ)
     entries = [item for item in environment.get("PATH", "").split(os.pathsep) if item]
-    candidates = [environment.get("BUGX_TOOL_PATH", "")]
+    scripts_dir = "Scripts" if os.name == "nt" else "bin"
+    candidates = [
+        environment.get("BUGX_TOOL_PATH", ""),
+        str(Path.home() / ".bugx" / "tools" / "codebase-memory" / scripts_dir),
+        str(Path.home() / ".bugx" / "bin"),
+        str(Path.home() / ".local" / "bin"),
+    ]
     if os.name != "nt":
         candidates.extend((
             "/opt/homebrew/bin", "/usr/local/bin",
             "/home/linuxbrew/.linuxbrew/bin",
-            str(Path.home() / ".local" / "bin"),
             str(Path.home() / ".cargo" / "bin"),
         ))
     for candidate in candidates:
@@ -161,13 +166,11 @@ _BUILTIN_PROBES: tuple[ProbeDescriptor, ...] = (
         script="codebase_memory_probe.py",
         domain="knowledge",
         accepts_root=True,
-        description="Codebase Memory MCP 图谱语义与知识索引探针",
+        description="Codebase Memory MCP 必装核心代码图谱探针",
         priority=30,
         lifecycle="preflight",
-        # 加速器而非硬依赖：引擎自带 symbol_index/project_graph 回退
-        # （``BUGX_USE_CODEBASE_MEMORY=0`` 是受支持运行模式），因此可经
-        # 项目 ``tooling_exemptions`` 显式豁免；critical 能力不得豁免。
-        critical=False,
+        # 必装核心组件：缺失或未就绪必须安装修复并阻断，禁止经 tooling_exemptions 豁免降级。
+        critical=True,
     ),
     ProbeDescriptor(
         name="pattern",

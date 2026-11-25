@@ -16,7 +16,7 @@ import re
 import shutil
 import subprocess
 
-from .hosts.registry import engine_host_plugin
+from .hosts.registry import QODER_PROJECT_MCP_PATHS, engine_host_plugin
 from .hosts.template_engine import (
     AGENT_DESCRIPTION,
     AGENT_DESCRIPTION_EN,
@@ -1567,11 +1567,37 @@ class MiniMaxAdapter(HostAdapter):
     def installed_components(self) -> list[str]:
         return ["plugin", "agent", "worker", "skill", "mcp"]
 
+    def pre_validate(self, root: Path) -> None:
+        from .commands.plugin_minimax import _minimax_custom_agent_path, _validate_custom_agent
+
+        _validate_custom_agent(_minimax_custom_agent_path())
+
     def ensure_user_agents(
         self, root: Path, source: Path, *, locale: str | None = None,
     ) -> dict[str, object] | None:
         from .commands.plugin_minimax import _ensure_minimax_plugin
         return _ensure_minimax_plugin(root, source, locale=locale)
+
+
+class AntigravityAdapter(HostAdapter):
+    def _user_marker(self) -> bool:
+        return (Path.home() / self.install_path).is_file()
+
+    def pre_validate(self, root: Path) -> None:
+        from .commands.plugin_antigravity import pre_validate
+
+        pre_validate()
+
+    def ensure_user_agents(
+        self, root: Path, source: Path, *, locale: str | None = None,
+    ) -> dict[str, object]:
+        from .commands.plugin_antigravity import install_review_plugin
+
+        return install_review_plugin()
+
+    @property
+    def installed_components(self) -> list[str]:
+        return ["plugin", "agent", "worker", "skill", "workspace-mcp"]
 
 
 class ZCodeAdapter(HostAdapter):
@@ -1698,6 +1724,9 @@ class ChatGptAdapter(HostAdapter):
 
 class QoderAdapter(HostAdapter):
     """Qoder AI adapter."""
+
+    def managed_surfaces(self) -> tuple[str, ...]:
+        return (*super().managed_surfaces(), QODER_PROJECT_MCP_PATHS[0])
 
     def _app_markers(self) -> tuple[Path, ...]:
         return _qoder_app_markers()
@@ -1977,6 +2006,7 @@ HOST_ADAPTERS: tuple[HostAdapter, ...] = (
     *_plugin_backed_adapters(KimiAdapter),
     # MiniMax Code 桌面端通过 Plugin V1 注册 Agent、Skill 与 MCP。
     *_plugin_backed_adapters(MiniMaxAdapter),
+    *_plugin_backed_adapters(AntigravityAdapter),
     WorkBuddyAdapter(
         "workbuddy", "WorkBuddy AI", "workbuddy", ".workbuddy",
         WORKBUDDY_PROJECT_PATHS[0], "skill", WORKBUDDY_PROJECT_PATHS,

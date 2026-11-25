@@ -1,14 +1,15 @@
 usage: bugx [-h] [--version] [--log-level {DEBUG,INFO,WARNING,ERROR}]
             [--accept-data-sharing] [--privacy {standard,strict}]
             [--no-backup]
-            {help,completion,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,advisory,report} ...
+            {help,completion,guide,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,issue,feedback,advisory,report} ...
 
 BugX 统一命令行入口（模块化调度器）。
 
 positional arguments:
-  {help,completion,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,advisory,report}
+  {help,completion,guide,init,dsh,hosts,install,reset,uninstall,doctor,mcp,capability,mcp-runtime,lesson,logic-analysis,probe,knowledge,skill,self-audit,engine,cloud,auth,telemetry,config,daemon,autonomous,goal,supervisor,plugin,update,patch-forge,log,stats,project,view,test-generate,test-audit,mining-audit,test-verify,audit,interaction,issue,feedback,advisory,report}
     help                显示 BugX 或指定命令的使用说明
     completion          输出 Bash、Zsh 或 Fish 的 Tab 补全脚本
+    guide               检索 BugX 本地文档与操作指南（支持中英文按需检索）
     init                把宿主无关的 BugX 核心初始化到项目
     dsh                 兼容启动器：为首个 Web Session 绑定项目并启动 DeepSeek Harness
     hosts               只读发现可接入的 AI 宿主
@@ -33,7 +34,8 @@ positional arguments:
     config              设置本地 BugX 隐私与遥测配置
     daemon              BugX 自治持续挖掘常驻守护进程管理
     autonomous          显式启动 Claude Code/Codex/OpenCode/DeepSeek
-                        Harness/Pi/Kimi Code/Cline/ZCode 前台无人值守挖掘
+                        Harness/Pi/Kimi Code/Cline/ZCode/Google Antigravity
+                        前台无人值守挖掘
     goal                目标导向无人值守自治挖掘与长程自愈循环
     supervisor          本地监督 MCP：install / status / rpc；带外动作：reset-budget /
                         recover / rebind-target / gate / findings
@@ -50,6 +52,8 @@ positional arguments:
     test-verify         基于 AST 语义变异与沙箱隔离动态验证测试用例的抓 Bug 杀伤能力
     audit               在隔离副本中启动 BugX 图审计或执行一键全息攻防渗透审计
     interaction         查看/回答 BugX 抛出的结构化交互问题（非交互宿主的答案回灌通道）
+    issue               问题上报与会话异常诊断（将对话现场脱敏后提交至 BugX 服务端排查）
+    feedback            问题与会话现场快速反馈（等同于 bugx issue report）
     advisory            GitHub Security Advisory (GHSA) 标准安全公告与 PR 修复草案管理
     report              双轨制人性化安全审计报告生成器 (formal 商务正式, visual 高颜值交付)
 

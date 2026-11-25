@@ -189,8 +189,23 @@ def _extract_json_object(output: str) -> dict | None:
     return None
 
 
-def _builtin_mcp_servers() -> dict[str, dict[str, object]]:
-    """Return the three fixed BugX local MCP registrations."""
+def _builtin_mcp_servers(
+    *, docs_transport: str = "stdio", remote_url: str | None = None,
+) -> dict[str, dict[str, object]]:
+    """Return the three fixed BugX MCP registrations."""
+    if docs_transport == "remote":
+        from core.skills.bugx_docs_cloud_sync import contract_version_of, resolve_remote_base_url
+        base = resolve_remote_base_url(remote_url)
+        ver = contract_version_of()
+        docs_entry: dict[str, object] = {
+            "url": f"{base}/api/v1/mcp/docs?contract_version={ver}",
+        }
+    else:
+        docs_entry = {
+            "command": "bugx",
+            "args": ["mcp", "docs", "serve", "--root", ".",
+                     "--db", ".bugx/knowledge/docs.sqlite3"],
+        }
     return {
         "bugx-supervisor": {
             "command": "bugx",
@@ -200,11 +215,7 @@ def _builtin_mcp_servers() -> dict[str, dict[str, object]]:
             "command": "bugx",
             "args": ["mcp", "serve", "--root", ".", "--role", "worker"],
         },
-        "bugx-docs": {
-            "command": "bugx",
-            "args": ["mcp", "docs", "serve", "--root", ".",
-                     "--db", ".bugx/knowledge/docs.sqlite3"],
-        },
+        "bugx-docs": docs_entry,
     }
 
 

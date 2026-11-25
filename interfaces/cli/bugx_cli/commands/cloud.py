@@ -23,7 +23,7 @@ from .agent import (
     _detected_host_name,
     _ensure_opencode_config,
 )
-from .knowledge import _cloud_login_and_register, _cloud_sync_command
+from .knowledge import _cloud_login_and_register, _cloud_sync_command, _cloud_device_label
 
 MAX_SYNC_BUNDLE_BYTES = 16 * 1024 * 1024
 
@@ -1121,12 +1121,53 @@ def command_cloud(args: argparse.Namespace) -> int:
             sharing = confirm_data_sharing(args)
             if not sharing:
                 print("[cloud] 未同意数据反哺；本地保持离线隐私模式")
+            non_blocking = (
+                getattr(args, "non_blocking", False)
+                or not sys.stdin.isatty()
+                or os.environ.get("BUGX_NON_BLOCKING_AUTH") == "1"
+            )
+            if non_blocking:
+                label = _cloud_device_label(get_device_id)
+                res = client.login(name=label, non_blocking=True)
+                if not res.ok:
+                    print(f"[cloud] 登录发起失败: {res.error}")
+                    return 1
+                if getattr(args, "json", False):
+                    print(json.dumps(res.data, ensure_ascii=False, indent=2))
+                else:
+                    data = res.data if isinstance(res.data, dict) else {}
+                    uri = data.get("verification_uri", "")
+                    code = data.get("user_code", "")
+                    print(f"[cloud] 请在浏览器打开授权页完成登录：{uri}")
+                    print(f"[cloud] 用户验证码：{code}")
+                    print("[cloud] 授权完成后请运行：bugx auth verify")
+                return 0
             try:
                 _cloud_login_and_register(client, get_device_id)
             except RuntimeError as exc:
                 print(f"[cloud] 登录失败: {exc}")
                 return 1
             print("[cloud] 登录成功，凭据已保存")
+            try:
+                from core.cloud_sync.cloud_onboard import get_state, set_state
+                if get_state(root) in {"dismissed", "local"}:
+                    set_state(root, "pending")
+                    print("[cloud] 已重新开启本项目 onboarding；下次 Agent 启动会询问同步")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[cloud] onboarding 状态未更新: {exc}")
+            return 0
+        if auth_action == "verify":
+            device_code = getattr(args, "device_code", None)
+            res = client.verify_device_token(device_code=device_code)
+            if not res.ok:
+                print(f"[cloud] 授权核验失败: {res.error}")
+                return 1
+            label = _cloud_device_label(get_device_id)
+            dres = client.register_device(name=label)
+            if not dres.ok:
+                print(f"[cloud] 设备登记失败: {dres.error}")
+                return 1
+            print("[cloud] 登录核验与设备登记成功，凭据已保存")
             try:
                 from core.cloud_sync.cloud_onboard import get_state, set_state
                 if get_state(root) in {"dismissed", "local"}:

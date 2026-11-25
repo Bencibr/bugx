@@ -972,6 +972,8 @@ def host_entry_gate() -> int:
         print(f"[launch_bugx] ✗ 宿主入口就绪性检查失败（{type(exc).__name__}）：{exc}")
         return RESTART_REQUIRED
     if status.get("ready"):
+        for warning in status.get("warnings") or []:
+            print(f"[launch_bugx] ⚠ {warning}")
         return 0
     print("[launch_bugx] ✗ 需要重启宿主：宿主侧入口（MCP + skill）未就绪——"
           + str(status.get("reason") or "未知原因"))

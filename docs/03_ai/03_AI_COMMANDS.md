@@ -1,11 +1,11 @@
 # BugX AI 命令选路与使用手册
 
-> **版本**：0.1.3 ｜ **更新日期**：2026-11-24
-> 本手册按当前仓库 CLI 解析器整理，覆盖 42 个顶层命令及分组 leaf。宿主和全局引擎可能独立升级；当前安装版的安全帮助入口、命令分发源码与本手册共同确定语法。完整参数表见 [02_COMMANDS.md](../../docs/01_guides/02_COMMANDS.md)，生命周期与协议细节见 [01_AI_REFERENCE.md](01_AI_REFERENCE.md)。
+> **版本**：0.1.4 ｜ **更新日期**：2026-11-25
+> 本手册按当前仓库 CLI 解析器整理，覆盖 45 个顶层命令及分组 leaf。宿主和全局引擎可能独立升级；当前安装版的安全帮助入口、命令分发源码与本手册共同确定语法。完整参数表见 [02_COMMANDS.md](../../docs/01_guides/02_COMMANDS.md)，生命周期与协议细节见 [01_AI_REFERENCE.md](01_AI_REFERENCE.md)。
 
 ## AI 选命令的固定步骤
 
-1. 把请求归类为：诊断 BugX、启动/恢复项目生命周期、找漏洞、验证测试、治理知识/云同步、生成报告、接入/配置工具。
+1. 把请求归类为：诊断 BugX、启动/恢复项目生命周期、找漏洞、验证测试、治理知识/云同步、生成报告、接入/配置工具、异常诊断反馈。
 2. 使用 `bugx help <COMMAND> [ACTION]` 或 `bugx <COMMAND> <ACTION> --help` 查看用法。例如 `bugx help cloud sync`、`bugx help lesson init` 和 `bugx supervisor install --help`。选定命令后核对参数所属层级和业务副作用。
 3. 标记该次调用的副作用：只读、本地写入、执行目标代码、联网、长时间运行、删除/重置、Git commit。只执行用户请求范围内已授权的动作。
 4. 运行后读取退出码和结构化结果；退出码 `2` 在 `engine pre` 中表示等待交互，不能当作普通失败，也不能靠重复执行绕过。
@@ -14,7 +14,7 @@
 若 `bugx --help` 自身报错或当前安装中找不到该命令，停止执行该命令；先核对 `which bugx`、`bugx --version` 和 traceback，确认命中的是已安装 CLI 还是源码工作树。此时不能把本手册里的旧语法当作可执行证据。
 CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即为启用，省略即为关闭；不要生成 `--force=True` 或 `force=True` 这类 Python/配置写法。
 
-## 42 个顶层命令：什么时候用、如何调用
+## 45 个顶层命令：什么时候用、如何调用
 
 ### 帮助、只读检查与诊断
 
@@ -22,6 +22,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | --- | --- | --- |
 | `help` | 不确定参数或子命令时 | `bugx help cloud`。只读；优先于猜参数。 |
 | `completion` | 用户要求配置 shell 补全时 | `bugx completion zsh`。只输出补全脚本，不擅自写入 shell 启动文件。 |
+| `guide` | 查询 BugX 官方操作指南或当前项目文档章节时 | `bugx guide "登录"`（支持 `--offline` 离线查随包基线与 `~/.bugx/cache/docs/`）。 |
 | `hosts` | 先查看当前项目可连接哪些 AI 宿主 | `bugx hosts --root <ROOT> --json`。只读发现。 |
 | `doctor` | 诊断 BugX 安装、宿主或项目状态 | `bugx doctor --root <ROOT> --json`。默认只读；`--repair` 执行已实现的确定性修复。AI 只补充根因分析，不决定修复权限；Doctor 不强制重装整套漂移宿主资产。副本诊断仅在当前 asset 严格高于 global、发现完整且无更高副本时建议 `install --force`。 |
 | `log` | 查命令错误、某次调用链、时序或耗时 | `bugx log --root <ROOT> --errors`；按需使用 `--trace <ID>`、`--timing`。只读。 |
@@ -36,7 +37,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | --- | --- | --- |
 | `init` | 用户明确要求执行独立 CLI 初始化操作 | `bugx init --root <ROOT> --cloud-sync <local|sync>`。会写项目状态。`--cloud-sync` 也可作为 engine argument passthrough 传给 `engine pre/audit`，但 `init` 的选择会持久化初始化策略，`pre` 的选择只控制本次启动 policy；不要混淆两者。通过宿主插件启动挖掘时走只读 `engine status --json` → 仅精确 `UNINITIALIZED` 时 `engine pre`；不要把 `init` 当成挖掘启动或损坏状态修复命令。`FATAL_BLOCKED`、未知状态或检查失败时保留现场。源码工作树可能被拒绝作为全局引擎安装来源，不能未经检查就加 `--force`。 |
 | `dsh` | 仅在 DSH Web Session 兼容启动流程中 | `bugx dsh --root <ROOT> --help`。仅 DSH 场景；不要当成通用启动器。 |
-| `install` | 用户要求安装 BugX 到项目/AI 宿主 | `bugx install --root <ROOT> --agent <HOST>`。不只是写宿主配置：当前实现还会安装/更新全局 `~/.bugx/core`、初始化项目 layout、ledger、画像/生命状态，再写宿主入口；源码树 guard 或 `--force` 会影响全局引擎。先核对来源、root、宿主和既有状态。 |
+| `install` | 用户要求安装 BugX 到项目/AI 宿主 | `bugx install --root <ROOT> --agent <HOST>`（默认远程优先直连官档，可选 `--docs-transport stdio` 强制离线）。不只是写宿主配置：当前实现还会安装/更新全局 `~/.bugx/core`、初始化项目 layout、ledger、画像/生命状态，再写宿主入口；源码树 guard 或 `--force` 会影响全局引擎。先核对来源、root、宿主和既有状态。 |
 | `uninstall` | 用户要求移除宿主接入 | 先 `bugx uninstall --root <ROOT> --dry-run`，确认影响面后才执行实际移除；`--purge-*` 会删除数据。 |
 | `reset` | 用户要求归档并重建项目运行态/知识库 | 先 `bugx reset --scope project --root <ROOT> --dry-run`。实际 reset 会改变状态，需明确授权；不能用来试错。 |
 | `mcp` | 查看协议、运行/维护本地 Supervisor MCP | 子命令有 `serve`, `prune`, `schema`, `spy`, `docs`。`serve` 是常驻服务；`schema/docs` 用于查契约；`prune` 会清理配置。 |
@@ -47,6 +48,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | `plugin` | 查看或管理 BugX 插件包 | 先 `list/status` 查看，再按需 `install/uninstall/zcode`；安装可能访问源并写入本机插件目录。 |
 | `update` | 用户明确要求升级 CLI 或检查新版本 | 检查：`bugx update --check --root <ROOT>`；更新：`bugx update --root <ROOT> [--channel stable|alpha]`。`--check` 退出码 `0=无更新`、`1=有更新`、`2=检查失败`；实际更新修改 pip/npm 全局安装、全局 engine 和已登记 Host，必须读取 receipt。当前没有 `bugx version --check`。 |
 | `daemon` | 用户要求后台持续挖掘或重连已有守护进程 | `status` 只读；`start/stop/attach` 控制长期进程，必须确认 root 和生命周期。 |
+| `interaction` | 非交互/宿主环境查询或提交待确认交互问答 | `list` / `show` 只读查看；`answer --value` / `cancel` 会推动 startup gate 或 review 状态，禁止代替用户猜答。 |
 | `config` | 用户要求修改 BugX 本机隐私/遥测配置 | 先 `bugx config set --help` 看有效键和值；`set` 会改本机配置，不自行降低隐私保护。 |
 
 ### 审计、挖掘与测试
@@ -69,13 +71,15 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | 命令 | 什么时候用 | 常见调用与边界 |
 | --- | --- | --- |
 | `cloud` | 查看同步状态、治理冲突或同步云端知识 | 先用 `status --scope <...> --json`；标准同步获得全量授权后显式指定 `sync --scope all`。未配置时缺省 `project`。`onboard on`、`init --cloud-sync sync` 和已持久化 sync 决策后的 `engine pre` 会走 onboarding 默认路径，可能同步 global + project；它们不等价于 `cloud sync --scope project`。 |
-| `auth` | 管理 BugX 云端登录态 | `status` 只读；`login` 会打开授权流程；`set-key/logout` 修改或清除凭据。禁止打印/保存密钥到报告。 |
+| `auth` | 管理 BugX 云端登录态 | `status` 只读；`verify` 联网校验有效性；`login [--non-blocking]` 打开授权流程；`set-key/logout` 修改或清除凭据。禁止打印/保存密钥到报告。 |
 | `telemetry` | 查看、导出或发送脱敏飞轮数据 | `inspect` 本地查看；`export` 生成本地包；`flush/upload` 会在门禁开启时联网并处理队列。未配置时遥测默认开启，普通 CLI 命令每日最多自动记录/发送一次 `installed` 或 `heartbeat`；显式 `flush/upload` 仍需先确认数据面和用户意图。关闭使用 `bugx config set telemetry.data_sharing false` 或当前进程的 `BUGX_TELEMETRY_ENABLED=0`。 |
 | `knowledge` | 查看或治理候选知识、项目/全局知识包 | `status/export` 查看或导出；`approve/import/rollback` 会改知识库。此命令本身不会自动同步云端。 |
 | `lesson` | 管理项目级结构化错题集、Finding 经验和工具经验 | 子命令完整列表在下方；先确认 ledger/root、数据类型和是否会修改/归档。不要把 lesson 当作普通 Markdown 文件。 |
 | `skill` | 查看、校验、导入、回滚或拉取技能包 | `list/status/validate` 查询；`import/rollback` 修改本地包；`pull` 可能联网。先看包 ID、来源和签名契约。 |
 | `advisory` | 列出现有 GHSA 或生成标准公告/PR 草案 | `list` 查询；`export` 生成本地草案。导出不等于发布 GitHub Advisory 或创建 PR。 |
 | `report` | 对已有审计产物生成 formal/visual/both 报告或本地预览 | `formal`, `visual`, `both`, `serve`。需要明确现有产物目录；报告生成本身不会补做漏洞挖掘。 |
+| `issue` | 遇到偶发未捕获异常需要向服务端或维护者反馈现场 | `bugx issue report [--session <ID>] [--dry-run] [--anonymous] [--mask-source] [--yes]`。自动提取错误会话现场、执行三级脱敏并压缩打包。 |
+| `feedback` | 问题与现场快速上报（等同于 `bugx issue report`） | `bugx feedback --title "简要标题" --desc "补充说明" [--dry-run]`。快捷反馈入口。 |
 
 ## 当前 CLI 分组子命令清单
 
@@ -89,10 +93,11 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 - `knowledge`: `status`, `export`, `approve`, `import`, `rollback`
 - `skill`: `list`, `status`, `validate`, `rollback`, `import`, `pull`
 - `cloud`: `config`, `status`, `log-report`, `feedback`, `sync`, `export`, `upload`, `conflicts`, `dead-letter`, `projects`, `devices`, `onboard`
-- `auth`: `login`, `status`, `set-key`, `logout`
+- `auth`: `login`, `status`, `verify`, `set-key`, `logout`
 - `telemetry`: `inspect`, `export`, `flush`, `upload`
 - `config`: `set`
 - `daemon`: `start`, `stop`, `status`, `attach`
+- `interaction`: `list`, `show`, `answer`, `cancel`
 - `supervisor`: `install`, `status`, `rpc`, `reset-budget`, `recover`, `rebind-target`, `gate`, `repair-fence`, `findings`, `next-round`, `finish`
 - `plugin`: `list`, `status`, `install`, `uninstall`, `zcode`
 - `project`: `analyze`, `show`, `sync`, `list`, `refresh`, `settings`
@@ -100,6 +105,8 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 - `mining-audit`: `audit`, `explore`, `harden`
 - `test-verify`: `verify`, `mutate`
 - `advisory`: `list`, `export`
+- `issue`: `report`
+- `feedback`: `(快捷等同于 bugx issue report)`
 - `report`: `formal`, `visual`, `both`, `serve`
 
 ## 每个子命令的用途速查
@@ -112,7 +119,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | --- | --- |
 | `mcp serve` | 启动本地 MCP Supervisor 常驻 stdio 服务；仅由宿主配置调用，前台手工运行会占用当前进程。 |
 | `mcp prune` | 清理未使用/过期 MCP 配置；先看 dry-run/精确目标，属于配置写入。 |
-| `mcp schema` / `mcp docs` | 输出 MCP 工具 schema 或说明；查协议、集成或参数契约时使用，只读。 |
+| `mcp schema` / `mcp docs` | 输出 MCP schema，或执行 `mcp docs serve [--mode hybrid\|local-only\|remote-only]` / `mcp docs sync [--force\|--offline]` | `schema` 只读；`serve` 为宿主双域只读文档通道（官档可热同步至全局缓存，项目文档严格本地）；`sync`/`index` 会更新索引。 |
 | `mcp spy` | 诊断 MCP 请求/轮询；用于宿主调用异常定位，可能读取本地日志。 |
 | `capability plan` / `capability install` | `plan` 只读生成能力建议；`install` 按计划安装运行时与宿主能力，会写本机/项目配置。 |
 | `mcp-runtime verify` | 校验已有锁定 runtime 的文件与 hash，只读。 |
@@ -146,8 +153,8 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | `cloud devices` | 查项目绑定设备；可能需要网络请求。 |
 | `cloud export` / `upload` | 导出本地 V2 bundle（本地写文件），或上传并恢复远端同步基线（联网且可能覆盖基线）。 |
 | `cloud feedback` / `log-report` | 批量上报错题卡质量反馈或诊断日志；均会出网，仅在用户明确要求且数据范围清楚时用。 |
-| `auth status` | 查看本地登录态；加 `--verify` 才发网络请求验证。 |
-| `auth login` / `set-key` / `logout` | 登录、写入密钥或清除凭据；绝不在 shell 输出/报告中回显 secret。 |
+| `auth status` / `verify` | 查看本地登录态；`auth verify` 或加 `--verify` 才发网络请求验证。 |
+| `auth login` / `set-key` / `logout` | 登录（非交互可加 `--non-blocking` 与 `--device-code`）、写入密钥或清除凭据；绝不在 shell 输出/报告中回显 secret。 |
 | `telemetry inspect` / `export` | 本地检查或导出独立的脱敏飞轮 outbox；`inspect` 读本地审计，`export` 创建加密离线包，不等于 cloud knowledge bundle。 |
 | `telemetry flush` / `upload` | 发送独立遥测队列，默认 batch size=20；成功项从 outbox 清除、失败项保留并递增尝试。门禁未关闭时会联网；关闭时不联网并返回 0 只表示跳过。未配置时遥测默认开启，普通 CLI 命令每日最多自动记录一次安装/心跳；如用户要求不上传，先设置 `telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0`。 |
 | `knowledge status` / `export` | 查看/导出知识库；export 创建本地包。 |
@@ -156,7 +163,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | `project show` / `list` | 查询项目画像，不上传代码。 |
 | `project settings` | 修改项目画像/分析设置，先确认当前值和要改的字段。 |
 | `project sync` | 登记/绑定项目并把紧凑项目画像与代码规模指标上传云端；完整 profile 留本地。它不是知识库同步，仍会联网，成功 JSON 应包含 `status=ok`、`project_id`、`synced=true`。 |
-| `config set` | 修改本机 BugX 隐私/遥测配置；先使用有效键/值，不得为了过门禁降低隐私级别。 |
+| `config set` | 修改本机 BugX 隐私、遥测或官档远端同步开关（如 `cloud.docs_remote_enabled false`）；先使用有效键/值，不得为了过门禁降低隐私级别。 |
 | `lesson init` / `bootstrap` | 仅在 ledger/seed/schema 完全缺失且项目 layout 有效时建立项目知识账本；会写入知识数据。 |
 | `lesson migrate` | 对现有 ledger 做 schema 升级；先备份并查看当前 revision。 |
 | `lesson validate` | 校验账本；`--deep` 还检查事件链、关系、receipt、tombstone、FTS 与归档，只读。 |
@@ -261,7 +268,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | --- | --- |
 | `hosts` / `doctor` / `log` | 分别发现宿主、诊断安装/项目、查错误和调用链；优先用于排障。`doctor --repair` 会写入已实现的修复；`bugx update --repair-assets` 才会写入 CLI 安装资源。 |
 | `view` / `stats` | 安全读取源码切片、查看统计；stats 的 `--global` 会扩大读取范围。 |
-| `help` / `completion` | 查帮助、输出 shell 补全文本；completion 不负责改写 shell 配置文件。 |
+| `help` / `completion` / `guide` | 查帮助、输出 shell 补全文本、检索双域操作指南；`completion` 不改写 shell 配置，`guide --offline` 零出网。 |
 | `self-audit` | 只读自审 BugX CLI/MCP 入口；目标要是 BugX 源码。 |
 | `init` / `reset` / `uninstall` | 项目初始化、归档后重建、移除宿主入口；分别会写项目态、重建状态或删除宿主配置。检查 dry-run 与备份范围。 |
 | `install` / `update` | `install` 会安装/更新全局引擎、初始化项目运行态/ledger 并写宿主入口；`update` 更新 CLI/全局引擎。若来源是含脏改动的 BugX 源码树，source-tree guard 拒绝后不得自行追加 `--force`。 |
@@ -279,12 +286,13 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | 初始化缺失经验账本 | 仅当 layout 有效且 seed、SQLite DB、manifest 都缺失时 `lesson init` → `lesson validate`；若 SQLite marker/manifest 存在但 DB 缺失，先备份/恢复，不能 rebuild。 |
 | 单元漏洞验证 | 定点代码读取 → `test-audit` 或 `test-generate` → 用户授权后运行 `test-verify verify` / 最小 PoC → 保存完整命令、退出码、断言和证据。 |
 | 已有审计产物出报告 | `report formal|visual|both --root <ROOT>` → 核对产物清单/哈希；报告不会证明漏洞扫描已执行。 |
+| 遇到未捕获异常或偶发故障需要向服务端反馈 | `bugx issue report --dry-run`（本地脱敏预览）→ `bugx issue report --yes`（或快捷命令 `bugx feedback`）。 |
 
 ## 子命令怎么选
 
 | 命令组 | 什么时候用、对应动作 | 使用边界 |
 | --- | --- | --- |
-| `mcp` | `schema/docs` 查协议；`serve` 启动常驻服务；`spy` 诊断 MCP 请求；`prune` 清理过期配置 | `serve` 会常驻；`prune` 会写配置。先查当前项目/宿主的 MCP 状态。 |
+| `mcp` | `schema` 查协议；`docs sync|serve` 维护/服务双域文档库；`serve` 启动常驻控制面；`spy` 诊断 MCP 请求；`prune` 清理过期配置 | `serve` 会常驻；`prune` 会写配置；`docs` 与 `lesson` 账本物理正交隔离。先查当前项目/宿主的 MCP 状态。 |
 | `capability` / `mcp-runtime` | `capability plan` 先算项目要什么；`install` 才部署。runtime 用 `verify` 查已有安装，再按需 `install/start/rollback` | 计划与校验只读；安装、启动、回滚会改变本机运行环境。 |
 | `engine` | `status` 看生命周期；`pre` 过启动门禁；`prompt/path` 查阶段协议/资源；`workers/post` 只有在状态机当前阶段要求时才用 | `pre` 不等于开始挖掘；按状态机的调用顺序使用。退出码 2 是待决策门禁，不是语法错误。 |
 | `supervisor` | `status` 查 Supervisor；`rpc` 走协议回退；`install` 部署 canonical MCP；`findings/next-round/finish` 查看或推进监督状态；`recover/rebind-target/reset-budget/repair-fence` 做定向恢复 | `install` 会写宿主配置；恢复命令会改状态。`install_supervisor_mcp` 门禁 action 的宿主接入命令是 `bugx install --root <ROOT> --agent <HOST> --allow-missing --non-interactive`，不是 `bugx supervisor install`；安装成功后可能必须重启宿主。 |
@@ -298,6 +306,7 @@ CLI 布尔选项是开关：直接写 `--force`、`--json`、`--execute` 等即�
 | `logic-analysis` / `mining-audit` | 前者 `validate/bind/bind-finding` 校验结构化证据；后者 `explore` 勘测、`audit` 评估方案、`harden` 生成新方案 | 证据绑定可能写文件；harden 会新建/覆盖方案，先选定输出路径。 |
 | `test-verify` | `mutate` 只生成变异预览；`verify` 执行隔离变异测试 | verify 会执行目标和测试命令，必须先检查路径、测试命令、时限和沙箱。 |
 | `advisory` / `report` | `advisory list/export` 查询或导出公告草案；`report formal/visual/both` 基于已有产物出报告，`serve` 本地预览 | export/report 不等于发布漏洞公告；serve 是长驻本地服务。 |
+| `issue` / `feedback` | `issue report` 提取最近错误会话现场、运行环境与核心日志切片并经三级脱敏后上报至服务端；`feedback` 是快捷别名 | 仅处理错误诊断现场；支持 `--mask-source` 掩码源码块、`--anonymous` 匿名提交、`--dry-run` 本地预览。 |
 
 上表按当前安装版命令族给出选路；所有可选值与 leaf flags 仍须对照该安装版帮助。若一次门禁里给出的 action、文字描述和当前帮助互相矛盾，不猜测、不执行扩大范围的命令，先用 `bugx log`/状态文件定位当前状态并让用户确认范围。
 

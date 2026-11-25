@@ -123,15 +123,22 @@ def _mcp_entry_state(name: str, entry: object) -> str:
     """Classify a required MCP without executing or resolving external code."""
     if not isinstance(entry, dict):
         return "recommended"
+    if entry.get("disabled") is True or entry.get("enabled") is False:
+        return "disabled"
     if "enabled" in entry:
         return "incompatible"
+    if name == "bugx-docs" and isinstance(entry.get("url"), str) and entry["url"].strip():
+        try:
+            from core.host_runtime.mcp_process_tracker import probe_remote_docs_mcp
+            probe = probe_remote_docs_mcp({"bugx-docs": entry})
+            return "configured" if probe.get("healthy") else "incompatible"
+        except Exception:
+            return "incompatible"
     command = entry.get("command")
     tokens = command if isinstance(command, list) else []
     tokens = [item for item in tokens if isinstance(item, str)]
     if _is_incompatible_managed_mcp_command(name, tokens):
         return "incompatible"
-    if entry.get("disabled") is True:
-        return "disabled"
     if tokens == OPENCODE_PINNED_MCP_COMMANDS.get(name):
         return "configured"
     return "custom"
@@ -474,66 +481,51 @@ def provision_targeted_mcp_runtime(root: Path, selected: set[str]) -> set[str]:
     return probe_existing()
 
 
-def _mcp_recommendations(root: Path) -> list[dict[str, object]]:
+def _mcp_recommendations(
+    root: Path,
+    *,
+    installed_hosts: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, object]]:
     """Report host MCP recommendations without starting external code."""
-    config = root.resolve() / CONFIG_NAME
-    configured: dict[str, object] = {}
-    if config.is_file() and not config.is_symlink():
-        try:
-            payload = json.loads(config.read_text(encoding="utf-8"))
-            mcp = payload.get("mcp") if isinstance(payload, dict) else None
-            servers = mcp.get("servers") if isinstance(mcp, dict) else None
-            if isinstance(servers, dict):
-                configured = servers
-        except (OSError, json.JSONDecodeError):
-            configured = {}
-    lock_disabled = _lock_disabled_servers()
-    recommendations: list[dict[str, object]] = []
-    for item in REQUIRED_MCP_RECOMMENDATIONS:
-        name = str(item["name"])
-        entry = configured.get(item["name"])
-        status = _mcp_entry_state(name, entry)
-        if name in lock_disabled and status != "incompatible":
-            # 只要 lock 停用就一律如实报告（不仅是已配置的条目）：
-            # 否则会给用户打印一条**必然失败**的启动命令。
-            status = "disabled_by_lock"
-        recommendation = dict(item)
-        is_conditional_required = name in {"bugx-supervisor", "bugx-supervisor-worker"}
-        recommendation.update({
-            "required": is_conditional_required,
-            "requirement": "conditional" if is_conditional_required else "optional",
-            "required_when": (
-                "审查方式=mcp-auto"
-                if is_conditional_required else "项目类型/审查方向需要该能力"
-            ),
-            "status": status,
-        })
-        recommendations.append(recommendation)
-    return recommendations
+    return _collect_mcp_recommendations(root, installed_hosts=installed_hosts)
 
 
 def _print_mcp_recommendations(recommendations: list[dict[str, object]]) -> None:
     """Print a compact host-neutral MCP setup recommendation."""
-    print("  MCP 工具建议（由宿主 Agent 按需加载，BugX CLI 不启动外部 MCP）：")
+    print("  MCP 工具配置概览（核心通道随宿主装配；可选能力按项目栈在审计 pre 阶段启用）：")
     for item in recommendations:
         status = str(item["status"])
-        marker = "✓" if status in {"configured", "disabled_by_lock"} else "!"
-        requirement = "条件必需" if item.get("requirement") == "conditional" else "按需"
-        print(f"    {marker} {item['name']}：{requirement}；{status}；{item['purpose']}")
-        if status == "disabled_by_lock":
+        marker = "✓" if status in {"configured", "disabled_by_lock", "audit_optional", "global_mode"} else "!"
+        req = str(item.get("requirement") or "optional")
+        if req == "required":
+            requirement = "必需"
+        elif req == "conditional":
+            requirement = "条件必需"
+        else:
+            requirement = "按需（审计阶段）"
+        status_label = {
+            "configured": "已就绪",
+            "global_mode": "全局随宿主就绪",
+            "audit_optional": "延迟至审计按需启用",
+        }.get(status, status)
+        print(f"    {marker} {item['name']}：{requirement}；{status_label}；{item['purpose']}")
+        if status in {"disabled_by_lock", "audit_optional", "global_mode"}:
             continue
         if status == "incompatible":
+            hint = str(item.get("install_hint") or "")
             print(
                 f"      建议：旧版 BugX MCP 命令不再接受自动迁移；请手动删除 "
-                f"`mcp.servers.{item['name']}`，再运行 `bugx install --agent opencode --root <项目路径>`"
+                f"`mcp.servers.{item['name']}`，再运行 `{hint}`"
             )
             continue
         if status != "configured":
-            print(f"      启动命令：{item['command']}")
-            hint = str(item["install_hint"])
+            hint = str(item.get("install_hint") or "")
             if status == "custom":
                 hint += "；检测到自定义命令，BugX 不会覆盖，请由用户确认其版本"
-            print(f"      建议：{hint}")
+            else:
+                print(f"      启动命令：{item['command']}")
+            if hint:
+                print(f"      建议：{hint}")
 
 
 def _mcp_runtime_doctor_payload(root: Path, runtime_root: Path,
@@ -570,10 +562,15 @@ def _mcp_runtime_doctor_payload(root: Path, runtime_root: Path,
     return result.returncode, payload
 
 
-def _mcp_runtime_check(root: Path) -> tuple[bool, str]:
-    """Doctor row for the offline MCP runtime; absence is informational."""
+def _mcp_runtime_check(root: Path, *, strict: bool = False) -> tuple[bool, str]:
+    """Doctor row for the offline MCP runtime; absence fails under --strict."""
     runtime_root = default_mcp_runtime_root()
     if not runtime_root.exists():
+        if strict:
+            return False, (
+                f"未安装离线 MCP runtime（--strict 严格模式要求就绪）：{runtime_root} 不存在；"
+                "运行 bugx mcp-runtime install 可构建离线 MCP runtime"
+            )
         return True, (
             f"未安装离线 MCP runtime（可选）：{runtime_root} 不存在；"
             "运行 bugx mcp-runtime install 可移除宿主 npx 启动路径"
@@ -638,6 +635,176 @@ def _run_external(
     return stdout, None
 
 
+def _collect_mcp_recommendations(
+    root: Path,
+    *,
+    installed_hosts: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, object]]:
+    """Collect core MCP readiness and optional audit-time capability notes."""
+    from .engine_installer import _is_global_home_scope
+
+    global_scope = _is_global_home_scope(root)
+    active_hosts: list[str] = sorted({str(h) for h in (installed_hosts or ()) if str(h)})
+    if not active_hosts and not global_scope:
+        hosts_path = root.resolve() / ".bugx" / "hosts.json"
+        if hosts_path.is_file() and not hosts_path.is_symlink():
+            try:
+                hosts_data = json.loads(hosts_path.read_text(encoding="utf-8"))
+                raw_list = hosts_data.get("installed") if isinstance(hosts_data, dict) else None
+                if isinstance(raw_list, list):
+                    active_hosts = sorted({
+                        str(item["name"]) for item in raw_list
+                        if isinstance(item, dict) and isinstance(item.get("name"), str)
+                    })
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                active_hosts = []
+
+    config = root.resolve() / CONFIG_NAME
+    configured: dict[str, object] = {}
+    if not global_scope and config.is_file() and not config.is_symlink():
+        try:
+            payload = json.loads(config.read_text(encoding="utf-8"))
+            mcp = payload.get("mcp") if isinstance(payload, dict) else None
+            servers = mcp.get("servers") if isinstance(mcp, dict) else None
+            if isinstance(servers, dict):
+                configured = servers
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            configured = {}
+
+    lock_disabled = _lock_disabled_servers()
+    core_channels = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+    missing_hosts: list[str] = []
+    if not global_scope and active_hosts:
+        try:
+            from ..commands.agent import _check_host_mcp_config
+
+            for host_name in active_hosts:
+                ok_host, _ = _check_host_mcp_config(root, host_name)
+                if not ok_host:
+                    missing_hosts.append(host_name)
+        except Exception:
+            pass
+
+    recommendations: list[dict[str, object]] = []
+    for item in REQUIRED_MCP_RECOMMENDATIONS:
+        name = str(item["name"])
+        recommendation = dict(item)
+        if name in core_channels:
+            if active_hosts and not missing_hosts:
+                status = "configured"
+                hint = f"已在宿主（{', '.join(active_hosts)}）就绪"
+            elif missing_hosts:
+                status = "missing"
+                hint = (
+                    "请运行 `bugx install --agent "
+                    + missing_hosts[0]
+                    + (f" --root {root}` 补齐核心 MCP" if not global_scope else "` 补齐核心 MCP")
+                )
+            elif global_scope:
+                status = "global_mode"
+                hint = "核心通道随宿主全局资产装配；审计具体项目时自动绑定项目根"
+            else:
+                entry = configured.get(name)
+                status = _mcp_entry_state(name, entry)
+                hint = str(item.get("install_hint") or "")
+            recommendation.update({
+                "required": True,
+                "requirement": "required",
+                "required_when": "已选宿主核心协调与文档检索通道",
+                "status": status,
+                "install_hint": hint,
+            })
+            recommendations.append(recommendation)
+            continue
+
+        entry = configured.get(name)
+        status = _mcp_entry_state(name, entry) if entry is not None else "audit_optional"
+        if name in lock_disabled and status != "incompatible":
+            status = "disabled_by_lock"
+        recommendation.update({
+            "required": False,
+            "requirement": "optional",
+            "required_when": "项目类型/审查方向需要该能力（审计 pre 阶段按需启用）",
+            "status": status,
+            "install_hint": (
+                str(item.get("install_hint") or "")
+                if status in {"custom", "incompatible"}
+                else "可选能力 MCP：进入项目审计 `pre` 阶段按技术栈自动探测并询问是否启用"
+            ),
+        })
+        recommendations.append(recommendation)
+    return recommendations
+
+
+def _windows_project_mcp_processes(
+    root: Path,
+) -> tuple[list[dict[str, object]] | None, str | None]:
+    """Enumerate project-scoped BugX MCP worker processes on Windows via PowerShell CIM."""
+    resolved = str(root.resolve()).lower()
+    ps_script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$now=[DateTimeOffset]::UtcNow;"
+        "$items=@(Get-CimInstance Win32_Process | Where-Object { "
+        "$_.CommandLine -and $_.CommandLine -match 'bugx_mcp_server\\.py|bugx.*mcp.*serve' "
+        "} | ForEach-Object { "
+        "$age=0; if ($_.CreationDate) { "
+        "try { $age=[Math]::Max(0,[int]($now - [DateTimeOffset]$_.CreationDate).TotalSeconds) } catch {} "
+        "}; "
+        "[PSCustomObject]@{pid=[int]$_.ProcessId;ppid=[int]$_.ParentProcessId;"
+        "age_seconds=[double]$age;command=[string]$_.CommandLine} "
+        "});"
+        "ConvertTo-Json -InputObject $items -Compress"
+    )
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            check=False,
+            creationflags=creationflags,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"unsupported_platform: windows powershell enumeration failed ({exc})"
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout).strip()[:200] or f"rc={res.returncode}"
+        return None, f"unsupported_platform: windows cim query failed ({detail})"
+    raw = (res.stdout or "").strip()
+    if not raw or raw == "null":
+        return [], None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, f"unsupported_platform: windows process json parse failed ({exc})"
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list):
+        return [], None
+    entries: list[dict[str, object]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        cmd = str(item.get("command") or "")
+        if " serve" not in cmd.lower():
+            continue
+        cmd_norm = cmd.lower().replace("/", "\\")
+        root_win = resolved.replace("/", "\\")
+        if resolved not in cmd.lower() and root_win not in cmd_norm:
+            continue
+        pid = item.get("pid")
+        ppid = item.get("ppid")
+        if not isinstance(pid, int) or pid <= 0:
+            continue
+        entries.append({
+            "pid": pid,
+            "ppid": int(ppid) if isinstance(ppid, int) and ppid > 0 else None,
+            "age_seconds": float(item.get("age_seconds") or 0.0),
+            "command": cmd,
+        })
+    return entries, None
+
+
 def _project_mcp_processes(
     root: Path,
 ) -> tuple[list[dict[str, object]] | None, str | None]:
@@ -648,8 +815,8 @@ def _project_mcp_processes(
     2. ``--root`` 必须与解析后的项目根**精确匹配**（不误伤其他项目/手工进程）；
     3. **活动判定**：进程自己发布的 session proof 若比阈值更新，说明它是**活跃会话**，不得清理。
     """
-    if os.name == "nt":  # pragma: no cover - 平台不支持时如实返回未知
-        return None, "unsupported_platform: process enumeration unavailable"
+    if os.name == "nt":
+        return _windows_project_mcp_processes(root)
     stdout, failure = _run_external(["ps", "-eo", "pid=,ppid=,etime=,command="])
     if failure is not None:
         return None, failure
@@ -683,6 +850,23 @@ def _project_mcp_processes(
 
 def _live_pids() -> set[int] | None:
     """当前存活 PID 集合；枚举失败返回 None（调用方据此回退到保守旧判据）。"""
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            res = subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-NonInteractive", "-Command",
+                    "Get-CimInstance Win32_Process | ForEach-Object { $_.ProcessId }",
+                ],
+                capture_output=True, text=True, timeout=5, check=False,
+                creationflags=creationflags,
+            )
+            if res.returncode != 0:
+                return None
+            live = {int(tok.strip()) for tok in (res.stdout or "").splitlines() if tok.strip().isdigit()}
+            return live or None
+        except (OSError, subprocess.SubprocessError):
+            return None
     stdout, failure = _run_external(["ps", "-eo", "pid="])
     if failure is not None:
         return None
@@ -792,6 +976,12 @@ def _mcp_session_hygiene_check(
     """Doctor row：同项目 MCP 会话进程数与**遗弃**判定（阈值化 + advisory）。"""
     entries, failure = _project_mcp_processes(root)
     if failure is not None:
+        lower = failure.lower()
+        if any(
+            token in lower
+            for token in ("unsupported_platform", "unavailable", "permission", "restricted")
+        ):
+            return True, f"当前环境限制无法枚举项目 MCP 进程，已跳过会话卫生检查（{failure}）"
         return False, f"同项目 MCP 进程枚举失败（结果未知）：{failure}"
     if not entries:
         return True, "无同项目 MCP 会话进程"

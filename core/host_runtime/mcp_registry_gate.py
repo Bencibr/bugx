@@ -276,14 +276,17 @@ def mcp_tier(name: str) -> str | None:
 def host_entry_status(root: Path) -> dict[str, object]:
     """宿主侧入口（skill/MCP 入口文件）就绪性检查（DOC-236 C7）。
 
-    数据源：``.bugx/hosts.json``（由 ``bugx install`` 写入，含 ``bugx_build_id`` 与逐文件
-    ``sha256``）。这样引擎侧无需依赖 CLI 层即可判定"宿主入口是否已装配/是否过期"。
+    数据源：``.bugx/hosts.json``（由 ``bugx install`` 写入，含语义版本、
+    ``bugx_build_id`` 与逐文件 ``sha256``）。语义版本和入口文件完整性是硬门禁；
+    Build ID 只是构建身份，日常递增不能单独判定宿主入口不兼容。
 
     只读、不装配；任何异常一律返回 ``ready=False``（fail-closed，绝不谎报就绪）。
     """
     import hashlib as _hashlib
 
-    result: dict[str, object] = {"ready": False, "reason": "", "hosts": [], "stale_files": []}
+    result: dict[str, object] = {
+        "ready": False, "reason": "", "hosts": [], "stale_files": [], "warnings": [],
+    }
     try:
         record_path = Path(root) / ".bugx" / "hosts.json"
         if record_path.is_symlink() or not record_path.is_file():
@@ -301,19 +304,38 @@ def host_entry_status(root: Path) -> dict[str, object]:
         result["reason"] = "宿主入口登记为空（尚未安装任何宿主入口）"
         return result
 
+    from core.infra.build_info import BASE_VERSION
+
+    recorded_version = payload.get("bugx_version")
+    if not isinstance(recorded_version, str) or not recorded_version:
+        result["reason"] = "宿主入口登记缺少语义版本，无法验证入口契约"
+        return result
+    if recorded_version != BASE_VERSION:
+        result["reason"] = (
+            f"宿主入口为 {recorded_version}，当前引擎为 {BASE_VERSION}"
+            "（语义版本不一致，宿主入口需重新装配并重启）"
+        )
+        return result
+
     try:
         from core.infra.build_info import get_build_id as _get_build_id
         current_build = _get_build_id()
-    except Exception:  # noqa: BLE001 - 读不到 build id 时不谎报就绪
+    except Exception:  # noqa: BLE001 - Build 仅作诊断；身份不可读时不据此阻断
         current_build = None
     recorded_build = payload.get("bugx_build_id")
-    if (isinstance(recorded_build, int) and isinstance(current_build, int)
-            and recorded_build != current_build):
-        result["reason"] = (
-            f"宿主入口为 build {recorded_build}，当前引擎为 build {current_build}"
-            "（引擎已更新，宿主入口需重新装配并重启）"
+    build_matches = (
+        isinstance(recorded_build, int) and not isinstance(recorded_build, bool)
+        and isinstance(current_build, int) and not isinstance(current_build, bool)
+        and recorded_build == current_build
+    )
+    result["recorded_build_id"] = recorded_build
+    result["current_build_id"] = current_build
+    result["build_matches"] = build_matches
+    if not build_matches:
+        result["warnings"].append(
+            f"宿主入口装配于 build {recorded_build}，当前引擎为 build {current_build}"
+            "（构建身份漂移；入口文件与语义契约一致时不阻断）"
         )
-        return result
 
     stale: list[str] = []
     hosts: list[str] = []
@@ -345,7 +367,8 @@ def host_entry_status(root: Path) -> dict[str, object]:
         result["reason"] = "宿主入口文件缺失或被改动：" + ", ".join(stale[:3])
         return result
     result["ready"] = True
-    result["reason"] = f"宿主入口就绪（{', '.join(hosts)}；build {recorded_build}）"
+    build_label = str(recorded_build) if build_matches else f"{recorded_build}→{current_build}"
+    result["reason"] = f"宿主入口就绪（{', '.join(hosts)}；build {build_label}）"
     return result
 
 

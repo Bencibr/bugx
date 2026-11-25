@@ -36,7 +36,8 @@ There are 12 install/detection adapter names, 7 ready engine plugins, 2 ACP-read
 ## Public manuals
 
 - [Chinese user guide](01_guides/01_USER_GUIDE.md): installation, configuration, lifecycle, MCP/ACP, cloud scope, reports, and recovery.
-- [CLI command reference](01_guides/02_COMMANDS.md): the current 42-command parser surface, options, defaults, scopes, side effects, and exit behavior.
+- [CLI command reference](01_guides/02_COMMANDS.md): the current 43-command parser surface, options, defaults, scopes, side effects, and exit behavior.
+- Topic cookbooks ([Cloud Auth](01_guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md), [Host Matrix](01_guides/05_HOST_MATRIX_AND_DISPATCH.md), [Probes & PoC](01_guides/06_PROBES_AND_POC_COOKBOOK.md), [Lifecycle States](01_guides/07_LIFECYCLE_AND_RECOVERY_STATES.md), [Lessons & Privacy](01_guides/08_LESSONS_AND_PRIVACY_BOUNDARY.md)): indexed offline in `core/bundled_docs/` and hot-synced via `bugx-docs`.
 - [Troubleshooting and recovery](01_guides/03_TROUBLESHOOTING.md): symptom-driven evidence collection and safe next steps.
 - [Environment variables](04_reference/01_ENVIRONMENT_VARIABLES.md): shell setup, scope, sensitive boundaries, and source inventory.
 - [AI reference](03_ai/01_AI_REFERENCE.md): machine-oriented MCP, lifecycle, evidence, state, and failure contract.

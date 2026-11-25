@@ -307,6 +307,38 @@ def global_engine_root() -> Path:
     return (Path.home() / ".bugx" / "core").resolve()
 
 
+def _global_bugx_dir() -> Path:
+    """Return the user-global ~/.bugx state directory."""
+    try:
+        return (Path.home() / ".bugx").resolve()
+    except OSError:
+        return Path.home() / ".bugx"
+
+
+def _is_global_home_scope(root: Path | None) -> bool:
+    """Return True when root targets user-global home scope rather than a project."""
+    if root is None:
+        return True
+    try:
+        resolved = root.expanduser().resolve()
+    except OSError:
+        resolved = root.expanduser()
+    try:
+        home_resolved = Path.home().resolve()
+    except OSError:
+        home_resolved = Path.home()
+    if resolved == home_resolved:
+        return True
+    dev_mode = os.environ.get("BUGX_DEV_MODE", "").strip().lower() in {"1", "true", "yes"}
+    if not dev_mode:
+        try:
+            if (resolved / ".bugx").resolve() == _global_bugx_dir():
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def refresh_i18n_after_engine_swap() -> None:
     """引擎 staging 换血后热重载 i18n（宿主镜像渲染正确性的前提）。
 
@@ -330,8 +362,12 @@ def refresh_i18n_after_engine_swap() -> None:
 
 def _legacy_project_core_present(root: Path) -> bool:
     """Return whether a project still exposes the removed executable surface."""
+    if _is_global_home_scope(root):
+        return False
     legacy = project_core(root)
     try:
+        if not _is_reparse_point(legacy) and legacy.resolve() == global_engine_root().resolve():
+            return False
         return _is_reparse_point(legacy) or legacy.exists()
     except OSError:
         return True
@@ -408,9 +444,14 @@ def _distribution_located_path(located: object) -> Path | None:
 
 def _asset_candidates() -> list[Path]:
     repository_root = _source_checkout_root()
-    candidates: list[Path] = [
-        Path(sysconfig.get_path("data")) / "share" / "bugx-agent" / "core",
-    ]
+    # Prefer the data files owned by the distribution that supplied this CLI.
+    # On Windows a user-site wheel can coexist with an older system-site
+    # ``sysconfig.get_path("data")/share/bugx-agent`` tree.  Looking at the
+    # system path first silently selects that stale engine and makes a current
+    # CLI appear to be a downgrade.  The distribution record is the closest
+    # trustworthy match for the imported CLI; the system path remains a
+    # fallback for legacy/global installs.
+    candidates: list[Path] = []
 
     def add_secure_candidate(candidate: Path, *, index: int = 0) -> bool:
         try:
@@ -455,6 +496,9 @@ def _asset_candidates() -> list[Path]:
                     candidates.append(located.parent)
     except importlib.metadata.PackageNotFoundError:
         pass
+    candidates.append(
+        Path(sysconfig.get_path("data")) / "share" / "bugx-agent" / "core",
+    )
     # Checkout assets are deliberately absent by default. The explicit
     # BUGX_DEV_ASSET_ROOT=1 branch above is the only source-tree opt-in.
     return list(dict.fromkeys(path.resolve() for path in candidates))
@@ -1068,7 +1112,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         except (OSError, ValueError):
             payload = None
         version = payload.get("bugx_version") if isinstance(payload, dict) else None
-        if version == "0.1.3":
+        if version == "0.1.4":
             version = os.environ.get("BUGX_VERSION", __version__)
         if isinstance(version, str) and version.strip():
             return _full_engine_version(version.strip(), destination)
@@ -1081,7 +1125,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         match = re.search(r'bugx_version:\s*"([^"]+)"', content)
         if match:
             version = match.group(1)
-            if version == "0.1.3":
+            if version == "0.1.4":
                 version = os.environ.get("BUGX_VERSION", __version__)
             return _full_engine_version(version, destination)
     return None
@@ -1195,6 +1239,8 @@ def _install_engine(
                 destination_nonempty = True
         elif destination.exists() or destination.is_symlink():
             destination_nonempty = True
+        installed_version = _installed_engine_version(destination)
+        source_version = _full_engine_version(__version__, source)
         if not force and destination_nonempty:
             if installed_build_id is None:
                 raise CliError(
@@ -1205,10 +1251,23 @@ def _install_engine(
                 raise CliError(
                     "安装源缺少 Build ID 标记，拒绝安装；请检查安装资源或显式传入 --force。"
                 )
-            if installed_build_id > source_build_id:
+            is_downgrade = _is_newer_version(installed_version, source_version or __version__)
+            if not is_downgrade and (installed_version is None or source_version is None):
+                if installed_build_id > source_build_id:
+                    is_downgrade = True
+            if is_downgrade:
+                self_ok, detail = _engine_self_integrity(destination)
+                if self_ok:
+                    print(
+                        f"[engine] 已跳过引擎替换：已安装 {installed_version or f'build_id={installed_build_id}'} 比当前 CLI "
+                        f"{source_version or __version__} 更新且自身完整（{detail}）；如需强制回退请追加 --force",
+                        file=sys.stderr,
+                    )
+                    return 0, 0
                 raise CliError(
-                    f"拒绝降级全局引擎：已安装 build_id={installed_build_id}，"
-                    f"安装源 build_id={source_build_id}；如确需回退请显式传入 --force。"
+                    f"拒绝降级全局引擎：已安装版本 {installed_version or f'build_id={installed_build_id}'} "
+                    f"高于当前安装源 {source_version or f'build_id={source_build_id}'}，且完整性校验失败（{detail}）；"
+                    "如确需回退请显式传入 --force。"
                 )
         expected = _engine_file_manifest(source)
         healthy, detail = _engine_integrity_status(source, destination)
@@ -1514,6 +1573,13 @@ def _engine_roots() -> list[Path]:
         bundled = asset_root()
     except CliError:
         bundled = None
+    if bundled is None:
+        try:
+            repo_core = _source_checkout_root() / "core"
+            if repo_core.is_dir() and (repo_core / "launch_bugx.py").is_file():
+                bundled = repo_core
+        except Exception:
+            pass
     if bundled is not None and bundled.is_dir() and bundled not in roots:
         roots.append(bundled)
     return roots
@@ -1801,7 +1867,7 @@ def _version_marker(path: Path, pattern: re.Pattern[str], *, allow_symlink: bool
     except (OSError, UnicodeError, CliError):
         return None
     value = match.group(1) if match else None
-    if value == "0.1.3":
+    if value == "0.1.4":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if value and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
@@ -1815,7 +1881,7 @@ def _json_version_marker(path: Path, key: str) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError, CliError):
         return None
     value = payload.get(key) if isinstance(payload, dict) else None
-    if value == "0.1.3":
+    if value == "0.1.4":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if isinstance(value, str) and _CONTRACT_VERSION_RE.fullmatch(value) else None
 

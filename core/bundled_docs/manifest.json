@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "contract_version": "0.1.4",
+  "file_count": 22,
+  "total_bytes": 485544,
+  "files": [
+    {
+      "path": "OVERVIEW.md",
+      "source": "README.md",
+      "bytes": 23985,
+      "sha256": "d454b2a01346bb88b08bdcf119919ee042861684ea4a80ee12ae902a1c58e045"
+    },
+    {
+      "path": "README_EN.md",
+      "source": "README_EN.md",
+      "bytes": 19675,
+      "sha256": "badb439d333a4d2ab501e8a27af07fa852831b4bb9a215b29d09134f5b5ff2e1"
+    },
+    {
+      "path": "reference/01_ENVIRONMENT_VARIABLES.md",
+      "source": "docs/04_reference/01_ENVIRONMENT_VARIABLES.md",
+      "bytes": 41736,
+      "sha256": "6ff8979e950e8a53a5f59b4e371454a64831424a5025815d1af0ea658bdc95ec"
+    },
+    {
+      "path": "reference/04_REPOSITORY_TOPOLOGY.md",
+      "source": "docs/02_architecture/04_REPOSITORY_TOPOLOGY.md",
+      "bytes": 13055,
+      "sha256": "898dde0828e6fcf9b7e86fe903ccdac33e41b5e3acda65faadfc8439b1e39626"
+    },
+    {
+      "path": "hosts/platform_bugx_SKILL.md",
+      "source": "skills/platform/bugx/SKILL.md",
+      "bytes": 3941,
+      "sha256": "e9eca96de0c7fb0064fe6f7d5b151280885570d224d15c8111c3ec618fe0e31d"
+    },
+    {
+      "path": "hosts/cline_bugx_SKILL.md",
+      "source": "ecosystem/integrations/cline/skills/bugx/SKILL.md",
+      "bytes": 9164,
+      "sha256": "754aa20aafb31200f10493d50aa61a342c694c957adf0426e4b43f7b29febece"
+    },
+    {
+      "path": "guides/01_USER_GUIDE.md",
+      "source": "docs/01_guides/01_USER_GUIDE.md",
+      "bytes": 64792,
+      "sha256": "9634550063c38c7ed7c13bb5cd86c937c4f45ecd8a0c214e3fc486260f275930"
+    },
+    {
+      "path": "guides/02_COMMANDS.md",
+      "source": "docs/01_guides/02_COMMANDS.md",
+      "bytes": 59226,
+      "sha256": "992433ffba270456dcdf04e29f3ec4aff7d3e50b1b7607f91e52f7bd4101eedb"
+    },
+    {
+      "path": "guides/03_TROUBLESHOOTING.md",
+      "source": "docs/01_guides/03_TROUBLESHOOTING.md",
+      "bytes": 39091,
+      "sha256": "dbb8028dc98ba692234d78cbabc9a6551c630d5e61ac9b31a8b7d1b0546b0a8e"
+    },
+    {
+      "path": "guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md",
+      "source": "docs/01_guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md",
+      "bytes": 2963,
+      "sha256": "3cb66ae3a0eb8a94da01aeb86be305a031b81205d88ef8bd288ebd0228cf28d0"
+    },
+    {
+      "path": "guides/05_HOST_MATRIX_AND_DISPATCH.md",
+      "source": "docs/01_guides/05_HOST_MATRIX_AND_DISPATCH.md",
+      "bytes": 3358,
+      "sha256": "0b5fe0c21168cff3d855d02f5be59743c4a88299c04642ed588da01eafd9e177"
+    },
+    {
+      "path": "guides/06_PROBES_AND_POC_COOKBOOK.md",
+      "source": "docs/01_guides/06_PROBES_AND_POC_COOKBOOK.md",
+      "bytes": 3154,
+      "sha256": "8a53e1831d504928e7e94e9fd1fa192dc5bf9fcae8053b8f506b72264c7cb848"
+    },
+    {
+      "path": "guides/07_LIFECYCLE_AND_RECOVERY_STATES.md",
+      "source": "docs/01_guides/07_LIFECYCLE_AND_RECOVERY_STATES.md",
+      "bytes": 3737,
+      "sha256": "38602a89591ebefbc9dfd5dfc2d69cbeec5b449e8aa0bcd1379b89aa7f186320"
+    },
+    {
+      "path": "guides/08_LESSONS_AND_PRIVACY_BOUNDARY.md",
+      "source": "docs/01_guides/08_LESSONS_AND_PRIVACY_BOUNDARY.md",
+      "bytes": 3300,
+      "sha256": "8b20d6705521cd48c0cc342075847cb0c675cd9af90837631f660f8ec443856d"
+    },
+    {
+      "path": "ai/01_AI_REFERENCE.md",
+      "source": "docs/03_ai/01_AI_REFERENCE.md",
+      "bytes": 57296,
+      "sha256": "47b3e2d7807e208b588a130409e8ca7d10bd78d6e5cd1e20c68ffe56b915af8c"
+    },
+    {
+      "path": "ai/02_AI_USAGE.md",
+      "source": "docs/03_ai/02_AI_USAGE.md",
+      "bytes": 13575,
+      "sha256": "f0c318720f6fc49ad58d4390878af44d424ecdb8cfca3a68f9b2c55bf2171da1"
+    },
+    {
+      "path": "ai/03_AI_COMMANDS.md",
+      "source": "docs/03_ai/03_AI_COMMANDS.md",
+      "bytes": 46169,
+      "sha256": "27578198252a6a3f3a39c0fc1f9716e1b927a1fb67fdde09dd86a27d3f8bb650"
+    },
+    {
+      "path": "hosts/bugx_SKILL.md",
+      "source": "ecosystem/plugins/bugx/skills/bugx/SKILL.md",
+      "bytes": 10974,
+      "sha256": "de77523f612dac94a01f3f0f146c755402dd3ceb56b859fb29aaea7fe7796a02"
+    },
+    {
+      "path": "hosts/bugx-claude_SKILL.md",
+      "source": "ecosystem/plugins/bugx/skills/bugx-claude/SKILL.md",
+      "bytes": 14161,
+      "sha256": "4511cd82640bf485636f762c7595692d4545c709ca4558e33d4d2d7c594bf97e"
+    },
+    {
+      "path": "hosts/bugx-dsh_SKILL.md",
+      "source": "ecosystem/plugins/bugx/skills/bugx-dsh/SKILL.md",
+      "bytes": 9655,
+      "sha256": "f588ec0346e3692fb3cbf2eea1217e3d3b654e6f452ab0350b9e1d9452dd801d"
+    },
+    {
+      "path": "hosts/bugx-opencode_SKILL.md",
+      "source": "ecosystem/plugins/bugx/skills/bugx-opencode/SKILL.md",
+      "bytes": 9044,
+      "sha256": "6be315734a35e3a3a43fe0ec9dcbac7b2ab7fffd3ea39df5735d470ae0922b53"
+    },
+    {
+      "path": "hosts/bugx-zcode_SKILL.md",
+      "source": "ecosystem/plugins/bugx/skills/bugx-zcode/SKILL.md",
+      "bytes": 33493,
+      "sha256": "73d1689783729ff2611be6c744d2f169d1e613e3c7aaafb73b3673ce036467fc"
+    }
+  ]
+}

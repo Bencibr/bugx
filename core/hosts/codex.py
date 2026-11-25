@@ -374,6 +374,9 @@ def _is_bugx_entry(name: str, spec: Mapping[str, Any]) -> bool:
     """
 
     del name
+    raw_url = spec.get("url")
+    if isinstance(raw_url, str) and "/api/v1/mcp/docs" in raw_url:
+        return True
     tokens = [str(spec.get("command") or "")]
     tokens.extend(str(arg) for arg in (spec.get("args") or ()))
     return any(_BUGX_NAME_PREFIX in token.lower() for token in tokens)

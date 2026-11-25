@@ -21,12 +21,13 @@ last-verified: 2026-11-10
 
 ## 2. 顶层命令清单
 
-当前 parser 有 42 个顶层命令：
+当前 parser 有 45 个顶层命令：
 
 | 命令 | 子命令或定位 | 主要作用 / 默认行为 |
 |---|---|---|
 | help | help [COMMAND ...] | 输出命令帮助 |
 | completion | bash、zsh、fish | 输出 shell completion |
+| guide | guide <QUERY> | 检索官方热同步/离线基线与当前项目 Markdown 操作指南 |
 | init | — | 初始化项目布局和全局运行时 |
 | dsh | 透传 dsh_args | 调用 DSH 适配入口 |
 | hosts | — | 查看 Host 适配器和检测状态 |
@@ -65,6 +66,8 @@ last-verified: 2026-11-10
 | test-verify | verify、mutate | 测试验证和 mutation |
 | audit | — | 项目审计 graph/deep 入口 |
 | interaction | list、show、answer、cancel | 查看或处理待回答交互 |
+| issue | report | 问题上报与会话异常诊断（将对话现场脱敏后提交至服务端排查） |
+| feedback | — | 问题与会话现场快速反馈（等同于 bugx issue report） |
 | advisory | list、export | Advisory 查看和导出 |
 | report | formal、visual、both、serve | 报告生成和本地服务 |
 
@@ -106,6 +109,13 @@ Handler 可以返回更具体的非零码。例如 Goal 的 Provider rate-limit 
 
 help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fish。
 
+### 4.1b guide [R/N]
+
+    bugx guide <QUERY> [--root ROOT] [--limit N]
+               [--version VERSION] [--offline] [--json]
+
+通过 `bugx-docs` 双作用域检索引擎查询 BugX 官方操作文档（`bugx:official`）与当前项目自有文档（`project:<id>`）。默认在 1.5s 有界超时内检查服务端官方清单热更新（若启用），传入 `--offline` 或设置 `BUGX_DOCS_OFFLINE=1` / `cloud.docs_remote_enabled=false` 时严格零出网，仅使用 `~/.bugx/cache/docs/` 已验签缓存与随包 `core/bundled_docs/` 离线基线（即使在只读目标目录也可正常检索）。
+
 ### 4.2 init [W]
 
     bugx init [--root ROOT] [--force]
@@ -114,7 +124,7 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
               [--accept-data-sharing] [--privacy {standard,strict}]
 
 - --root 默认当前目录。
-- 初始化成功时输出项目用户 Skill 路径 `.agents/skills/bugx-user/SKILL.md`。重复初始化保留已有普通文件，`--force` 更新不同内容前备份。路径含符号链接等重解析点，或安装包缺模板时返回错误。
+- 初始化成功时输出项目标准 Skill 路径 `.agents/skills/bugx/SKILL.md`（DOC-004 极简 RAG 架构）。重复初始化保留已有普通文件，`--force` 更新不同内容前备份。路径含符号链接等重解析点，或安装包缺模板时返回错误。
 - 非 TTY 必须显式给出云同步策略，除非 preset 已提供。面向云端使用时，先确认账号和范围。`init --cloud-sync sync` 可能同步 global + project。按全量范围获得授权后再执行。
 - `--force` 刷新静态安装资产。不同内容的项目用户 Skill 会先备份。
 - 初始化可能清理旧项目级 .bugx/core 可执行布局；先确认目标目录。
@@ -135,10 +145,11 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
 
     bugx install [--root ROOT] [--agent AGENT ...] [--force]
                   [--allow-missing] [--non-interactive]
+                  [--docs-transport {stdio,remote}] [--docs-remote-url URL]
                   [--locale LOCALE] [--json]
 
---agent 可重复；当前安装/检测值为 chatgpt、claude、cline、codex、dsh、funide、opencode、pi、qoder、trea、workbuddy、zcode。不指定 --agent 时不要假设会配置所有 Host。--allow-missing 允许缺失可选资产时继续，但不改变 Host 的 ready/ACP 状态。
-安装事务会先解析选中的 Host，再快照共享 `.bugx` 和这些 Host 声明的写入面。未选中的宿主符号链接或 Windows 重解析点不参与本次事务。用户目录安装 DSH 时可用 `--root <项目目录>` 明确指定项目根。
+--agent 可重复；当前安装/检测值为 chatgpt、claude、cline、codex、dsh、funide、kimi、minimax、opencode、pi、qoder、trea、workbuddy、zcode。默认以本地 `stdio` 模式注册 `bugx-supervisor` 与 `bugx-supervisor-worker`；`bugx-docs` 采用「远程优先（Remote-First）」模式默认直连官方只读云端 HTTP MCP 端点，无法联网或传入 `--docs-transport stdio` / `BUGX_DOCS_OFFLINE=1` 时自动无感降级为本地 `stdio` 模式及离线基线。不指定 --agent 时不要假设会配置所有 Host。--allow-missing 允许缺失可选资产时继续，但不改变核心依赖或 Host MCP 的 ready/ACP 状态。
+安装事务支持双模式：在用户主目录（`~`）未传 `--root` 时进入**用户全局模式**，仅部署共享引擎（`~/.bugx/core`）、全局知识库、必需核心依赖（`codebase-memory-mcp` 与 `tree-sitter-language-pack`，直接安装校验且绝不降级放行）以及用户级宿主资产（DSH 全局 `cordis.patch.yml` 使用无 `--root` 动态参数），不向主目录写入项目状态或删除 `~/.bugx/core`；进入项目仓库执行或显式传 `--root <项目目录>` 时绑定项目运行态并写入项目级 MCP 绑定与 `.bugx/hosts.json`。可选能力（`playwright`、`postmcp`、`codindex`、UI/效率工具、`MCP 离线 runtime`）延迟至实际项目审计 `pre` 阶段按需启用。
 
 ### 4.6 reset [W][D]
 
@@ -175,9 +186,11 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
                  [--agent AGENT ...] [--strict] [--ai]
 
 - target 可选 all（默认）或 mcp-runtime。
-- --installation-only 只检查安装层；它是 CLI 在未完整导入核心时的安全例外。
-- 四个 repair 选项是同一语义的别名；修复会写本地资产，不能当成纯查询。
-- --strict 把更多诊断问题提升为失败；--agent 可重复。
+- 在用户主目录（`~`）未传 `--root` 运行时进入用户全局模式诊断（跳过工作树、项目错题账本等仅项目指标；`--repair` 时清理误留在 `~/.bugx/` 中的伪项目文件而保留全局引擎与 `global.sqlite3`）。
+- 必需门禁（缺失或未就绪退出码非 0，绝不降级）：全局引擎完整性、版本一致性、副本一致性、`codebase-memory 代码图谱`、`Tree-sitter 语法解析引擎`、已安装宿主完整适配包与 `<Host> MCP 配置`，以及项目模式下的 `.bugx/` 初始化和错题集账本；可选项目扩展（未创建的 `MCP 离线 runtime`、未安装的额外效率加速、`UI 视觉与浏览器挖掘环境`）默认延迟至实际审计阶段，不触发默认诊断告警，仅在 `--strict`（或半损坏 runtime 存在时）作为严格检查项。
+- `--installation-only` 检查安装层与核心依赖（跳过项目运行态与项目建索引）。
+- 四个 `--repair*` / `--fix` 选项是同一语义的别名；会自动安装/修复缺失的全局引擎（不降级）、`codebase-memory-mcp`、`tree-sitter-language-pack` 与 BugX 管理的宿主 MCP 配置，属于写操作，不能当成纯查询。
+- `--strict` 把可延迟的扩展环境检查一并提升为阻断失败项；`--agent` 可重复。
 
 ## 5. MCP、能力和运行时
 
@@ -200,8 +213,16 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
     bugx mcp docs serve [--root ROOT]
                          [--db DB] [--project-id ID] [--version VERSION]
                          [--no-auto-index]
+                         [--mode {hybrid,local-only,remote-only}]
+                         [--remote-url URL]
+    bugx mcp docs sync [--root ROOT]
+                        [--db DB] [--project-id ID] [--version VERSION]
+                        [--force] [--offline] [--remote-url URL]
 
---db 默认 .bugx/knowledge/docs.sqlite3；serve 默认允许自动 index，--no-auto-index 关闭。index 会写本地数据库，不是只读预览。
+`bugx-docs` 采用双作用域隔离架构（与结构化错题账本 `lesson-ledger` 正交分离，绝不混库）：
+- `bugx:official`：优先挂载全局内容寻址不可变缓存 `~/.bugx/cache/docs/<contract_version>/<sha256>.sqlite3`（经 SHA-256 + `PRAGMA quick_check` 校验后原子切换 `current.json` 并清理旧包），离线或未建缓存时毫秒降级至随包基线 `core/bundled_docs/`；
+- `project:<id>`：仅索引当前项目 Markdown 到 `<ROOT>/.bugx/knowledge/docs.sqlite3`（严格本地隔离，绝不上云）。
+- `--mode hybrid`（默认）在 `tools/list` 时轻量同步官档并挂载双作用域；`local-only` 禁止出网；`remote-only` 将官档查询透传至 `--remote-url`（或云端默认端点）。对外暴露 `resolve_library`、`search_docs`、`list_sections`、`fetch_doc` 四工具（基于 `document_sections` + `sections_fts tokenize='trigram'` 章节切片检索）。`--db` 默认 `.bugx/knowledge/docs.sqlite3`；`index`/`sync` 会写本地索引，不是只读预览。
 
 ### 5.3 capability
 
@@ -433,8 +454,8 @@ unset BUGX_DEV_MODE BUGX_DEV_ASSET_ROOT
 
 排障：选项值非法时 pre 停在对应 gate 并输出
 `BUGX_INTERACTION_REQUEST`；非交互环境 report_policy 自动取安全默认
-local；宿主入口 build 与引擎不一致时报
-`host_entry_not_ready`——重跑 `bugx install` 后重启宿主会话。详见
+local；宿主入口的语义版本或入口文件哈希不一致时报
+`host_entry_not_ready`——重跑 `bugx install` 后重启宿主会话。Build ID 差异只提示装配身份漂移，不单独阻断。详见
 [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md) §3/§4/§5。
 
 ### 7.3 post
@@ -579,9 +600,10 @@ conflicts 的 action 默认 list，scope 默认 all，reason-filter 默认空；
 
     bugx auth <auth_action> [--root ROOT] [--project-slug SLUG]
                [--accept-data-sharing] [--privacy {standard,strict}]
-               [--api-key API_KEY] [--json] [--verify]
+               [--api-key API_KEY] [--device-code CODE]
+               [--non-blocking] [--json] [--verify]
 
-auth_action 必须是 login、status、set-key 或 logout。--api-key 只用于 set-key；--verify 可能访问网络。不要在 shell history、终端录屏或文档中留下真实 key。
+auth_action 必须是 login、status、verify、set-key 或 logout。`auth verify`（等价 `auth status --verify`）会联网校验凭据有效性；`auth login --non-blocking` 启动 OAuth 流程并落盘 `cloud-auth-pending.json` 供非阻塞轮询或传入 `--device-code` 完成确认；--api-key 只用于 set-key。不要在 shell history、终端录屏或文档中留下真实 key。
 
 ### 8.6 telemetry
 
@@ -611,6 +633,7 @@ BUGX_TELEMETRY_ENABLED=0 bugx telemetry flush  # 只影响当前进程
 | cloud.sync_detail_mode | full / summary |
 | cloud.sensitive_policy | block / redact / allow |
 | cloud.sync_scope_default | all / project / global |
+| cloud.docs_remote_enabled | true / false |
 
 这些配置写入用户级 cloud config；telemetry.data_sharing=false 还会清理本地 flywheel outbox，并阻断 cloud push/pull。
 
@@ -814,7 +837,7 @@ audit 的 min-score 默认 80.0；harden 的 plan_file 和 out 必填。--allow-
 
 verify 的 max-mutants 默认 30、timeout 默认 2.0 秒；mutate 也默认 max-mutants 30。这些命令的结果是测试/变异观察，不自动变成 Finding confirmation。
 
-## 12. Audit、Interaction、Advisory 和 Report
+## 12. Audit、Interaction、Issue、Advisory 和 Report
 
 ### 12.1 audit
 
@@ -841,7 +864,29 @@ verify 的 max-mutants 默认 30、timeout 默认 2.0 秒；mutate 也默认 max
 
 list 的 --all 包含非 pending 项；answer 的 --value 必填；cancel 的 reason 默认空。交互动作会改变 startup gate 或 review 状态，不要替用户猜答。
 
-### 12.3 advisory
+### 12.3 issue 与 feedback
+
+    bugx issue report [--root ROOT] [--session SESSION_ID]
+                      [--title TITLE] [--desc DESC] [--no-logs]
+                      [--mask-source] [--anonymous] [--dry-run]
+                      [--yes|-y] [--json] [--endpoint URL]
+    bugx feedback [--root ROOT] [--session SESSION_ID]
+                  [--title TITLE] [--desc DESC] [--no-logs]
+                  [--mask-source] [--anonymous] [--dry-run]
+                  [--yes|-y] [--json] [--endpoint URL]
+
+`feedback` 是 `bugx issue report` 的顶层快捷别名。
+
+- **主要作用**：当 BugX 执行遇到偶发异常、模型解析失败或流程阻断时，一键从 `.bugx/sessions/` 中智能捕获最近一次错误会话现场、运行环境元数据与核心错误日志切片，脱敏后打包上传至服务端便于排查。
+- `--session`：显式指定上报的会话 ID；省略时自动探测最近发生异常的会话。
+- `--dry-run`：仅在本地构建脱敏后的诊断数据包并终端展示元数据与脱敏摘要，不发起实际网络请求。
+- `--mask-source`：将所有会话上下文中出现的源码片段强制替换为 `[SOURCE_CODE_REDACTED]`。
+- `--anonymous`：以完全匿名形式提交，自动隐去设备指纹、机器名与账号标识。
+- `--no-logs`：不附带 `.bugx/logs/` 日志切片。
+- `--yes` / `-y`：在非交互或脚本执行时直接确认上传，跳过交互式 TTY 确认提示。
+- **三级隐私脱敏防护**：系统在打包前严格执行三级脱敏，自动匹配并哈希/掩码消除 AI API Key、Bearer Token、DSN 密码与本地敏感路径，防止用户敏感凭据外泄。
+
+### 12.4 advisory
 
     bugx advisory list [--json]
     bugx advisory export [--cve CVE] [--package PACKAGE]
@@ -851,7 +896,7 @@ list 的 --all 包含非 pending 项；answer 的 --value 必填；cancel 的 re
 
 export 的 parser 默认值为：--cve CVE-2026-9001、--package target-package、--ecosystem npm、--category generic_logic、--symbol processInput、--target src/core.py、format markdown。这些是模板默认值，不代表真实漏洞、包或文件存在；输出前应替换为实际项目数据。
 
-### 12.4 report
+### 12.5 report
 
 共同选项：
 

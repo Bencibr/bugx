@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "bugx-built-in-mcp",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "servers": {
     "bugx-supervisor": {
       "type": "builtin",
@@ -46,7 +46,7 @@
         ".bugx/knowledge/docs.sqlite3"
       ],
       "source": "core/skills/bugx_docs_mcp_server.py",
-      "sha256": "349d976843bdfeafd2531312eb938e7c3e9f60fa7453502bf3f8a8bf0a2c87ed",
+      "sha256": "7c71427c782371c9591e52e15161cf6896031c8016917565eaca91620b31bf52",
       "health": "initialize"
     }
   }

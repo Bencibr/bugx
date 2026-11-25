@@ -12,6 +12,96 @@ import sys
 import typing
 from pathlib import Path
 
+
+def _fast_dispatch_mcp_serve() -> None:
+    """Start the stdio MCP script before heavy CLI imports.
+
+    ``bugx mcp serve`` is a long-lived protocol process.  Importing the full
+    command surface first adds about six seconds on Windows, which is longer
+    than Antigravity ACP's MCP pre-load window and makes the Supervisor/Worker
+    servers disappear from the session.  The core script is self-bootstrapping
+    when executed directly, so early dispatch preserves the exact runtime
+    while removing the unrelated CLI import cost.  Unknown flags and help still
+    use the normal parser.
+    """
+    raw = list(sys.argv[1:])
+    if len(raw) < 2 or raw[:2] != ["mcp", "serve"]:
+        return
+
+    root_value: str | None = None
+    role = "host"
+    takeover = False
+    index = 2
+    while index < len(raw):
+        token = raw[index]
+        if token in {"-h", "--help"}:
+            return
+        if token == "--takeover":
+            takeover = True
+            index += 1
+            continue
+        if token == "--root":
+            if index + 1 >= len(raw):
+                return
+            root_value = raw[index + 1]
+            index += 2
+            continue
+        if token.startswith("--root="):
+            root_value = token.split("=", 1)[1]
+            index += 1
+            continue
+        if token == "--role":
+            if index + 1 >= len(raw) or raw[index + 1] not in {"host", "worker"}:
+                return
+            role = raw[index + 1]
+            index += 2
+            continue
+        if token.startswith("--role="):
+            role = token.split("=", 1)[1]
+            if role not in {"host", "worker"}:
+                return
+            index += 1
+            continue
+        # Let argparse retain its normal error/help contract for anything else.
+        return
+
+    if root_value is None:
+        for env_name in ("BUGX_PROJECT_ROOT", "CODEBUDDY_PROJECT_DIR", "CLAUDE_PROJECT_DIR"):
+            candidate = os.environ.get(env_name)
+            if candidate and Path(candidate).is_dir():
+                root_value = candidate
+                break
+    root = Path(root_value or Path.cwd()).expanduser().resolve()
+
+    engine_candidates: list[Path] = []
+    for env_name in ("BUGX_GLOBAL_ENGINE_ROOT", "BUGX_ASSET_ROOT"):
+        raw_engine = os.environ.get(env_name)
+        if raw_engine:
+            engine_candidates.append(Path(raw_engine).expanduser() / "skills" / "bugx_mcp_server.py")
+    engine_candidates.append(Path.home() / ".bugx" / "core" / "skills" / "bugx_mcp_server.py")
+    # Source checkout fallback keeps ``python -m`` development runs working.
+    engine_candidates.append(
+        Path(__file__).resolve().parents[3] / "core" / "skills" / "bugx_mcp_server.py"
+    )
+    script = next((candidate for candidate in engine_candidates if candidate.is_file()), None)
+    if script is None:
+        return
+
+    forwarded = ["serve", "--root", str(root), "--role", role]
+    if takeover:
+        forwarded.append("--takeover")
+    command = [sys.executable, str(script), *forwarded]
+    if os.name == "nt":
+        # Windows execv uses CRT argument joining without preserving spaces.
+        # subprocess quotes each argument and keeps the stdio handles attached.
+        import subprocess
+
+        raise SystemExit(subprocess.call(command))
+    os.execv(sys.executable, command)
+
+
+_fast_dispatch_mcp_serve()
+
 # 确保在管道重定向或非 UTF-8 环境（如 Windows GBK/cp936 控制台）下输出非 ASCII 符号（如 ✓、✗）不触发 UnicodeEncodeError
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -45,6 +135,7 @@ from .hosts.registry import (
 from .commands import (
     plugin, lifecycle, agent, doctor, knowledge, cloud, system, stats, project,
     patch, skill, daemon, autonomous, goal, advisory, report, audit, interaction,
+    guide, issue,
 )
 
 
@@ -66,7 +157,7 @@ class _UniqueRootAction(argparse.Action):
 for _mod in (
     common, plugin, lifecycle, agent, doctor, knowledge, cloud, system, stats,
     project, patch, skill, daemon, autonomous, goal, advisory, report,
-    audit, interaction,
+    audit, interaction, guide, issue,
 ):
     for _k, _v in vars(_mod).items():
         if not _k.startswith("__"):
@@ -81,6 +172,8 @@ _COMMAND_DESCRIPTIONS: dict[str, str] = {
     "uninstall": "从指定 AI 宿主卸载 BugX 集成",
     "audit": "项目级漏洞渗透挖掘与代码安全审计",
     "interaction": "查看/回答 BugX 抛出的结构化交互问题（非交互宿主答案回灌）",
+    "issue": "问题上报与会话异常诊断（脱敏打包上传至 BugX 服务端）",
+    "feedback": "问题快速反馈（bugx issue report 快捷方式）",
     "autonomous": "启动全自动无人值守 BugX 漏洞挖掘",
     "analyze": "项目画像深度分析与代码覆盖度全景扫描",
     "project": "项目元数据管理、画像展示与云端同步",
@@ -126,6 +219,9 @@ _INTENT_SYNONYMS: dict[str, str] = {
     "状态": "stats",
     "统计": "stats",
     "守护": "daemon",
+    "指引": "guide",
+    "指南": "guide",
+    "问答": "guide",
 }
 
 
@@ -314,6 +410,15 @@ def build_parser() -> argparse.ArgumentParser:
     completion.add_argument("shell", choices=("bash", "zsh", "fish"))
     completion.set_defaults(handler=command_completion)
 
+    guide = subparsers.add_parser("guide", help="检索 BugX 本地文档与操作指南（支持中英文按需检索）")
+    guide.add_argument("query", help="检索关键词或问题（例如：'云端登录'、'错题集'、'doctor 修复'）")
+    guide.add_argument("--root", type=Path, default=None, help="项目根目录")
+    guide.add_argument("--limit", type=int, default=3, help="返回条目数上限（默认 3，最大 10）")
+    guide.add_argument("--reindex", action="store_true", help="强制重新建立本地知识库全文索引")
+    guide.add_argument("--offline", action="store_true", help="强制离线模式（不拉取云端官方热更新缓存）")
+    guide.add_argument("--json", action="store_true", help="以 JSON 格式输出结果")
+    guide.set_defaults(handler=command_guide)
+
     init = subparsers.add_parser("init", help="把宿主无关的 BugX 核心初始化到项目")
     init.add_argument("--root", type=Path, default=Path.cwd())
     init.add_argument("--force", action="store_true", help="更新已有静态文件")
@@ -353,6 +458,14 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--force", action="store_true")
     install.add_argument("--allow-missing", action="store_true")
     install.add_argument("--non-interactive", action="store_true")
+    install.add_argument(
+        "--docs-transport", choices=("stdio", "remote"), default=None,
+        help="显式设置 bugx-docs MCP 传输模式：stdio（本地双域网关）或 remote（官方官档远端 HTTP）",
+    )
+    install.add_argument(
+        "--docs-remote-url", default=None,
+        help="配合 --docs-transport=remote 指定官方 docs MCP 服务端 URL",
+    )
     install.add_argument("--locale", type=str, default=None, help="显式指定安装语言（如 zh-CN, en-US）")
     install.add_argument("--json", action="store_true")
 
@@ -517,14 +630,15 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_spy.set_defaults(handler=command_mcp_spy)
 
     mcp_docs = mcp_subparsers.add_parser(
-        "docs", help="索引或启动本地项目文档 MCP（无第三方 API Key）",
+        "docs", help="索引、同步或启动双域文档 MCP（支持云端官方热更新 + 本地私有隔离）",
     )
     mcp_docs_subparsers = mcp_docs.add_subparsers(
         dest="mcp_docs_command", required=True,
     )
     for command_name, help_text in (
-        ("index", "索引 README/docs/core Markdown 到 SQLite FTS5"),
-        ("serve", "以 stdio 方式启动只读文档 MCP"),
+        ("index", "索引当前项目文档到 SQLite FTS5 trigram 章节索引"),
+        ("serve", "以 stdio 方式启动只读文档 MCP（官方热同步 + 项目本地双域检索）"),
+        ("sync", "同步全局官方云端文档缓存并刷新当前项目文档索引"),
     ):
         docs_command = mcp_docs_subparsers.add_parser(command_name, help=help_text)
         docs_command.add_argument(
@@ -538,6 +652,15 @@ def build_parser() -> argparse.ArgumentParser:
         docs_command.add_argument("--version", default=None)
         if command_name == "serve":
             docs_command.add_argument("--no-auto-index", action="store_true")
+            docs_command.add_argument(
+                "--mode", choices=("hybrid", "local-only", "remote-only"), default="hybrid",
+                help="hybrid=双域缓存热同步(默认)；local-only=纯本地离线；remote-only=官档直查服务端",
+            )
+            docs_command.add_argument("--remote-url", default=None, help="覆盖云端文档服务地址")
+        elif command_name == "sync":
+            docs_command.add_argument("--force", action="store_true", help="忽略冷却期强制拉取服务端清单")
+            docs_command.add_argument("--offline", action="store_true", help="仅检查本地与重建项目库，不联网")
+            docs_command.add_argument("--remote-url", default=None, help="覆盖云端文档服务地址")
         docs_command.set_defaults(handler=command_mcp_docs)
 
     capability = subparsers.add_parser(
@@ -814,9 +937,12 @@ def build_parser() -> argparse.ArgumentParser:
         return p
 
     p_auth = _auth_common(auth)
-    p_auth.add_argument("auth_action", choices=("login", "status", "set-key", "logout"))
+    p_auth.add_argument("auth_action", choices=("login", "status", "set-key", "logout", "verify"))
     p_auth.add_argument("--api-key", dest="api_key")
     p_auth.add_argument("--json", action="store_true")
+    p_auth.add_argument("--non-blocking", dest="non_blocking", action="store_true",
+                        help="非阻塞模式发起登录，立即打印授权链接并退出")
+    p_auth.add_argument("--device-code", dest="device_code", help="指定待核验的 device_code")
     p_auth.add_argument(
         "--verify", dest="verify_auth", action="store_true",
         help="通过只读云端接口验证登录态（可能触发刷新令牌，不创建或修改业务数据）",
@@ -978,13 +1104,14 @@ def build_parser() -> argparse.ArgumentParser:
         "config_key",
         choices=("telemetry.data_sharing",
                  "cloud.sync_detail_mode", "cloud.sensitive_policy",
-                 "cloud.sync_scope_default"),
-        help="telemetry.data_sharing=遥测数据分享；cloud.*=DOC-211 同步内容策略",
+                 "cloud.sync_scope_default", "cloud.docs_remote_enabled"),
+        help="telemetry.data_sharing=遥测数据分享；cloud.*=同步与文档远端策略",
     )
     config_set.add_argument(
         "config_value",
         help="telemetry.data_sharing 取 true/false；cloud.sync_detail_mode 取 full/summary；"
-             "cloud.sensitive_policy 取 block/redact/allow；cloud.sync_scope_default 取 all/project/global",
+             "cloud.sensitive_policy 取 block/redact/allow；cloud.sync_scope_default 取 all/project/global；"
+             "cloud.docs_remote_enabled 取 true/false",
     )
     config_set.set_defaults(handler=command_telemetry_config)
 
@@ -1463,6 +1590,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ── interaction：非交互宿主的启动门禁答案回灌通道 ──
     interaction.register_parser(subparsers)
+
+    # ── issue / feedback：问题上报、会话脱敏提取与异常现场诊断 ──
+    issue.register_issue_parser(subparsers)
 
     # ── advisory：GitHub Security Advisory (GHSA) 标准公告与 PR 草稿 ──
     adv_parser = subparsers.add_parser("advisory", help="GitHub Security Advisory (GHSA) 标准安全公告与 PR 修复草案管理")

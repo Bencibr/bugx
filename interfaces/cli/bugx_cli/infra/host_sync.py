@@ -86,6 +86,48 @@ def pi_skill_root() -> Path:
     raise CliError(_i18n_exc("common.pi_skill_missing", "找不到 Pi BugX Skill 资源；请重新安装 BugX"))
 
 
+def find_bugx_skill_source(root: Path, source: Path) -> Path | None:
+    """Locate a shipped or repository BugX SKILL.md without hardcoding checkout layout."""
+    repo_root = _find_repo_root(Path(__file__))
+    candidates: list[Path] = [
+        source / "skills" / "platform" / "bugx" / "SKILL.md",
+        source / "skills" / "bugx" / "SKILL.md",
+        source / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        source / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        source.parent / "skills" / "platform" / "bugx" / "SKILL.md",
+        source.parent / "skills" / "bugx" / "SKILL.md",
+        source.parent / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        source.parent / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        root / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        root / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+        global_engine_root() / "skills" / "bugx" / "SKILL.md",
+        Path(sysconfig.get_path("data")) / "share" / "bugx-agent" / "skills" / "platform" / "bugx" / "SKILL.md",
+        repo_root / "skills" / "platform" / "bugx" / "SKILL.md",
+        repo_root / "ecosystem" / "plugins" / "bugx" / "skills" / "bugx" / "SKILL.md",
+    ]
+    try:
+        distribution = importlib.metadata.distribution("bugx-cli")
+        for item in distribution.files or []:
+            text = item.as_posix()
+            if text.endswith((
+                "share/bugx-agent/skills/platform/bugx/SKILL.md",
+                "share/bugx-agent/pi/skills/bugx/SKILL.md",
+            )):
+                located = _distribution_located_path(distribution.locate_file(item))
+                if located is not None:
+                    candidates.append(located)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    try:
+        candidates.append(pi_skill_root() / "SKILL.md")
+    except CliError:
+        pass
+    for candidate in dict.fromkeys(candidates):
+        if not candidate.is_symlink() and candidate.is_file():
+            return candidate
+    return None
+
+
 def _copy_pi_extension(root: Path, force: bool) -> tuple[int, int, list[Path]]:
     """Install the complete Pi extension bundle as static project resources."""
     source = pi_extension_root()
@@ -123,7 +165,7 @@ def _plugin_manifest(
     if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", name):
         raise CliError(_i18n_exc("common.plugin_name_invalid", f"插件名称无效: {path}", path=path))
     version = payload.get("version")
-    if version == "0.1.3":
+    if version == "0.1.4":
         version = os.environ.get("BUGX_VERSION", __version__)
         payload["version"] = version
     if not isinstance(version, str) or not PLUGIN_VERSION_RE.fullmatch(version):
@@ -441,6 +483,29 @@ def _host_bundle_checks(root: Path, target_hosts: set[str] | None = None) -> tup
                 path for path in required
                 if not safe_file(path)
             ]
+        elif adapter.name == "antigravity":
+            # Antigravity deliberately splits its surfaces: the Agent,
+            # Worker and Skill are registered in the user-level plugin, while
+            # only the workspace MCP file belongs under the project root.
+            # Do not apply the generic project-relative ``install_path``
+            # check; it would turn ``.gemini/...`` into a false missing entry.
+            from ..commands.plugin_antigravity import validate_install
+
+            valid, detail = validate_install(root)
+            checks.append((f"{adapter.label} 完整适配包", valid, detail))
+            continue
+        elif adapter.name == "minimax":
+            from ..commands.plugin_minimax import validate_install as _validate_minimax
+
+            ok_mm, detail_mm = _validate_minimax(root)
+            checks.append((f"{adapter.label} 完整适配包", ok_mm, detail_mm))
+            continue
+        elif adapter.name == "kimi":
+            from ..commands.plugin_kimi import validate_install as _validate_kimi
+
+            ok_km, detail_km = _validate_kimi(root)
+            checks.append((f"{adapter.label} 完整适配包", ok_km, detail_km))
+            continue
         else:
             target_path = root / adapter.install_path
             if not target_path.exists() and not target_path.is_symlink():

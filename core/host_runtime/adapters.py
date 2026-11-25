@@ -49,6 +49,8 @@ class HostAdapter:
     name = "unknown"
     executable = ""
     host_surface = "tui"
+    mcp_config_container: str | None = None
+    merge_mcp_config_fields = True
 
     def is_callable(self, root: Path) -> bool:
         """Return whether this host has a callable local entry point.
@@ -246,6 +248,8 @@ class QoderAdapter(HostAdapter):
 
     name = "qoder"
     executable = "qoder"
+    mcp_config_container = "mcpServers"
+    merge_mcp_config_fields = False
 
     def headless_run(self, root: Path, agent: str, session: str, prompt: str) -> list[str]:
         return ["qoder", "run", "--prompt", prompt]
@@ -254,7 +258,7 @@ class QoderAdapter(HostAdapter):
         return root / ".qoder"
 
     def mcp_config_paths(self, root: Path) -> tuple[Path, ...]:
-        return (root / ".qoder" / "mcp.json",)
+        return (root / ".qoder" / "settings.json", root / ".mcp.json")
 
     def required_mcp(self, root: Path) -> list[str]:
         return list(MCP_CATALOG)

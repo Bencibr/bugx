@@ -7,7 +7,7 @@ last-verified: 2026-11-10
 
 # BugX 文档中心（Documentation Hub）
 
-> **版本**：0.1.0 ｜ **体系**：按读者分区（Diátaxis + 三受众隔离）
+> **版本**：0.1.4 ｜ **体系**：按读者分区（Diátaxis + 三受众隔离）
 > **规范**：[02_architecture/07_DOC_GOVERNANCE_STANDARD.md](02_architecture/07_DOC_GOVERNANCE_STANDARD.md) — 本目录的命名、分区、状态与维护规则以该文件为唯一权威。
 
 ---
@@ -38,8 +38,13 @@ docs/
 | 文档 | 内容 |
 |---|---|
 | [01_USER_GUIDE.md](01_guides/01_USER_GUIDE.md) `01_guides/01_USER_GUIDE.md` | 安装、四层 Host 能力矩阵、审计配置、生命周期、报告解读与恢复 |
-| [02_COMMANDS.md](01_guides/02_COMMANDS.md) `01_guides/02_COMMANDS.md` | 当前 CLI 的 42 个顶层命令、分组子命令、参数、副作用与退出码 |
+| [02_COMMANDS.md](01_guides/02_COMMANDS.md) `01_guides/02_COMMANDS.md` | 当前 CLI 的 45 个顶层命令、分组子命令、参数、副作用与退出码 |
 | [03_TROUBLESHOOTING.md](01_guides/03_TROUBLESHOOTING.md) `01_guides/03_TROUBLESHOOTING.md` | 按症状分流的诊断、证据收集、恢复和终止标准 |
+| [04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md](01_guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md) | 速查卡：云端认证、知识同步与 `bugx-docs` 官方文档缓存隔离 |
+| [05_HOST_MATRIX_AND_DISPATCH.md](01_guides/05_HOST_MATRIX_AND_DISPATCH.md) | 速查卡：AI 宿主矩阵、`--docs-transport` 与 Worker 派发 |
+| [06_PROBES_AND_POC_COOKBOOK.md](01_guides/06_PROBES_AND_POC_COOKBOOK.md) | 速查卡：单点复现、PoC 与多域探针快速选型 |
+| [07_LIFECYCLE_AND_RECOVERY_STATES.md](01_guides/07_LIFECYCLE_AND_RECOVERY_STATES.md) | 速查卡：生命周期终态与故障恢复状态速查 |
+| [08_LESSONS_AND_PRIVACY_BOUNDARY.md](01_guides/08_LESSONS_AND_PRIVACY_BOUNDARY.md) | 速查卡：`bugx-docs` 与错题/经验集正交边界与隐私脱敏规则 |
 | [目录说明](01_guides/README.md) | 该目录索引与维护责任 |
 
 ## 2. 架构与设计（`02_architecture/`）— 我要看懂系统
