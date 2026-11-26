@@ -18,3 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed / 修复
 - **Windows Console Script 入口与 PE 二进制解析修复**：消解 Windows 虚拟环境下因可执行文件后缀缺失导致找不到 `Scripts/redis-mcp-server.exe` 的阻断缺陷；免除 Windows PE 可执行二进制（`.exe` / `MZ` 头部）与 Shell 脚本的 Unix 文本 shebang 门禁校验。
+- **Windows 跨平台进程启动与文件锁阻断消除**：底层统一支持 Windows 批处理包装（`.cmd` / `.bat` / `.exe`）自动归一化寻址，消除 `CreateProcess` 找不到指定文件的异常；快照制作与符号索引全面排除 `.dart_tool`、`.gradle`、IDE 缓存及内部锁文件，杜绝文件独占锁占用报错。
+- **Kimi 与各宿主模型参数全链路透传**：消解无头与自治模式下宿主访问模型参数的属性缺失异常，模型参数 100% 贯通穿透至底层命令行。
+- **显式覆盖清单与多语言代码适配**：显式指定审计范围时自动标记显式模式，免除全仓差集漏项误判；补齐 Flutter / Dart 源码在覆盖清单、质量框架与结构化代码分词模式匹配器的全链路识别。
+- **发布包运行时边界隔离**：彻底将渗透与故障矩阵核心组件迁入核心引擎库，消除发布包缺少开发脚本导致的模块导入缺失错误。
