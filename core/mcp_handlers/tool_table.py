@@ -657,6 +657,40 @@ def _build_tool_table() -> tuple[tuple[frozenset[str], dict[str, object]], ...]:
                 },
             },
         }),
+        (_SHARED_ROLES, {
+            "name": "bugx_record_telemetry",
+            "description": "向脱敏飞轮队列上报轻量代码审查或探测遥测事实（文件数、缺陷分级统计、耗时等脱敏指标），支持即时或排队外发。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "event_type": {
+                        "type": "string",
+                        "description": "遥测事件类型，如 code_review、recon_probe（默认 code_review）",
+                        "default": "code_review",
+                    },
+                    "summary": {
+                        "type": "object",
+                        "description": "脱敏审查/探测统计指标（禁止传递任何源码明文、路径凭据）",
+                    },
+                    "metrics": {
+                        "type": "object",
+                        "description": "性能与耗时度量（如 duration_ms、findings_count 等）",
+                    },
+                    "quality": {
+                        "type": "string",
+                        "enum": ["tier-1", "tier-2", "tier-3"],
+                        "default": "tier-2",
+                        "description": "数据质量评级",
+                    },
+                    "flush_now": {
+                        "type": "boolean",
+                        "description": "是否在入队后立即尝试网络静默推送（默认 true）",
+                        "default": True,
+                    },
+                },
+                "required": ["summary"],
+            },
+        }),
         (_WORKER_ONLY, {
             "name": "bugx_fuzz_concurrency",
             "description": "并发竞态与时序死锁专项扰动工具：注入微秒级上下文切换抖动并检测数据竞态或死锁。",

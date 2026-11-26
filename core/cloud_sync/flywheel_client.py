@@ -572,6 +572,64 @@ class FlywheelUploader:
             payload["dpo_preference"] = dpo_pair.as_dict() if isinstance(dpo_pair, DPOPreferencePair) else dict(dpo_pair)
         return self.enqueue(payload, tier=quality)
 
+    def enqueue_review(
+        self,
+        review_summary: Mapping[str, Any],
+        *,
+        static_topology: Iterable[Any] | None = None,
+        quality: str | int = "tier-2",
+        metrics: Mapping[str, Any] | None = None,
+        event_type: str = "code_review",
+    ) -> int | None:
+        """Queue a lightweight code review or probe telemetry event."""
+        topology = list(static_topology or [])
+        clean_summary = dict(review_summary)
+        clean_metrics = dict(metrics or {})
+        normalized_event = str(event_type or "code_review").strip().lower()
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "event_type": normalized_event,
+            "quality_tier": quality_tier_name(quality),
+            "topology_hash": merkle_root(topology),
+            "review_summary": clean_summary,
+            "metrics": clean_metrics,
+        }
+        return self.enqueue(payload, tier=quality)
+
+    def record_and_flush(
+        self,
+        review_summary: Mapping[str, Any],
+        *,
+        static_topology: Iterable[Any] | None = None,
+        quality: str | int = "tier-2",
+        metrics: Mapping[str, Any] | None = None,
+        event_type: str = "code_review",
+        flush: bool = True,
+    ) -> dict[str, Any]:
+        """Record a telemetry event and attempt immediate non-blocking flush."""
+        record_id = self.enqueue_review(
+            review_summary,
+            static_topology=static_topology,
+            quality=quality,
+            metrics=metrics,
+            event_type=event_type,
+        )
+        if record_id is None:
+            return {"enabled": False, "status": "disabled", "sent": 0}
+        sent = 0
+        if flush:
+            try:
+                res = self.flush(limit=20, batch_size=20)
+                sent = int(res.get("sent", 0)) if isinstance(res, dict) else 0
+            except Exception:
+                pass
+        return {
+            "enabled": True,
+            "status": "sent" if sent > 0 else "queued",
+            "record_id": record_id,
+            "sent": sent,
+        }
+
     def enqueue_installation(self, event: str = "heartbeat") -> int | None:
         """Queue an install/heartbeat identity event in the existing outbox.
 
@@ -890,6 +948,36 @@ def maybe_report_installation(*, force: bool = False) -> dict[str, Any]:
         return {"enabled": True, "status": "error", "error": str(exc), "sent": 0}
 
 
+def record_review_telemetry(
+    review_summary: Mapping[str, Any],
+    *,
+    static_topology: Iterable[Any] | None = None,
+    quality: str | int = "tier-2",
+    metrics: Mapping[str, Any] | None = None,
+    event_type: str = "code_review",
+    flush: bool = True,
+) -> dict[str, Any]:
+    """Convenience helper to record lightweight review telemetry and optionally flush."""
+    try:
+        from core.cloud_sync.consent import telemetry_enabled
+
+        if not telemetry_enabled():
+            return {"enabled": False, "status": "disabled", "sent": 0}
+        with FlywheelUploader() as uploader:
+            if not uploader.data_sharing:
+                return {"enabled": False, "status": "disabled", "sent": 0}
+            return uploader.record_and_flush(
+                review_summary=review_summary,
+                static_topology=static_topology,
+                quality=quality,
+                metrics=metrics,
+                event_type=event_type,
+                flush=flush,
+            )
+    except Exception as exc:  # noqa: BLE001 - telemetry must fail closed and quiet
+        return {"enabled": False, "status": "error", "error": str(exc), "sent": 0}
+
+
 def _encrypt(data: bytes, passphrase: str) -> bytes:
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -928,4 +1016,5 @@ __all__ = [
     "MAX_AUDIT_BYTES", "MAX_OUTBOX_BYTES", "MAX_OUTBOX_RECORDS", "OutboxFullError",
     "build_dpo_preference_pair", "default_audit_path", "default_outbox_path",
     "maybe_report_installation", "merkle_root", "quality_tier", "quality_tier_name",
+    "record_review_telemetry",
 ]

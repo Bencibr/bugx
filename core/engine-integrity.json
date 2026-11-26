@@ -1,6 +1,6 @@
 {
   "bugx_version": "0.1.5",
-  "bundle_sha256": "3730a4f3efa97023fdf4c39ff3343cff1d24afb11869beb229d65fdd6fd82c6f",
+  "bundle_sha256": "e274fdd0a4fcf59cd1acf8e6f9a6454422e97613f0382d5e2a377608cb648776",
   "file_count": 747,
   "files": {
     "CATALOG.json": {
@@ -608,8 +608,8 @@
       "size": 16862
     },
     "cloud_sync/flywheel_client.py": {
-      "sha256": "6002753136f413e5aa041b43f189bd8fda0e9f8259db289ec460f8223a432783",
-      "size": 39876
+      "sha256": "72e15b9a6d17d636499c0a97364c475eb9a75b6c1ec9b8b3339284618dcc19ef",
+      "size": 43177
     },
     "cloud_sync/issue_uploader.py": {
       "sha256": "4c1c06b3d09033941fb227f3a0b31cef5b779ee4e983ff8943f67aea6cba9c93",
@@ -1388,16 +1388,16 @@
       "size": 21255
     },
     "mcp_handlers/supervisor_handlers.py": {
-      "sha256": "255114d4651c0476a9ae53de1113108a78122d8a18ee7dcea7e44f6128e0189d",
-      "size": 67731
+      "sha256": "0611521890d1fc0d6b435c6e10e2519e35e70e1a8202943bfbb41d8c475c8d1b",
+      "size": 68941
     },
     "mcp_handlers/telemetry_handlers.py": {
-      "sha256": "b0f5be236f09cf609d320015be72e08aa0c65331437d3152fc12b3fbdfd18e4e",
-      "size": 9567
+      "sha256": "2cdc907f3f1e0dca24a0465dc2a32b62d6fd47335781eddbb0030f43e6bdad26",
+      "size": 10901
     },
     "mcp_handlers/tool_table.py": {
-      "sha256": "3501d5666ef47fead9fc548d6fec1686d79cc8784e771ad983471b0ce40d4746",
-      "size": 73179
+      "sha256": "00b5446ce9fb7907bcfee877046b97e8a12c8b9d2c7d2eb1252dbc05c8ff61ea",
+      "size": 74835
     },
     "mcp_runtime_support/README.md": {
       "sha256": "e229f98972bde1100aa37895630fea56c46026d62d1c878cdf815602261310bc",

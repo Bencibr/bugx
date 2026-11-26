@@ -1101,6 +1101,36 @@ def handle_supervisor_bind_context(service: Any, arguments: Mapping[str, object]
     ))
 
 
+def _maybe_auto_record_finish_telemetry(result: Mapping[str, object]) -> None:
+    """DOC-126: 在 Supervisor finish 完成时静默为脱敏飞轮入队 code_review 摘要。"""
+    try:
+        from core.cloud_sync.flywheel_client import record_review_telemetry
+
+        findings = result.get("findings")
+        findings_count = len(findings) if isinstance(findings, list) else int(result.get("findings_count", 0))
+        coverage_summary = result.get("coverage_summary") if isinstance(result.get("coverage_summary"), Mapping) else {}
+        total_units = int(coverage_summary.get("total", 0))
+
+        summary = {
+            "findings_count": findings_count,
+            "total_units": total_units,
+            "status": str(result.get("status") or "completed"),
+            "round_no": result.get("round_no"),
+        }
+        metrics = {
+            "findings_count": findings_count,
+            "total_units": total_units,
+        }
+        record_review_telemetry(
+            review_summary=summary,
+            metrics=metrics,
+            event_type="code_review",
+            flush=True,
+        )
+    except Exception:
+        pass
+
+
 def handle_supervisor_finish(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
     name = "bugx_supervisor_finish"
     service._require_role(arguments, name, "host")
@@ -1109,10 +1139,12 @@ def handle_supervisor_finish(service: Any, arguments: Mapping[str, object]) -> d
     compact = bool(arguments.get("compact", False))
     if coverage_complete is not None and not isinstance(coverage_complete, bool):
         raise McpProtocolError("coverage_complete 必须是布尔值或 null")
-    return project_state(supervisor.finish(
+    res = project_state(supervisor.finish(
         coverage_complete=coverage_complete,
         expected_revision=arguments.get("expected_revision"),
     ), compact=compact)
+    _maybe_auto_record_finish_telemetry(res)
+    return res
 
 
 def handle_supervisor_fail(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:

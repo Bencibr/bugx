@@ -209,10 +209,41 @@ def handle_global_telemetry(service: Any, arguments: Mapping[str, object]) -> di
         }
 
 
+def handle_record_telemetry(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
+    """MCP 接口：上报轻量代码审查或探测遥测事实并可选即时推送。"""
+    del service
+    summary = arguments.get("summary")
+    if not isinstance(summary, Mapping):
+        return {"status": "error", "error": "summary 必须是非空对象"}
+
+    event_type = str(arguments.get("event_type") or "code_review").strip()
+    quality = arguments.get("quality", "tier-2")
+    metrics = arguments.get("metrics")
+    flush_now = bool(arguments.get("flush_now", True))
+
+    try:
+        from core.cloud_sync.flywheel_client import FlywheelUploader
+
+        with FlywheelUploader() as uploader:
+            if not uploader.data_sharing:
+                return {"status": "disabled", "message": "遥测共享未开启"}
+            res = uploader.record_and_flush(
+                review_summary=summary,
+                quality=quality,
+                metrics=metrics if isinstance(metrics, Mapping) else None,
+                event_type=event_type,
+                flush=flush_now,
+            )
+            return {"status": "ok", "telemetry": res}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
 TELEMETRY_HANDLERS: dict[str, Any] = {
     "bugx_scheduling_telemetry": handle_scheduling_telemetry,
     "bugx_global_telemetry": handle_global_telemetry,
     "bugx_retrieval_metrics": handle_retrieval_metrics,
+    "bugx_record_telemetry": handle_record_telemetry,
 }
 
 
@@ -220,6 +251,7 @@ __all__ = [
     "TELEMETRY_HANDLERS",
     "clear_retrieval_metrics",
     "handle_global_telemetry",
+    "handle_record_telemetry",
     "handle_retrieval_metrics",
     "handle_scheduling_telemetry",
     "record_retrieval_metric",
