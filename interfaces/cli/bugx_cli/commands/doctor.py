@@ -1164,7 +1164,7 @@ def _repair_active_host_mcp_config(
             write_host_mcp_config(root, host_name)
         elif not is_home_scope and host_name == "opencode":
             _ensure_opencode_config(root)
-        elif not is_home_scope and host_name in {"claude", "codex", "cline", "trea", "funide", "qoder"}:
+        elif not is_home_scope and host_name in {"claude", "codex", "cline", "trea", "funide", "qoder", "copilot"}:
             write_host_mcp_config(root, host_name)
         else:
             return False

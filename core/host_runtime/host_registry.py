@@ -47,6 +47,7 @@ SUPPORTED_HOSTS: tuple[str, ...] = (
     "qoder",
     "trea",
     "funide",
+    "copilot",
 )
 
 # ``unknown`` 是「无法识别」这一一等结果，不是宿主，恒排在最后。
@@ -72,6 +73,7 @@ HOST_MARKERS: dict[str, tuple[str, ...]] = {
     # 真实 Trae / Trae CN 打开过的项目只会有 .trae/ 或 .trae-cn/ 目录；.trea 是 BugX 安装面。
     "trea": (".trea", ".trea/agent.yml", ".trea/mcp.json", ".trae", ".trae-cn"),
     "funide": (".github/agents/bugx.agent.md",),
+    "copilot": (".github/copilot-instructions.md", ".github/agents/bugx.agent.md", ".vscode/mcp.json"),
 }
 
 
@@ -129,6 +131,9 @@ HOST_EXECUTABLE_ALIASES: dict[str, str] = {
     "trea-cn": "trea",
     "trea_cn": "trea",
     "trae-ai": "trea",
+    "github-copilot": "copilot",
+    "gh-copilot": "copilot",
+    "copilot-chat": "copilot",
 }
 
 
@@ -287,7 +292,7 @@ def host_requires_pid(name: object) -> bool:
 #: 尚未迁移（``TODO_HOSTS``）但仍支持 MCP 写入的宿主。逐宿主切片时删除对应名字；
 #: 已迁移插件一律由 ``mcp_write`` 面自行声明，不进本表。
 LEGACY_MCP_WRITE_HOSTS: frozenset[str] = frozenset(
-    {"claude", "pi", "dsh", "chatgpt", "workbuddy", "codebuddy", "zcode", "qoder", "trea"}
+    {"claude", "pi", "dsh", "chatgpt", "workbuddy", "codebuddy", "zcode", "qoder", "trea", "copilot"}
 )
 
 

@@ -2,9 +2,9 @@
 title: BugX AI Host and Worker Reference
 audience: AI hosts and native agents
 status: DOCUMENTATION_UNVERIFIED
-version: 0.1.5
+version: 0.1.6
 protocol: MCP 2024-11-05
-server: bugx-supervisor 0.1.5
+server: bugx-supervisor 0.1.6
 last-verified: 2026-11-17
 ---
 
@@ -355,7 +355,7 @@ report source 语义：
 
     protocolVersion: 2024-11-05
     serverName: bugx-supervisor
-    serverVersion: 0.1.5
+    serverVersion: 0.1.6
     hostHeartbeatIntervalSeconds: 5.0
     transport: local stdio
 

@@ -165,7 +165,7 @@ def _plugin_manifest(
     if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", name):
         raise CliError(_i18n_exc("common.plugin_name_invalid", f"插件名称无效: {path}", path=path))
     version = payload.get("version")
-    if version == "0.1.5":
+    if version == "0.1.6":
         version = os.environ.get("BUGX_VERSION", __version__)
         payload["version"] = version
     if not isinstance(version, str) or not PLUGIN_VERSION_RE.fullmatch(version):

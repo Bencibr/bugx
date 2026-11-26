@@ -339,12 +339,39 @@ class FunIdeAdapter(HostAdapter):
         return False
 
 
+class CopilotAdapter(HostAdapter):
+    """GitHub Copilot IDE / Agent Host adapter."""
+
+    name = "copilot"
+    executable = "copilot"
+    host_surface = "desktop"
+
+    def headless_run(self, root: Path, agent: str, session: str, prompt: str) -> list[str]:
+        raise NotImplementedError("GitHub Copilot 暂无标准无头命令行调用契约")
+
+    def agent_config_path(self, root: Path) -> Path:
+        return root / ".github" / "agents"
+
+    def mcp_config_paths(self, root: Path) -> tuple[Path, ...]:
+        return (root / ".vscode" / "mcp.json", root / ".mcp.json")
+
+    def required_mcp(self, root: Path) -> list[str]:
+        return list(MCP_CATALOG)
+
+    def mcp_health(self, name: str, cfg: dict, root: Path | None = None) -> bool:
+        return super().mcp_health(name, cfg, root)
+
+    def supports_headless(self) -> bool:
+        return False
+
+
 _ADAPTERS = {
     "chatgpt": ChatGptAdapter,
     "workbuddy": WorkBuddyAdapter,
     "qoder": QoderAdapter,
     "trea": TreaAdapter,
     "funide": FunIdeAdapter,
+    "copilot": CopilotAdapter,
 }
 
 # DOC-239：插件 ``ready`` 的宿主一律由 ``PluginAdapter`` 承载——插件是唯一事实来源，

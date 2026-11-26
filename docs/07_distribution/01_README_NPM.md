@@ -85,17 +85,23 @@ Run `bugx report serve` to inspect audit topology, evidence chains, and verified
 | :--- | :--- | :--- |
 | **Google Antigravity** | Native Agent/Worker, Skill, Project MCP | `bugx install --agent antigravity` |
 | **Claude Code** | Native MCP / Autonomous Lifecycle | `bugx install --agent claude` |
-| **Cursor / Trae / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |
 | **OpenAI Codex** | Workspace Sub-Agent / Native Plugin | `bugx install --agent codex` |
-| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **OpenCode** | Native ACP / Multi-Agent Concurrency / Project MCP | `bugx install --agent opencode` |
+| **Cline / Roo Code** | Isolated Data Sandbox / Project Agent / User MCP | `bugx install --agent cline` |
+| **Qoder AI** | Native Agent/Worker, Subagent Concurrency, User/Project MCP | `bugx install --agent qoder` |
+| **Trae / Trae CN** | Project Agent, Multi-variant MCP Sync Mirror | `bugx install --agent trae` |
+| **DeepSeek Harness (DSH)** | Native Headless Profile / Cordis Patch / MCP Injection | `bugx install --agent dsh` |
 | **Kimi Code** | Headless ACP / Native MCP Plugin | `bugx install --agent kimi` |
 | **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & MCP | `bugx install --agent minimax` |
 | **ZCode** | Native MCP / User-Level Registry | `bugx install --agent zcode` |
-| **OpenCode / Cline** | Native ACP / MCP Interactive Pipeline | `bugx install --agent opencode` |
+| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **WorkBuddy / CodeBuddy** | Native Skill, Desktop Multi-variant Mirror, Project MCP | `bugx install --agent workbuddy` |
+| **GitHub Copilot** | Project Agent/Instructions, User Agent, Project MCP | `bugx install --agent copilot` |
+| **Cursor / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |
 
 ### 🔍 Keywords
 
-Google Antigravity · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini Code Assist · G4 Model · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code Audit · GPT-4o Code Review · Autonomous Code Review · Automated Code Audit · AI Code Review · Code Review Agent · AI Agent · Vibe Coding Security · PR Review · Zero False Positive · PoC Verification · Blind Verification · Security Audit · Vulnerability Scanner · Static Analysis · MCP Server · MCP Security · Cursor · Windsurf · Trae · OpenAI Codex · Behavior Diff · Memory Leak Detection · Python Security · JavaScript Security · DevSecOps
+Google Antigravity · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini Code Assist · G4 Model · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code Audit · GPT-4o Code Review · Autonomous Code Review · Automated Code Audit · AI Code Review · Code Review Agent · AI Agent · Vibe Coding Security · PR Review · Zero False Positive · PoC Verification · Blind Verification · Security Audit · Vulnerability Scanner · Static Analysis · MCP Server · MCP Security · Cursor · Windsurf · Trae · OpenAI Codex · OpenCode · Cline · Qoder · GitHub Copilot · DeepSeek Harness · Behavior Diff · Memory Leak Detection · Python Security · JavaScript Security · DevSecOps
 
 ---
 
@@ -109,7 +115,7 @@ BugX 是一款装在 AI 编程助手与终端里的**自主代码审查与自动
 
 - 🛡️ **真实执行验证（零误报承诺）**：疑似缺陷由独立沙箱执行“双正例触发 + 单负对照零触发”实跑验证，带完整命令、退出码与终端回显证据留案，杜绝凭空臆测与假报警。
 - 📋 **状态机覆盖账本（杜绝偷懒跳过）**：以状态机跟踪全项目审计单元（已覆盖 / 阻塞 / 待审），断点可续，审查完成与否以账本终态为准，模型的口头承诺不算数。
-- 🔌 **全生态宿主即插即用**：基于标准 MCP / ACP 协议，原生适配 Google Antigravity、Claude Code、Cursor、Trae、OpenAI Codex、Kimi、MiniMax、ZCode 等，深度支持 Gemini 4、Claude 5.5 与 GPT-4o 底座。
+- 🔌 **全生态宿主即插即用**：基于标准 MCP / ACP 协议，原生适配 Google Antigravity、Claude Code、Cursor、Trae、OpenAI Codex、OpenCode、Cline、Qoder、Kimi、MiniMax、ZCode 等，深度支持 Gemini 4、Claude 5.5 与 GPT-4o 底座。
 - 📊 **自带全息 Web 工作台**：内置 Studio 交互看板，实时追踪审计拓扑、漏洞调用链、复现凭据与测试变异杀伤力。
 
 ### 🚀 快速开始
@@ -152,7 +158,7 @@ bugx install
 
 ### 🔍 搜索关键词 (Keywords)
 
-Google Antigravity · 反重力 · 反重力智能体 · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini 编程助手 · Gemini Code Assist · G4 模型 · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code 审计 · GPT-4o 代码审计 · 自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Cursor 审计 · Windsurf 审计 · Trae 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
+Google Antigravity · 反重力 · 反重力智能体 · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini 编程助手 · Gemini Code Assist · G4 模型 · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code 审计 · GPT-4o 代码审计 · 自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Cursor 审计 · Windsurf 审计 · Trae 审计 · Codex 审计 · OpenCode 审计 · Cline 审计 · Qoder 审计 · DeepSeek Harness 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
 
 ### 📄 License
 

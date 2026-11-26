@@ -28,7 +28,7 @@ BugX 是一款装在 AI 编程助手与终端里的**自主代码审查与自动
 
 - 🛡️ **真实执行验证（零误报承诺）**：疑似缺陷由独立沙箱执行“双正例触发 + 单负对照零触发”实跑验证，带完整命令、退出码与终端回显证据留案，杜绝凭空臆测与假报警。
 - 📋 **状态机覆盖账本（杜绝偷懒跳过）**：以状态机跟踪全项目审计单元（已覆盖 / 阻塞 / 待审），断点可续，审查完成与否以账本终态为准，模型的口头承诺不算数。
-- 🔌 **全生态宿主即插即用**：基于标准 MCP / ACP 协议，原生适配 Google Antigravity、Claude Code、Cursor、Trae、OpenAI Codex、Kimi、MiniMax、ZCode 等，深度支持 Gemini 4、Claude 5.5 与 GPT-4o 底座。
+- 🔌 **全生态宿主即插即用**：基于标准 MCP / ACP 协议，原生适配 Google Antigravity、Claude Code、Cursor、Trae、OpenAI Codex、OpenCode、Cline、Qoder、Kimi、MiniMax、ZCode 等，深度支持 Gemini 4、Claude 5.5 与 GPT-4o 底座。
 - 📊 **自带全息 Web 工作台**：内置 Studio 交互看板，实时追踪审计拓扑、漏洞调用链、复现凭据与测试变异杀伤力。
 
 ---
@@ -97,13 +97,19 @@ bugx report serve
 | :--- | :--- | :--- |
 | **Google Antigravity（反重力）** | 原生 Agent/Worker、Skill、项目级 Supervisor/Worker/docs MCP | `bugx install --agent antigravity` |
 | **Claude Code** | 原生 MCP / 自治生命周期 | `bugx install --agent claude` |
-| **Cursor / Trae / Windsurf** | 项目级 / 用户级 MCP 标准接入 | `bugx install` 自动检测装配 |
 | **OpenAI Codex** | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
-| **Agnes Code** | 终端原生 TUI / 智能体与原生 MCP 注入 | `bugx install --agent agnescode` |
+| **OpenCode** | 原生 ACP / 多 Agent 并发 / 项目级 MCP | `bugx install --agent opencode` |
+| **Cline / Roo Code** | 独立数据沙箱 / 项目级 Agent / 用户级 MCP | `bugx install --agent cline` |
+| **Qoder AI** | 原生 Agent/Worker、Subagent 并发、用户级/项目级 MCP 注入 | `bugx install --agent qoder` |
+| **Trae / Trae CN** | 项目级 Agent、多变体 MCP 同步镜像 | `bugx install --agent trae` |
+| **DeepSeek Harness (DSH)** | 原生 Headless Profile / Cordis Patch / MCP 注入 | `bugx install --agent dsh` |
 | **Kimi Code** | Headless ACP / 原生 MCP 插件 | `bugx install --agent kimi` |
 | **MiniMax Code** | 自定义 Agent、Plugin V1 Worker、Skill 与 MCP | `bugx install --agent minimax` |
 | **ZCode** | 原生 MCP / 用户级注册 | `bugx install --agent zcode` |
-| **OpenCode / Cline** | 原生 ACP / MCP 交互管道 | `bugx install --agent opencode` |
+| **Agnes Code** | 终端原生 TUI / 智能体与原生 MCP 注入 | `bugx install --agent agnescode` |
+| **WorkBuddy / CodeBuddy** | 原生 Skill、桌面端多变体镜像、项目级 MCP | `bugx install --agent workbuddy` |
+| **GitHub Copilot** | 项目级 Agent/指令注入、用户级 Agent、项目级 MCP | `bugx install --agent copilot` |
+| **Cursor / Windsurf** | 项目级 / 用户级 MCP 标准接入 | `bugx install` 自动检测装配 |
 
 ---
 
@@ -129,7 +135,7 @@ bugx report serve
 
 ### 🔍 搜索关键词 (Keywords)
 
-Google Antigravity · 反重力 · 反重力智能体 · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini 编程助手 · Gemini Code Assist · G4 模型 · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code 审计 · GPT-4o 代码审计 · 自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Cursor 审计 · Windsurf 审计 · Trae 审计 · Codex 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
+Google Antigravity · 反重力 · 反重力智能体 · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini · Gemini 编程助手 · Gemini Code Assist · G4 模型 · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code 审计 · GPT-4o 代码审计 · 自动代码审计 · AI 代码审计 · 自动化 Code Review · Code Review · 代码审查 Agent · 代码审计智能体 · AI Agent · Vibe Coding 安全 · 氛围编程审计 · PR 自动审查 · 零误报 · 真实 PoC 复现 · 盲审验证 · 安全审计 · 漏洞扫描 · 漏洞挖掘 · 静态分析 · MCP 服务 · MCP 安全 · Cursor 审计 · Windsurf 审计 · Trae 审计 · Codex 审计 · OpenCode 审计 · Cline 审计 · Qoder 审计 · GitHub Copilot 审计 · DeepSeek Harness 审计 · 编程助手安全 · 自主审计 · 行为差分 · 内存泄漏检测 · Python 安全 · JavaScript 安全 · DevSecOps
 
 ---
 

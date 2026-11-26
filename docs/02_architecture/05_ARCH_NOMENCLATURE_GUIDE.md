@@ -1,7 +1,7 @@
 # BugX 代码与测试模块命名、分组与检索工程规范
 # (Architecture Nomenclature, Grouping & Codebase Retrieval Engineering Guidelines)
 
-> **版本契约**: `0.1.5`
+> **版本契约**: `0.1.6`
 > **守卫机制**: `scripts/verify_directory_indices.py`
 > **权威适用范围**: `core/` 微内核、`interfaces/` 交互层及全仓代码资产；测试命名章节只描述临时过程文件。
 > **不适用范围**: `docs/` 目录与文档文件命名 —— 该领域由 [`docs/02_architecture/07_DOC_GOVERNANCE_STANDARD.md`](07_DOC_GOVERNANCE_STANDARD.md) §4 定义，本文件不重复规定，避免双权威。

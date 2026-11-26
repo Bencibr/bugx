@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "contract_version": "0.1.5",
+  "contract_version": "0.1.6",
   "file_count": 22,
-  "total_bytes": 456381,
+  "total_bytes": 457959,
   "files": [
     {
       "path": "OVERVIEW.md",
       "source": "README.md",
-      "bytes": 6690,
-      "sha256": "d0862e68b89cebb0f370f388a19b4f57f30ea5d90936f54955378640b20df78a"
+      "bytes": 7511,
+      "sha256": "8a272498e1a5c41da161a865a81d1458e76cf845f1a5a21392a758bc38a7ace4"
     },
     {
       "path": "README_EN.md",
       "source": "README_EN.md",
-      "bytes": 6221,
-      "sha256": "17309c5c59bb068a11f3befa17b2d02d494bf804da36f65f7cb0b6c6444a4c37"
+      "bytes": 6978,
+      "sha256": "e529ac3f5566f138ce58b494ab07a716a05fefaff47c6f0fccdfe9bcd3842a63"
     },
     {
       "path": "reference/01_ENVIRONMENT_VARIABLES.md",
@@ -26,13 +26,13 @@
       "path": "reference/04_REPOSITORY_TOPOLOGY.md",
       "source": "docs/02_architecture/04_REPOSITORY_TOPOLOGY.md",
       "bytes": 13055,
-      "sha256": "d6f810d1aadbacfcc9528766ce54b01229b0f4c6a4aecac34cd55b4611cd2651"
+      "sha256": "30ef807e28f9b488503425192f4ff19c2854467be0e62760d26bdfcb5cee5a4a"
     },
     {
       "path": "hosts/platform_bugx_SKILL.md",
       "source": "skills/platform/bugx/SKILL.md",
       "bytes": 3941,
-      "sha256": "15096fa38872feca91efb9a3294210948a9efc0d84c31470ce1ded54dbaad0f3"
+      "sha256": "655783b82196921de4f36e4ef07755ec5535cefb0f5fc26cffad8adb38147ba1"
     },
     {
       "path": "hosts/cline_bugx_SKILL.md",
@@ -98,13 +98,13 @@
       "path": "ai/02_AI_USAGE.md",
       "source": "docs/03_ai/02_AI_USAGE.md",
       "bytes": 13575,
-      "sha256": "b040f63360e854370c7addba4f51df3d62a83ff5afdd344b82e078129e143461"
+      "sha256": "d1255ced21937e92133b0a64f5cc858a93332c9e5e57be6d717808aae3b002ce"
     },
     {
       "path": "ai/03_AI_COMMANDS.md",
       "source": "docs/03_ai/03_AI_COMMANDS.md",
       "bytes": 46169,
-      "sha256": "8d62791ce3b2566dcaca12ece45c98ef45da684e50426e38e58c3daa95510bea"
+      "sha256": "c50a0c9690bb46e80daa56e511ea4d1b7d5f37f3b27a8c57822c0a1071159797"
     },
     {
       "path": "hosts/bugx_SKILL.md",

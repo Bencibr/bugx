@@ -1,6 +1,6 @@
 # BugX AI 使用指南
 
-> **版本**：0.1.5 ｜ **更新日期**：2026-11-26
+> **版本**：0.1.6 ｜ **更新日期**：2026-11-26
 > **定位**：给宿主 AI 的任务型操作指南
 > **相关文档**：[AI Reference](01_AI_REFERENCE.md) ｜ [AI 命令手册](03_AI_COMMANDS.md) ｜ [用户故障排查](../01_guides/03_TROUBLESHOOTING.md)
 

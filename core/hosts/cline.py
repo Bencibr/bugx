@@ -87,6 +87,9 @@ def _mcp_settings_path(root: Path) -> Path:
 
 def _headless_argv(ctx: RunContext) -> list[str]:
     command = ["cline", "--json"]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     if ctx.session:
         command += ["--id", ctx.session]
     return [*command, ctx.prompt]
@@ -94,6 +97,9 @@ def _headless_argv(ctx: RunContext) -> list[str]:
 
 def _autonomous_argv(ctx: RunContext) -> list[str]:
     command = ["cline", "--json", "--auto-approve", "true"]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     if ctx.session:
         command += ["--id", ctx.session]
     return [*command, ctx.prompt]

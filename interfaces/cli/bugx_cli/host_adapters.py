@@ -16,7 +16,11 @@ import re
 import shutil
 import subprocess
 
-from .hosts.registry import QODER_PROJECT_MCP_PATHS, engine_host_plugin
+from .hosts.registry import (
+    COPILOT_PROJECT_PATHS,
+    QODER_PROJECT_MCP_PATHS,
+    engine_host_plugin,
+)
 from .hosts.template_engine import (
     AGENT_DESCRIPTION,
     AGENT_DESCRIPTION_EN,
@@ -1878,6 +1882,151 @@ class FunIdeAdapter(HostAdapter):
         return _ensure_funide_user_agents(root, source, locale=locale)
 
 
+def _copilot_app_markers() -> tuple[Path, ...]:
+    home = Path.home()
+    system = platform.system()
+    markers: list[Path] = []
+    if system == "Darwin":
+        markers.extend([
+            Path("/Applications/Visual Studio Code.app"),
+            Path("/Applications/Visual Studio Code - Insiders.app"),
+            home / "Applications" / "Visual Studio Code.app",
+        ])
+    elif system == "Windows":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        prog_files = os.environ.get("ProgramFiles", "")
+        if local_app:
+            markers.append(Path(local_app) / "Programs" / "Microsoft VS Code" / "Code.exe")
+        if prog_files:
+            markers.append(Path(prog_files) / "Microsoft VS Code" / "Code.exe")
+    else:
+        markers.extend([
+            Path("/usr/bin/code"),
+            Path("/usr/share/code/code"),
+            home / ".vscode",
+        ])
+    markers.extend([
+        home / ".copilot",
+        home / ".config" / "github-copilot",
+    ])
+    for tool_name in ("code", "gh", "copilot"):
+        found = shutil.which(tool_name)
+        if found:
+            markers.append(Path(found))
+    return tuple(markers)
+
+
+def _copilot_user_agents_dir() -> Path:
+    override = os.environ.get("BUGX_COPILOT_USER_AGENTS_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    return (Path.home() / ".copilot" / "agents").resolve()
+
+
+def _ensure_copilot_user_agents(root: Path, source: Path, *, locale: str | None = None) -> dict[str, object]:
+    from .common import _atomic_write_global_file, _backup_host_resource, CliError
+    from .hosts.registry import get_component
+    from .hosts.template_engine import render_host_entry
+
+    agents_dir = _copilot_user_agents_dir()
+    if agents_dir.is_symlink():
+        raise CliError(f"拒绝写入符号链接 GitHub Copilot 用户级 agents 目录: {agents_dir}")
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    target = agents_dir / "bugx.agent.md"
+    if target.is_symlink():
+        raise CliError(f"拒绝覆盖符号链接 GitHub Copilot 用户级智能体: {target}")
+
+    component = get_component("copilot")
+    content = render_host_entry(component, source, locale=locale)
+    payload = content.encode("utf-8")
+
+    written: list[dict[str, object]] = []
+    backups: list[Path] = []
+    if target.is_file() and target.read_bytes() == payload:
+        written.append({
+            "path": str(target),
+            "status": "unchanged",
+            "backup": None,
+            "created": False,
+        })
+    else:
+        backup = _backup_host_resource(root, "copilot", target) if target.exists() else None
+        if backup is not None:
+            backups.append(backup)
+        _atomic_write_global_file(target, payload)
+        written.append({
+            "path": str(target),
+            "status": "created" if backup is None else "upgraded",
+            "backup": str(backup) if backup is not None else None,
+            "created": backup is None,
+        })
+
+    return {
+        "dir": str(agents_dir),
+        "path": str(target),
+        "written": written,
+        "backups": backups,
+    }
+
+
+def render_copilot_instructions(*, locale: str | None = None) -> str:
+    loc = (locale or "").strip().lower()
+    if not loc:
+        try:
+            import core.i18n as i18n
+            loc = i18n.resolve_locale().resolved_locale
+        except Exception:
+            loc = "zh-cn"
+    if loc.startswith("zh"):
+        return (
+            "# GitHub Copilot 专属 BugX 审计指令\n\n"
+            "在当前项目中进行代码审查、排查 Bug 或执行安全性测试时：\n"
+            "- 优先唤起或参考 `.github/agents/bugx.agent.md` 中的 BugX 审计智能体；\n"
+            "- 通过 `bugx engine path --name bugx-runtime-contract.md` 和 `bugx engine path --name bugx-quick.md` 读取全局权威协议；\n"
+            "- 充分利用 `.vscode/mcp.json` 中配置的 `bugx-supervisor` 与 `bugx-supervisor-worker` 工具，以证据为中心，坚持“无 PoC 实跑证据不立案”的原则；\n"
+            "- 严格遵守租约管理与零误报核验门禁，不在长代码段前偷懒跳过。\n"
+        )
+    return (
+        "# GitHub Copilot Instructions for BugX\n\n"
+        "When auditing code, reviewing pull requests, or verifying security defects in this project:\n"
+        "- Invoke or follow the BugX agent definition in `.github/agents/bugx.agent.md`.\n"
+        "- Load global protocols via `bugx engine path --name bugx-runtime-contract.md` and `bugx engine path --name bugx-quick.md`.\n"
+        "- Leverage the BugX Supervisor MCP tools configured in `.vscode/mcp.json` for verified, reproducible audit findings.\n"
+        "- Adhere strictly to the lifetime, lease heartbeat, and zero-false-alarm verification gates.\n"
+    )
+
+
+class CopilotAdapter(HostAdapter):
+    """GitHub Copilot IDE / Agent adapter."""
+
+    def _app_markers(self) -> tuple[Path, ...]:
+        return _copilot_app_markers()
+
+    def _user_marker(self) -> bool:
+        return (_copilot_user_agents_dir() / "bugx.agent.md").is_file()
+
+    def detect(self, root: Path) -> dict[str, object]:
+        info = super().detect(root)
+        user_entry = _copilot_user_agents_dir() / "bugx.agent.md"
+        info.update({
+            "user_marker": user_entry.is_file(),
+            "user_agent_path": str(user_entry),
+        })
+        return info
+
+    def render_required_entry(
+        self, relative: str, source: Path, *, locale: str | None = None,
+    ) -> str | None:
+        if relative == ".github/copilot-instructions.md":
+            return render_copilot_instructions(locale=locale)
+        return None
+
+    def ensure_user_agents(
+        self, root: Path, source: Path, *, locale: str | None = None,
+    ) -> dict[str, object] | None:
+        return _ensure_copilot_user_agents(root, source, locale=locale)
+
+
 # dsh 宿主适配器 — 基于补丁覆盖层 + Skills 注入
 class DshAdapter(HostAdapter):
     """DeepSeek Harness (dsh) adapter."""
@@ -2058,6 +2207,17 @@ HOST_ADAPTERS: tuple[HostAdapter, ...] = (
         "funide", "FunIDE", "funide", ".github/agents/bugx.agent.md",
         ".github/agents/bugx.agent.md", "agent",
         capabilities=frozenset({CAP_NATIVE_MCP_CONFIG, CAP_USER_AGENT_REGISTRATION}),
+    ),
+    CopilotAdapter(
+        "copilot", "GitHub Copilot", "copilot", ".github/agents/bugx.agent.md",
+        ".github/agents/bugx.agent.md", "agent",
+        required_paths=COPILOT_PROJECT_PATHS,
+        capabilities=frozenset({
+            CAP_NATIVE_MCP_CONFIG,
+            CAP_USER_AGENT_REGISTRATION,
+            CAP_EXTRA_TRACKED_PATHS,
+        }),
+        aliases=("github-copilot", "gh-copilot", "copilot-chat"),
     ),
 )
 

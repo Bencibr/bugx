@@ -1,6 +1,6 @@
-# BugX 0.1.5 System Architecture & Design Specification
+# BugX 0.1.6 System Architecture & Design Specification
 
-> **版本**: 0.1.5 | **更新日期**: 2026-11-26 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
+> **版本**: 0.1.6 | **更新日期**: 2026-11-26 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
 > 🔒 **内部管理资产**：本文档为 BugX 系统内部底层实现契约、历史缺陷审定修复记录与自动化验证门禁总卷，仅供核心研发团队与系统维护者查阅。  
 > 最终用户请参阅面向用户的公开文档：[用户指南 (01_USER_GUIDE.md)](../../docs/01_guides/01_USER_GUIDE.md)、[命令手册 (02_COMMANDS.md)](../../docs/01_guides/02_COMMANDS.md)、[架构总览 (01_ARCHITECTURE.md)](01_ARCHITECTURE.md) 与 [核心流程 (03_BUGX_AUDIT_FLOW.md)](03_BUGX_AUDIT_FLOW.md)。  
 > 历史提案与测试执行记录只作审计留痕，不代表当前仓库仍保留对应文件；当前资产边界以本节和 `AGENTS.md` 为准。

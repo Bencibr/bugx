@@ -1594,6 +1594,22 @@ def write_host_mcp_config(
         if not isinstance(servers, dict):
             raise CliError(_i18n_exc("plugin.trea_servers_not_object", f"Trea 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
         desired = _host_supervisor_server_definitions(shape="trea", optional_names=optional_names)
+    elif host_name == "copilot":
+        target = root / ".vscode" / "mcp.json"
+        payload = _load_json_object(target, "GitHub Copilot")
+        servers_key = "mcpServers"
+        servers = payload.get(servers_key)
+        if servers is None:
+            servers = {}
+            payload[servers_key] = servers
+        if not isinstance(servers, dict):
+            raise CliError(f"GitHub Copilot 配置 {servers_key} 不是对象，拒绝写入: {target}")
+        desired = _host_supervisor_server_definitions(
+            shape="copilot",
+            optional_names=optional_names,
+            docs_transport=docs_transport,
+            docs_remote_url=docs_remote_url,
+        )
     else:
         raise CliError(_i18n_exc("plugin.unsupported_mcp_host", f"不支持写入 MCP 的宿主: {host_name}", host_name=host_name))
 
@@ -1685,6 +1701,8 @@ def write_host_mcp_config(
                          optional_names=optional_names)
     if host_name == "trea":
         _sync_trae_mcp_mirror(root, desired, optional_names=optional_names)
+    elif host_name == "copilot":
+        _sync_mcp_mirror("copilot", "copilot", root / ".mcp.json", desired, optional_names=optional_names)
     if not changed:
         return "unchanged", target, None, False
 
@@ -2342,6 +2360,8 @@ def _host_project_mcp_config_target(root: Path, host_name: str) -> tuple[Path, s
     migrated = engine_host_mcp_write(host_name)
     if migrated is not None and migrated.project_relpath and not migrated.custom_writer:
         return root / migrated.project_relpath, migrated.container_key
+    if host_name == "copilot":
+        return root / ".vscode" / "mcp.json", "mcpServers"
     if host_name == "funide":
         return root / ".mcp.json", "mcpServers"
     if host_name in {"chatgpt", "workbuddy", "codebuddy"}:

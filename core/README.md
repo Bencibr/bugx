@@ -1,6 +1,6 @@
 # BugX 微内核与核心领域系统 (Core Microkernel & Domain Architecture)
 
-> **版本契约**: `0.1.5` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`
+> **版本契约**: `0.1.6` | **调度微内核**: `core/launch_bugx.py` + `core/supervisor/`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md) 与 [`docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md`](../docs/02_architecture/06_MODULE_GOVERNANCE_SPEC.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 索引对齐防漂移)
 

@@ -1,6 +1,6 @@
 # 全域全景架构与权威目录拓扑 (System Architecture & Repository Topology)
 
-> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.5` | **更新日期**: 2026-11-26
+> **文档编号**: `DOC-TOPOLOGY` | **基线版本**: `0.1.6` | **更新日期**: 2026-11-26
 > **文档定位**: Diátaxis - Explanation (工程拓扑、架构正交性与目录层级权威白皮书)  
 > **关联规范**: [`docs/02_architecture/01_ARCHITECTURE.md`](01_ARCHITECTURE.md) (系统高层架构设计), [`docs/02_architecture/02_DESIGN_SPEC.md`](02_DESIGN_SPEC.md) (设计规约总账), [`AGENTS.md`](../../AGENTS.md) (工程开发宪法)
 

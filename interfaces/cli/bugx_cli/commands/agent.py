@@ -4244,6 +4244,24 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
             detail += "；Agent 入口存在但不能替代 Trea MCP 配置"
         return False, detail + "；请运行 bugx install --agent trea"
 
+    if host_name == "copilot":
+        candidates = (
+            (root / ".vscode" / "mcp.json", "mcpServers"),
+            (root / ".mcp.json", "flat"),
+        )
+        ok, detail = _validate_host_supervisor_mcp(candidates, root)
+        project_entry = root / ".github" / "agents" / "bugx.agent.md"
+        instructions_entry = root / ".github" / "copilot-instructions.md"
+        user_entry = Path.home() / ".copilot" / "agents" / "bugx.agent.md"
+        has_entry = (project_entry.is_file() and instructions_entry.is_file()) or user_entry.is_file()
+        if ok and has_entry:
+            return True, detail + "；GitHub Copilot Agent/MCP 入口已就绪"
+        if not has_entry:
+            detail += "；缺少 .github/agents/bugx.agent.md 或 .github/copilot-instructions.md"
+        elif not ok:
+            detail += "；Agent 入口存在但缺少 .vscode/mcp.json 配置"
+        return False, detail + "；请运行 bugx install --agent copilot"
+
     if host_name == "pi":
         ext_manifest = root / ".pi" / "extensions" / "bugx" / "manifest.json"
         skill_file = root / ".pi" / "skills" / "bugx" / "SKILL.md"

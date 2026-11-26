@@ -44,6 +44,11 @@ WORKBUDDY_PROJECT_PATHS = (
     ".codebuddy/skills/bugx/SKILL.md",
 )
 QODER_PROJECT_MCP_PATHS = (".mcp.json", ".qoder/settings.json")
+COPILOT_PROJECT_PATHS = (
+    ".github/agents/bugx.agent.md",
+    ".github/copilot-instructions.md",
+)
+COPILOT_PROJECT_MCP_PATHS = (".vscode/mcp.json", ".mcp.json")
 
 
 def _packaged_asset_cores() -> tuple[Path, ...]:
@@ -550,6 +555,33 @@ HOST_COMPONENTS: tuple[HostComponent, ...] = (
         mcp=McpContract(config_relpaths=(".mcp.json",)),
         execution=ExecutionContract(supports_headless=False, host_surface="desktop"),
         capabilities=frozenset({CAP_NATIVE_MCP_CONFIG, CAP_USER_AGENT_REGISTRATION}),
+    ),
+    HostComponent(
+        name="copilot",
+        label="GitHub Copilot",
+        executable="copilot",
+        marker=".github/agents/bugx.agent.md",
+        install=InstallContract(
+            "agent",
+            ".github/agents/bugx.agent.md",
+            required_paths=COPILOT_PROJECT_PATHS,
+        ),
+        interaction=InteractionContract(
+            tool="GitHub Copilot Chat / Agent UI",
+            single_select="由 GitHub Copilot UI 或受控选项执行",
+            multi_select="由 GitHub Copilot UI 承接",
+            availability="GitHub Copilot 为 IDE 扩展/Agent Host",
+            fallback="BUGX_INTERACTION_REQUEST → Copilot UI；无承接者则通过受控选择动作继续",
+            failure="无结构化交互环境时阻断",
+        ),
+        mcp=McpContract(config_relpaths=COPILOT_PROJECT_MCP_PATHS),
+        execution=ExecutionContract(supports_headless=False, host_surface="desktop"),
+        aliases=("github-copilot", "gh-copilot", "copilot-chat"),
+        capabilities=frozenset({
+            CAP_NATIVE_MCP_CONFIG,
+            CAP_USER_AGENT_REGISTRATION,
+            CAP_EXTRA_TRACKED_PATHS,
+        }),
     ),
 )
 

@@ -28,7 +28,7 @@ It partitions codebases into deterministic audit units, orchestrates concurrent 
 
 - 🛡️ **Real Execution Verification (Zero False Alarms)**: Suspected flaws are verified in an isolated sandbox with dual positive tests and a clean negative control. Every finding carries executable PoC commands, exit codes, and output hashes.
 - 📋 **Ledger-Tracked State Machine Coverage**: Codebases are decomposed into atomic units (covered / blocked / pending). Audits resume seamlessly across sessions, and completion is determined by ledger state—not conversational claims.
-- 🔌 **Universal Host Integration via MCP / ACP**: Seamlessly plugs into Google Antigravity, Claude Code, Cursor, Trae, OpenAI Codex, Kimi Code, MiniMax Code, and ZCode. Fully supports Gemini 4, Claude 5.5, and GPT-4o models.
+- 🔌 **Universal Host Integration via MCP / ACP**: Seamlessly plugs into Google Antigravity, Claude Code, Cursor, Trae, OpenAI Codex, OpenCode, Cline, Qoder, Kimi Code, MiniMax Code, and ZCode. Fully supports Gemini 4, Claude 5.5, and GPT-4o models.
 - 📊 **Built-in Web Studio Dashboard**: Live interactive web interface (`bugx report serve`) visualizing coverage status, call chains, PoC proof artifacts, and mutation test efficacy.
 
 ---
@@ -97,13 +97,19 @@ Run `bugx report serve` anytime to inspect audit topology, evidence chains, and 
 | :--- | :--- | :--- |
 | **Google Antigravity** | Native Agent/Worker, Skill, Project MCP | `bugx install --agent antigravity` |
 | **Claude Code** | Native MCP / Autonomous Lifecycle | `bugx install --agent claude` |
-| **Cursor / Trae / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |
 | **OpenAI Codex** | Workspace Sub-Agent / Native Plugin | `bugx install --agent codex` |
-| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **OpenCode** | Native ACP / Multi-Agent Concurrency / Project MCP | `bugx install --agent opencode` |
+| **Cline / Roo Code** | Isolated Data Sandbox / Project Agent / User MCP | `bugx install --agent cline` |
+| **Qoder AI** | Native Agent/Worker, Subagent Concurrency, User/Project MCP | `bugx install --agent qoder` |
+| **Trae / Trae CN** | Project Agent, Multi-variant MCP Sync Mirror | `bugx install --agent trae` |
+| **DeepSeek Harness (DSH)** | Native Headless Profile / Cordis Patch / MCP Injection | `bugx install --agent dsh` |
 | **Kimi Code** | Headless ACP / Native MCP Plugin | `bugx install --agent kimi` |
 | **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & MCP | `bugx install --agent minimax` |
 | **ZCode** | Native MCP / User-Level Registry | `bugx install --agent zcode` |
-| **OpenCode / Cline** | Native ACP / MCP Interactive Pipeline | `bugx install --agent opencode` |
+| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **WorkBuddy / CodeBuddy** | Native Skill, Desktop Multi-variant Mirror, Project MCP | `bugx install --agent workbuddy` |
+| **GitHub Copilot** | Project Agent/Instructions, User Agent, Project MCP | `bugx install --agent copilot` |
+| **Cursor / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |
 
 ---
 
@@ -119,7 +125,7 @@ Run `bugx report serve` anytime to inspect audit topology, evidence chains, and 
 
 ### 🔍 Keywords
 
-Google Antigravity · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini Code Assist · G4 Model · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code Audit · GPT-4o Code Review · Autonomous Code Review · Automated Code Audit · AI Code Review · Code Review Agent · AI Agent · Vibe Coding Security · PR Review · Zero False Positive · PoC Verification · Blind Verification · Security Audit · Vulnerability Scanner · Static Analysis · MCP Server · MCP Security · Cursor · Windsurf · Trae · OpenAI Codex · Behavior Diff · Memory Leak Detection · Python Security · JavaScript Security · DevSecOps
+Google Antigravity · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini Code Assist · G4 Model · Claude 5.5 · Claude Sonnet 5.5 · Claude Opus 5.5 · Claude Code Audit · GPT-4o Code Review · Autonomous Code Review · Automated Code Audit · AI Code Review · Code Review Agent · AI Agent · Vibe Coding Security · PR Review · Zero False Positive · PoC Verification · Blind Verification · Security Audit · Vulnerability Scanner · Static Analysis · MCP Server · MCP Security · Cursor · Windsurf · Trae · OpenAI Codex · OpenCode · Cline · Qoder · GitHub Copilot · DeepSeek Harness · Behavior Diff · Memory Leak Detection · Python Security · JavaScript Security · DevSecOps
 
 ---
 

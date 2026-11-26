@@ -74,6 +74,7 @@ TODO_HOSTS: tuple[str, ...] = (
     "qoder",
     "trea",
     "funide",
+    "copilot",
 )
 
 
