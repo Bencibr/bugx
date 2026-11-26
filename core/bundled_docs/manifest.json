@@ -2,19 +2,19 @@
   "schema_version": 1,
   "contract_version": "0.1.5",
   "file_count": 22,
-  "total_bytes": 487265,
+  "total_bytes": 456381,
   "files": [
     {
       "path": "OVERVIEW.md",
       "source": "README.md",
-      "bytes": 24120,
-      "sha256": "b6739dc0b8a481194341abdfff915cbdfa0ddb926f77069ce3bd2225af2459c7"
+      "bytes": 6690,
+      "sha256": "d0862e68b89cebb0f370f388a19b4f57f30ea5d90936f54955378640b20df78a"
     },
     {
       "path": "README_EN.md",
       "source": "README_EN.md",
-      "bytes": 19675,
-      "sha256": "badb439d333a4d2ab501e8a27af07fa852831b4bb9a215b29d09134f5b5ff2e1"
+      "bytes": 6221,
+      "sha256": "17309c5c59bb068a11f3befa17b2d02d494bf804da36f65f7cb0b6c6444a4c37"
     },
     {
       "path": "reference/01_ENVIRONMENT_VARIABLES.md",

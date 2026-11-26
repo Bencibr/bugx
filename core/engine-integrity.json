@@ -1,6 +1,6 @@
 {
   "bugx_version": "0.1.5",
-  "bundle_sha256": "9d4ba5a82c87bcb621334c43379f193d571bf093cc7208d039dc945c10a4894f",
+  "bundle_sha256": "3730a4f3efa97023fdf4c39ff3343cff1d24afb11869beb229d65fdd6fd82c6f",
   "file_count": 747,
   "files": {
     "CATALOG.json": {
@@ -464,16 +464,16 @@
       "size": 85139
     },
     "bundled_docs/OVERVIEW.md": {
-      "sha256": "b6739dc0b8a481194341abdfff915cbdfa0ddb926f77069ce3bd2225af2459c7",
-      "size": 24120
+      "sha256": "d0862e68b89cebb0f370f388a19b4f57f30ea5d90936f54955378640b20df78a",
+      "size": 6690
     },
     "bundled_docs/README.md": {
-      "sha256": "55d01c8bcb23c7ec5224549fb6ebcc1e8d0be74871ff6ceb93586948ede8954d",
+      "sha256": "1fa4af5af5e6cf5452bf28d1b6037a77c3ac15eb9390dda6a3e792aedc4a60ea",
       "size": 619
     },
     "bundled_docs/README_EN.md": {
-      "sha256": "badb439d333a4d2ab501e8a27af07fa852831b4bb9a215b29d09134f5b5ff2e1",
-      "size": 19675
+      "sha256": "17309c5c59bb068a11f3befa17b2d02d494bf804da36f65f7cb0b6c6444a4c37",
+      "size": 6221
     },
     "bundled_docs/ai/01_AI_REFERENCE.md": {
       "sha256": "cfa525ef672e7fcf846a67e0f8047359fd92a081de98f0ebe430981bee44f1ee",
@@ -548,8 +548,8 @@
       "size": 3941
     },
     "bundled_docs/manifest.json": {
-      "sha256": "3eab6ff64c20a0916191855057e8eec5ddd6d9280fc203e7cd2f2b3d205a8fb0",
-      "size": 4984
+      "sha256": "ffc169f3fb0b826aae8f276c36a5093c369907822848a8094f952dab54cad7d3",
+      "size": 4982
     },
     "bundled_docs/reference/01_ENVIRONMENT_VARIABLES.md": {
       "sha256": "9b73afb3796c7b94e6ead62c7709ba498925fa9b3a70738ab3077a97236b4692",

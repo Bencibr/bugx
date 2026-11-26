@@ -238,6 +238,10 @@
 4. **文档真理门禁守护（DocSkill Code-Truth Gate）**：
    - 文档修改或功能交付时，可通过 `docskill check-code-truth` 进行全量真理核验，确保 0 虚构代码引用、0 僵尸虚标提案、0 用户文档内部工单泄露。
 
+5. **门面 README 与分发包 (pip/npm) 十段式标准架构与四位一体强同步铁律 (2026-11-26 固化)**：
+   - **十段式高信噪比标准架构**：所有门面与分发包 README 严格按十段式编排：① Header & Hero（居中图片/双语/H1/一句话定位/徽章/官网）、② ✨ 核心特性（严格 4 个 Emoji 亮点，严禁长篇心理学小作文）、③ 🚀 快速开始（10 秒上手：安装与 `bugx install`，严禁堆砌云端同步与版本更新底层细节）、④ 💬 使用方式（AI 对话 3 提示词 + 命令行自主长跑）、⑤ 🖥️ Web 看板（Studio 截图）、⑥ 🔌 支持宿主矩阵（紧凑表格，严禁堆砌个别宿主底层特化长文，统一导流至宿主矩阵指南）、⑦ 📚 文档导航（精选 5 核心文档）、⑧ 💬 交流群（微信群二维码）、⑨ 🔍 搜索关键词（涵盖前沿生态热词）、⑩ 📄 许可协议（BSL 1.1）。
+   - **四位一体强同步流程**：修改主 README 时，必须同轮提交强行对齐 `README.md`、`README_EN.md`、`docs/07_distribution/02_README_PYPI.md` 与 `docs/07_distribution/01_README_NPM.md`，严禁双轨脱节。改动后必须运行 `python3 scripts/refresh_signed_mirrors.py` 重签 `core/engine-integrity.json`，并通过四文件内部敏感标识扫描。
+
 ## 宿主插件迁移与验收宪法（2026-10-23 固化）
 
 宿主能力已收敛为**三层插件**：`core/hosts/<host>.py`（六面契约 `identity/install/engine_run/
