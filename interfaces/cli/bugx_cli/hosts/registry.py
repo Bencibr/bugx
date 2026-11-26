@@ -377,7 +377,7 @@ def _component_from_plugin(name: str) -> HostComponent:
 #: 它随纵切推进增长；全部宿主迁移完成后本清单与 ``HOST_COMPONENTS`` 的本地字面量
 #: 会一起消失。
 PLUGIN_BACKED_HOSTS: tuple[str, ...] = (
-    "cline", "codex", "claude", "pi", "zcode", "kimi", "minimax", "antigravity",
+    "cline", "codex", "claude", "pi", "zcode", "kimi", "minimax", "antigravity", "agnescode",
 )
 
 

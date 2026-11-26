@@ -1821,7 +1821,7 @@
         }
       },
       "semgrep": {
-        "python": ">=3.12,<3.14",
+        "python": ">=3.12",
         "packages": {
           "annotated-types": {
             "version": "0.8.0",

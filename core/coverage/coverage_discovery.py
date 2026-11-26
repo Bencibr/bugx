@@ -929,7 +929,7 @@ def discovery_row(number: str, unit: dict, *, reset: bool = True,
         note += f" platform:{unit_platform_name}"
     difficulty = "3"
     calc_risk: float | None = None
-    if root is not None:
+    if root is not None and unit.get("parser") != "files-only":
         try:
             operation_cache = risk_cache if risk_cache is not None else {}
             calc_risk = cached_unit_risk_score(file_path, root, digest, operation_cache)

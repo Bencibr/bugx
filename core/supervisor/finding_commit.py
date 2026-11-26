@@ -20,6 +20,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Mapping
 
+import core.secure_atomic as secure_atomic
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover
@@ -73,30 +75,7 @@ def _fsync_dir(path: Path) -> None:
 
 
 def _atomic_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        pass
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-    try:
-        os.fchmod(descriptor, mode)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        _fsync_dir(path.parent)
-    except BaseException:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    secure_atomic.atomic_write_bytes(path, data, mode=mode, parent_mode=0o700)
 
 
 def _safe_participant(root: Path, path: Path) -> Path:

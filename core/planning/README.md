@@ -1,6 +1,6 @@
 # BugX Planning & Slicing Engine (能力规划、领域路由、代码切片与仲裁流水线)
 
-> **版本契约**: `0.1.4` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
+> **版本契约**: `0.1.5` | **所属分层**: `Layer 2: 分析、切片与探测引擎`
 > **工程规范**: 参见 [`docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md`](../../docs/02_architecture/05_ARCH_NOMENCLATURE_GUIDE.md)  
 > **守卫机制**: `scripts/verify_directory_indices.py` (100% 物理条目索引覆盖)
 

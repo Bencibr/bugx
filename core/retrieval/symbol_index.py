@@ -22,10 +22,12 @@ from pathlib import Path
 
 import argparse
 import ast
+import concurrent.futures
 import json
 import hashlib
 import os
 import re
+import sqlite3
 from dataclasses import asdict, dataclass, field, replace
 from fnmatch import fnmatchcase
 
@@ -91,7 +93,7 @@ HOST_ROOT_CONFIG_NAMES = {
 }
 DEPENDENCY_OR_GENERATED_DIRS = {
     ".git", "node_modules", "target", "dist", ".venv", "venv", "__pycache__",
-    ".gradle", "vendor", "third_party", ".pytest_cache", ".ruff_cache",
+    ".gradle", "vendor", "third_party", ".pytest_cache", ".ruff_cache", ".tools",
 }
 # Keep the old public name for callers that used it, but do not use it as a
 # blunt ``any path segment`` filter: product code may legitimately contain a
@@ -237,11 +239,14 @@ _PROJECT_EXCLUDE_TOP_DIRS_CACHE: dict[Path, frozenset[str]] = {}
 
 
 def _project_exclude_top_dirs(root: Path) -> frozenset[str]:
-    """项目级覆盖排除，两路来源取并集（AI 复核为主，手工配置为辅）：
+    """项目级覆盖排除（DOC-AIREV 双轨中的 Track 2 动态语义收敛 + 手工配置）：
 
-    1. **AI 复核定案**（主通道）：``.bugx/knowledge/coverage-review.json``
-       里宿主 AI 逐目录排查后的 ``exclude`` 裁决——裁决带理由/时间/裁决者，
-       换项目时由该机制重新排查，不携带任何项目名清单（DOC-AIREV）。
+    在 Track 1（``HOST_RUNTIME_DIRS`` / ``DEPENDENCY_OR_GENERATED_DIRS`` 等静态白名单）
+    自动排除公认基础设施与工具链之后，剩余目录由 AI 复核再过一遍，两路来源取并集：
+
+    1. **AI 复核定案**（Track 2 主通道）：``.bugx/knowledge/coverage-review.json``
+       里宿主 AI 对白名单放行目录逐一排查后的 ``exclude`` 裁决——裁决带理由/时间/
+       裁决者，换项目时动态重查，不携带任何项目名清单（DOC-AIREV）。
     2. **手工覆盖**（辅助）：``.bugx/config.json`` 的
        ``coverage.exclude_top_dirs`` 顶层目录名列表，供人工紧急纠偏。
 
@@ -994,60 +999,230 @@ def index_repository(
     }
 
 
+def _build_file_audit_units(
+    root: Path, path: Path, backend: str, strict: bool,
+    *, cache: SourceContentCache | None = None,
+) -> tuple[str, int, int, str, list[dict]]:
+    """Parse one source file into its leaf-symbol or file-level audit units."""
+    relative = path.relative_to(root).as_posix()
+    st = path.stat()
+    size = int(st.st_size)
+    mtime_ns = int(st.st_mtime_ns)
+    symbols, error, language = parse_file(path, backend, cache=cache)
+    try:
+        digest = file_sha256(path, cache)
+    except OSError as exc:
+        if strict:
+            raise SourceDiscoveryError(f"源码读取失败 {path}: {exc}") from exc
+        digest = ""
+        # F-RSI-20261115-284 同型输出面：与 index_repository 的 digest_status
+        # 对齐，避免读失败单元以空 content_hash 静默进入下游审计/覆盖清单。
+        digest_status = "error"
+    else:
+        digest_status = "ok"
+    leaves = _leaf_symbols(symbols)
+    if leaves and all(symbol.kind == "module" for symbol in leaves):
+        # A file containing only constants/configuration remains a useful
+        # file-level task; do not manufacture a synthetic callable task.
+        leaves = []
+    if leaves:
+        units = [{
+            "scope": f"{relative}::{symbol.scope_name}",
+            "path": relative,
+            "name": symbol.name,
+            "kind": symbol.kind,
+            "line": symbol.start_line,
+            "parser": symbol.parser,
+            "error": error,
+            "end_line": symbol.end_line,
+            "content_hash": digest,
+            "digest_status": digest_status,
+            "language": language,
+        } for symbol in leaves]
+    else:
+        units = [{
+            "scope": relative,
+            "path": relative,
+            "name": path.stem,
+            "kind": "file",
+            "line": 1,
+            "parser": "fallback-file",
+            "error": error,
+            "language": language,
+            "content_hash": digest,
+            "digest_status": digest_status,
+        }]
+    return relative, size, mtime_ns, digest, units
+
+
+def _parse_audit_unit_worker(args: tuple[str, str, str, bool]) -> tuple[str, int, int, str, list[dict]]:
+    """Top-level picklable worker for parallel ProcessPoolExecutor indexing."""
+    root_str, path_str, backend, strict = args
+    return _build_file_audit_units(Path(root_str), Path(path_str), backend, strict)
+
+
+class _PersistentSymbolCache:
+    """Content-addressed SQLite cache for audit_units under ``.bugx/cache/``."""
+
+    def __init__(self, root: Path) -> None:
+        self._conn: sqlite3.Connection | None = None
+        bugx_dir = root / ".bugx"
+        if not bugx_dir.is_dir() or bugx_dir.is_symlink():
+            return
+        cache_dir = bugx_dir / "cache"
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            db_path = cache_dir / "symbol_cache.db"
+            conn = sqlite3.connect(str(db_path), timeout=5.0)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS unit_cache ("
+                "rel_path TEXT NOT NULL, backend TEXT NOT NULL, "
+                "size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, "
+                "sha256 TEXT NOT NULL, units_json TEXT NOT NULL, "
+                "PRIMARY KEY (rel_path, backend))"
+            )
+            self._conn = conn
+        except (OSError, sqlite3.Error):
+            self._conn = None
+
+    def get_by_stat(self, rel_path: str, backend: str, size: int, mtime_ns: int) -> list[dict] | None:
+        if self._conn is None:
+            return None
+        try:
+            row = self._conn.execute(
+                "SELECT units_json FROM unit_cache "
+                "WHERE rel_path = ? AND backend = ? AND size = ? AND mtime_ns = ?",
+                (rel_path, backend, size, mtime_ns),
+            ).fetchone()
+            if row is not None:
+                data = json.loads(row[0])
+                if isinstance(data, list):
+                    return data
+        except (sqlite3.Error, ValueError, TypeError):
+            pass
+        return None
+
+    def put_many(self, rows: list[tuple[str, str, int, int, str, list[dict]]]) -> None:
+        if self._conn is None or not rows:
+            return
+        try:
+            with self._conn:
+                self._conn.executemany(
+                    "INSERT OR REPLACE INTO unit_cache "
+                    "(rel_path, backend, size, mtime_ns, sha256, units_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        (rel, backend, size, mtime_ns, digest, json.dumps(units, ensure_ascii=False))
+                        for rel, backend, size, mtime_ns, digest, units in rows
+                    ],
+                )
+        except (sqlite3.Error, TypeError, ValueError):
+            pass
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                pass
+            self._conn = None
+
+
 def audit_units(
     root: Path, backend: str = "auto", strict: bool = False,
     *, cache: SourceContentCache | None = None,
+    parallel: bool = True,
+    use_persistent_cache: bool = True,
 ) -> list[dict]:
-    """返回最细审计单元；有符号时取叶子符号，否则退回文件。"""
+    """返回最细审计单元；有符号时取叶子符号，否则退回文件。
+
+    支持：
+    1. 基于 ``.bugx/cache/symbol_cache.db`` 的文件级内容/stat 持久化缓存；
+    2. 超过 32 个未命中文件时自动启用多进程并发 AST 解析；
+    3. 大规模扫描时定期向 stderr 输出心跳进度，避免宿主误判挂死。
+    """
     root = root.resolve()
     cache = cache if cache is not None else SourceContentCache()
+    source_paths = discover_source_paths(root, strict=strict)
+    persistent = _PersistentSymbolCache(root) if use_persistent_cache else None
+
+    units_by_rel: dict[str, list[dict]] = {}
+    uncached: list[Path] = []
+    ordered_rels: list[str] = []
+
+    try:
+        for path in source_paths:
+            relative = path.relative_to(root).as_posix()
+            ordered_rels.append(relative)
+            if persistent is not None:
+                try:
+                    st = path.stat()
+                    cached_units = persistent.get_by_stat(
+                        relative, backend, int(st.st_size), int(st.st_mtime_ns),
+                    )
+                    if cached_units is not None:
+                        units_by_rel[relative] = cached_units
+                        continue
+                except OSError:
+                    pass
+            uncached.append(path)
+
+        total_uncached = len(uncached)
+        new_cache_rows: list[tuple[str, str, int, int, str, list[dict]]] = []
+
+        main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+        can_spawn = bool(main_file and os.path.isfile(main_file))
+        if parallel and can_spawn and total_uncached >= 32 and (os.cpu_count() or 1) > 1:
+            workers = min(os.cpu_count() or 4, 8)
+            tasks = [(str(root), str(p), backend, strict) for p in uncached]
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+                    for idx, (rel, size, mtime_ns, digest, file_units) in enumerate(
+                        pool.map(_parse_audit_unit_worker, tasks, chunksize=16), 1,
+                    ):
+                        units_by_rel[rel] = file_units
+                        if digest:
+                            new_cache_rows.append((rel, backend, size, mtime_ns, digest, file_units))
+                        if total_uncached >= 200 and idx % 200 == 0:
+                            print(
+                                f"[symbol_index] 并发解析进度: {idx}/{total_uncached}",
+                                file=sys.stderr, flush=True,
+                            )
+            except (OSError, PermissionError, RuntimeError, ValueError):
+                # 受限沙箱或子进程启动失败时安全退回单进程路径
+                units_by_rel = {k: v for k, v in units_by_rel.items()}
+                new_cache_rows.clear()
+                for p in uncached:
+                    if p.relative_to(root).as_posix() not in units_by_rel:
+                        rel, size, mtime_ns, digest, file_units = _build_file_audit_units(
+                            root, p, backend, strict, cache=cache,
+                        )
+                        units_by_rel[rel] = file_units
+                        if digest:
+                            new_cache_rows.append((rel, backend, size, mtime_ns, digest, file_units))
+        else:
+            for idx, p in enumerate(uncached, 1):
+                rel, size, mtime_ns, digest, file_units = _build_file_audit_units(
+                    root, p, backend, strict, cache=cache,
+                )
+                units_by_rel[rel] = file_units
+                if digest:
+                    new_cache_rows.append((rel, backend, size, mtime_ns, digest, file_units))
+                if total_uncached >= 200 and idx % 200 == 0:
+                    print(
+                        f"[symbol_index] 解析进度: {idx}/{total_uncached}",
+                        file=sys.stderr, flush=True,
+                    )
+
+        if persistent is not None and new_cache_rows:
+            persistent.put_many(new_cache_rows)
+    finally:
+        if persistent is not None:
+            persistent.close()
+
     result: list[dict] = []
-    for path in discover_source_paths(root, strict=strict):
-        relative = path.relative_to(root).as_posix()
-        symbols, error, language = parse_file(path, backend, cache=cache)
-        try:
-            digest = file_sha256(path, cache)
-        except OSError as exc:
-            if strict:
-                raise SourceDiscoveryError(f"源码读取失败 {path}: {exc}") from exc
-            digest = ""
-            # F-RSI-20261115-284 同型输出面：与 index_repository 的 digest_status
-            # 对齐，避免读失败单元以空 content_hash 静默进入下游审计/覆盖清单。
-            digest_status = "error"
-        else:
-            digest_status = "ok"
-        leaves = _leaf_symbols(symbols)
-        if leaves and all(symbol.kind == "module" for symbol in leaves):
-            # A file containing only constants/configuration remains a useful
-            # file-level task; do not manufacture a synthetic callable task.
-            leaves = []
-        if leaves:
-            result.extend({
-                "scope": f"{relative}::{symbol.scope_name}",
-                "path": relative,
-                "name": symbol.name,
-                "kind": symbol.kind,
-                "line": symbol.start_line,
-                "parser": symbol.parser,
-                "error": error,
-                "end_line": symbol.end_line,
-                "content_hash": digest,
-                "digest_status": digest_status,
-                "language": language,
-            } for symbol in leaves)
-        else:
-            result.append({
-                "scope": relative,
-                "path": relative,
-                "name": path.stem,
-                "kind": "file",
-                "line": 1,
-                "parser": "fallback-file",
-                "error": error,
-                "language": language,
-                "content_hash": digest,
-                "digest_status": digest_status,
-            })
+    for rel in ordered_rels:
+        result.extend(units_by_rel.get(rel, ()))
     return result
 
 

@@ -1408,6 +1408,11 @@ class OpenCodeAdapter(HostAdapter):
     pass
 
 
+class AgnesCodeAdapter(HostAdapter):
+    """Agnes Code CLI adapter."""
+    pass
+
+
 class CodexAdapter(HostAdapter):
     """Codex CLI adapter（仅 CLI 侧行为覆写）。
 
@@ -2007,6 +2012,7 @@ HOST_ADAPTERS: tuple[HostAdapter, ...] = (
     # MiniMax Code 桌面端通过 Plugin V1 注册 Agent、Skill 与 MCP。
     *_plugin_backed_adapters(MiniMaxAdapter),
     *_plugin_backed_adapters(AntigravityAdapter),
+    *_plugin_backed_adapters(AgnesCodeAdapter),
     WorkBuddyAdapter(
         "workbuddy", "WorkBuddy AI", "workbuddy", ".workbuddy",
         WORKBUDDY_PROJECT_PATHS[0], "skill", WORKBUDDY_PROJECT_PATHS,

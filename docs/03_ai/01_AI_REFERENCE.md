@@ -2,9 +2,9 @@
 title: BugX AI Host and Worker Reference
 audience: AI hosts and native agents
 status: DOCUMENTATION_UNVERIFIED
-version: 0.1.4
+version: 0.1.5
 protocol: MCP 2024-11-05
-server: bugx-supervisor 0.1.4
+server: bugx-supervisor 0.1.5
 last-verified: 2026-11-17
 ---
 
@@ -69,13 +69,13 @@ CLI 的安装源，也不得用它覆盖更高的全局引擎。
 ### 1.3 Host capability sets
 
     install_adapters =
-      chatgpt, claude, cline, codex, dsh, funide, kimi,
+      agnescode, antigravity, chatgpt, claude, cline, codex, dsh, funide, kimi,
       minimax, opencode, pi, qoder, trea, workbuddy, zcode
 
     ready_engine_plugins =
-      opencode, codex, cline, dsh, claude, pi, zcode, kimi, minimax
+      opencode, codex, cline, dsh, claude, pi, zcode, kimi, minimax, antigravity, agnescode
 
-    acp_ready = cline, kimi, opencode
+    acp_ready = agnescode, antigravity, cline, kimi, opencode
     acp_todo = chatgpt, workbuddy, qoder, trea, funide
     acp_unavailable = claude, codex, dsh, pi, zcode, minimax
 
@@ -355,7 +355,7 @@ report source 语义：
 
     protocolVersion: 2024-11-05
     serverName: bugx-supervisor
-    serverVersion: 0.1.4
+    serverVersion: 0.1.5
     hostHeartbeatIntervalSeconds: 5.0
     transport: local stdio
 
@@ -583,6 +583,11 @@ covered 是 coverage value，不是 evidence status。pending、partial、unveri
 判定；任一跳存在矛盾的本地非 passed 记录（自报 covered 却有 failed/error）；链条成环或深度超过
 `MAX_INHERITED_CHAIN_DEPTH = 32`；链条终点自称本地产出却没有本地 passed 记录。继承绝不复制
 证据文件、绝不改写字段，源记录 `target_fingerprint` 漂移与 `observed_at` 年龄信号原样保留。
+
+双轨目录排除与渐进式发现（DOC-AIREV）：
+- **Track 1（静态白名单）**：`symbol_index` 与探针层自动硬排除 `.git`、`node_modules`、`.tools`、`artifacts` 等已知通用依赖/构建产物；
+- **Track 2（AI 语义扫尾）**：白名单不是万能的，白名单放行后的剩余顶层目录须通过 `coverage review-packages` / `review-apply` 由宿主 AI 基于证据逐一复审并移出非产品目录（持久化于 `.bugx/knowledge/coverage-review.json`）；
+- **Tier-1 初始化骨架**：`bugx init` 默认以 `files` 模式建立轻量骨架避免大仓启动挂死；`symbol_index.audit_units` 采用 `.bugx/cache/symbol_cache.db` 持久化缓存与多核并发解析支持大仓全量运行。
 
 run_sandboxed_probe 的边界是 argv-only、禁止 shell launcher/operators、timeout 0.5–60 秒和 artifact/evidence 记录；它不是 OS 文件系统 sandbox。AI 不得向用户宣称更强隔离。
 

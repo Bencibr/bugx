@@ -20,6 +20,8 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import core.secure_atomic as secure_atomic
+
 LEDGER_SCHEMA_VERSION = 1
 ALLOWED_FP_REJECTION_CLASSES = frozenset({
     "not_reproducible",
@@ -72,26 +74,8 @@ def ledger_path(root: Path) -> Path:
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     raw = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(raw)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    secure_atomic.atomic_write_bytes(path, raw, mode=0o600, parent_mode=0o700)
 
 
 def load_fp_ledger(root: Path) -> dict[str, Any]:

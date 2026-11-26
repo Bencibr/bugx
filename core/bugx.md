@@ -2,7 +2,7 @@
 name: bugx
 # Frontmatter is host/Agent routing metadata. Human-facing usage guidance belongs in README.md and docs/.
 description: Use BugX when asked to perform autonomous code review, deep bug hunting, black-box testing, or automated functional and performance verification. Do NOT use BugX for normal conversation, everyday coding, minor cosmetic fixes, or documentation tasks. Normal development should proceed without activating BugX lifecycle.
-version: 0.1.4
+version: 0.1.5
 mode: all
 temperature: 0.1
 permission:

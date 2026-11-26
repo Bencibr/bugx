@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import os
 import stat
 import sys
 import time
@@ -115,7 +116,7 @@ def _private_runtime_root() -> Path:
     if runtime_root.exists():
         if not runtime_root.is_dir():
             raise ValueError("Agent audit runtime path must be a directory")
-        if stat.S_IMODE(runtime_root.stat().st_mode) & 0o077:
+        if os.name == "posix" and stat.S_IMODE(runtime_root.stat().st_mode) & 0o077:
             raise ValueError("Agent audit runtime directory must be private (mode 0700)")
     else:
         runtime_root.mkdir(parents=True, mode=0o700)

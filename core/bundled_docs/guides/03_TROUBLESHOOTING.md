@@ -233,10 +233,10 @@ doctor 不再报告 unsafe layout、identity mismatch 或 missing lifecycle；�
 
 先区分四套能力：
 
-- 安装/检测适配器 12 个；
-- ready engine plugin 7 个；
-- ACP ready 只有 cline、opencode；
-- autonomous CLI choices 是 claude、codex、opencode、dsh、cline、zcode。
+- 安装/检测适配器 16 个；
+- ready engine plugin 11 个；
+- ACP ready 包含 agnescode、antigravity、cline、kimi、opencode；
+- autonomous CLI choices 包含 agnescode、antigravity、claude、codex、opencode、dsh、cline、zcode。
 
 可安装不等于 ACP ready。--allow-missing 只允许缺失可选资产时继续，不会制造插件 facet。--force 只在确认 BugX-owned 静态资产可以更新时使用；普通 install 不应擅自覆盖用户文件。
 

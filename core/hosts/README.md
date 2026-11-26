@@ -47,12 +47,16 @@ flowchart TD
 | `_dsh_usage.py` | DSH 环境专有调用链耗时与交互次数统计实现 | `DshUsageTracker` |
 | `_mcp_toml.py` | MCP 客户端配置注入器，安全写入或更新 `.codex/mcp.toml` / `.vscode/cline_mcp.json` | `inject_mcp_toml_config` |
 | `_zcode_usage.py` | ZCode 平台专有资源配额与请求频率追踪器 | `ZCodeUsageTracker` |
+| `agnescode.py` | Agnes Code 宿主接入适配器，生成 MCP 配置与智能体入口 | `PLUGIN` |
+| `antigravity.py` | Google Antigravity 宿主接入适配器，生成 Plugin 插件与工作区 MCP | `PLUGIN` |
 | `base.py` | 宿主插件核心契约定义，提供探针注入、MCP 服务拉起与生命周期钩子 | `BaseHostPlugin` |
 | `claude.py` | Claude Desktop / Claude Code 宿主接入适配器，生成 MCP 配置与技能包 | `ClaudeHostPlugin` |
 | `cline.py` | Cline 插件适配器，实现 Roo Code / Cline 的 MCP 注入与规则提示词联动 | `ClineHostPlugin` |
 | `codex.py` | OpenAI Codex 适配器，管理 Codex CLI 交互式与无头会话 | `CodexHostPlugin` |
 | `dsh.py` | DSH (Deep Shell) 适配器，支持终端交互代理与工作流联动 | `DshHostPlugin` |
 | `INTERFACE.md` | 宿主插件公共接口设计与契约规范文档 | 宿主生命周期协议说明 |
+| `kimi.py` | Kimi Code CLI 宿主接入适配器，生成 subagent 入口与 MCP 配置 | `PLUGIN` |
+| `minimax.py` | MiniMax Code 桌面端插件适配器，管理 Plugin V1 入口与规范 | `PLUGIN` |
 | `opencode.py` | OpenCode 智能体适配器，提供标准 JSON-RPC MCP 挂载与环境发现 | `OpenCodeHostPlugin` |
 | `pi.py` | Pi 智能体平台接入适配器，实现扩展注册与事件桥接 | `PiHostPlugin` |
 | `SPEC.md` | 多宿主架构设计规格书，阐述各宿主环境差异与统一语义模型 | 规范与技术考量 |

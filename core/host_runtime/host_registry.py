@@ -41,6 +41,7 @@ SUPPORTED_HOSTS: tuple[str, ...] = (
     "kimi",
     "minimax",
     "antigravity",
+    "agnescode",
     "chatgpt",
     "workbuddy",
     "qoder",

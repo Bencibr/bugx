@@ -153,7 +153,7 @@ def build_recipes_from_verdicts(verdicts_path: Path) -> Path:
                 "fingerprint": fp, "oracle_file": oracle_rel,
                 "positive": pos, "negative": neg,
             })
-    out = Path(f"/tmp/recipes-{int(__import__('time').time())}.json")
+    out = Path(__import__("tempfile").gettempdir()) / f"recipes-{int(__import__('time').time())}.json"
     out.write_text(json.dumps(recipes, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"[findings-confirm] 自动生成 {len(recipes)} 条 recipe → {out}")
     return out

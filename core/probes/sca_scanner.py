@@ -29,7 +29,7 @@ from typing import Any, Mapping
 SKIP_DIRS = {
     ".git", ".bugx", ".venv", "venv", "node_modules", "__pycache__",
     "dist", "build", "target", ".tox", ".mypy_cache", ".pytest_cache",
-    "vendor", "Pods", ".gradle", ".idea", ".dart_tool",
+    "vendor", "Pods", ".gradle", ".idea", ".dart_tool", "artifacts", ".tools",
 }
 
 LOCK_FILES = {

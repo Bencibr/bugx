@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             from core.runtime.prep_validate import REQUIRED
             print(json.dumps({"required_headings": list(REQUIRED)}, ensure_ascii=False, indent=2))
             return 0
-        packet = json.loads(args.input.read_text() if args.input else sys.stdin.read())
+        packet = json.loads(args.input.read_text(encoding="utf-8") if args.input else sys.stdin.read())
         if args.operation == "decode":
             result = decode(packet)
         elif args.operation == "summary":
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.operation == "handoff":
             if not args.task or not args.context:
                 raise ValueError("handoff needs --task and --context")
-            result = handoff(args.task.read_text(), decode(packet), json.loads(args.context.read_text()))
+            result = handoff(args.task.read_text(encoding="utf-8"), decode(packet), json.loads(args.context.read_text(encoding="utf-8")))
         elif args.operation == "checkpoint":
             result = checkpoint(packet, args.unit or "", args.note, covered=args.covered)
         else:

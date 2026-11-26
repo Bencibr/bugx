@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "contract_version": "0.1.4",
+  "contract_version": "0.1.5",
   "file_count": 22,
-  "total_bytes": 485544,
+  "total_bytes": 487265,
   "files": [
     {
       "path": "OVERVIEW.md",
       "source": "README.md",
-      "bytes": 23985,
-      "sha256": "d454b2a01346bb88b08bdcf119919ee042861684ea4a80ee12ae902a1c58e045"
+      "bytes": 24120,
+      "sha256": "b6739dc0b8a481194341abdfff915cbdfa0ddb926f77069ce3bd2225af2459c7"
     },
     {
       "path": "README_EN.md",
@@ -19,20 +19,20 @@
     {
       "path": "reference/01_ENVIRONMENT_VARIABLES.md",
       "source": "docs/04_reference/01_ENVIRONMENT_VARIABLES.md",
-      "bytes": 41736,
-      "sha256": "6ff8979e950e8a53a5f59b4e371454a64831424a5025815d1af0ea658bdc95ec"
+      "bytes": 41844,
+      "sha256": "9b73afb3796c7b94e6ead62c7709ba498925fa9b3a70738ab3077a97236b4692"
     },
     {
       "path": "reference/04_REPOSITORY_TOPOLOGY.md",
       "source": "docs/02_architecture/04_REPOSITORY_TOPOLOGY.md",
       "bytes": 13055,
-      "sha256": "898dde0828e6fcf9b7e86fe903ccdac33e41b5e3acda65faadfc8439b1e39626"
+      "sha256": "d6f810d1aadbacfcc9528766ce54b01229b0f4c6a4aecac34cd55b4611cd2651"
     },
     {
       "path": "hosts/platform_bugx_SKILL.md",
       "source": "skills/platform/bugx/SKILL.md",
       "bytes": 3941,
-      "sha256": "e9eca96de0c7fb0064fe6f7d5b151280885570d224d15c8111c3ec618fe0e31d"
+      "sha256": "15096fa38872feca91efb9a3294210948a9efc0d84c31470ce1ded54dbaad0f3"
     },
     {
       "path": "hosts/cline_bugx_SKILL.md",
@@ -43,20 +43,20 @@
     {
       "path": "guides/01_USER_GUIDE.md",
       "source": "docs/01_guides/01_USER_GUIDE.md",
-      "bytes": 64792,
-      "sha256": "9634550063c38c7ed7c13bb5cd86c937c4f45ecd8a0c214e3fc486260f275930"
+      "bytes": 64848,
+      "sha256": "2d860f682c10d09124238027581b7fafdaa16fc06c3e63daf15e9c0c9e828323"
     },
     {
       "path": "guides/02_COMMANDS.md",
       "source": "docs/01_guides/02_COMMANDS.md",
-      "bytes": 59226,
-      "sha256": "992433ffba270456dcdf04e29f3ec4aff7d3e50b1b7607f91e52f7bd4101eedb"
+      "bytes": 59296,
+      "sha256": "3c4bf27fe28465c5b8bd7eabb129ca6e7ee21649711fdc010722a9b679e424f1"
     },
     {
       "path": "guides/03_TROUBLESHOOTING.md",
       "source": "docs/01_guides/03_TROUBLESHOOTING.md",
-      "bytes": 39091,
-      "sha256": "dbb8028dc98ba692234d78cbabc9a6551c630d5e61ac9b31a8b7d1b0546b0a8e"
+      "bytes": 39154,
+      "sha256": "0a763dc6acf173232df1493b5d53ff5ec471916fab38a3b29e6d46275449b614"
     },
     {
       "path": "guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md",
@@ -67,8 +67,8 @@
     {
       "path": "guides/05_HOST_MATRIX_AND_DISPATCH.md",
       "source": "docs/01_guides/05_HOST_MATRIX_AND_DISPATCH.md",
-      "bytes": 3358,
-      "sha256": "0b5fe0c21168cff3d855d02f5be59743c4a88299c04642ed588da01eafd9e177"
+      "bytes": 3833,
+      "sha256": "ae860f14b19dd9cb69e2a27966c2a78449dc94c7efeb675a11ad585fb0bad8ae"
     },
     {
       "path": "guides/06_PROBES_AND_POC_COOKBOOK.md",
@@ -91,20 +91,20 @@
     {
       "path": "ai/01_AI_REFERENCE.md",
       "source": "docs/03_ai/01_AI_REFERENCE.md",
-      "bytes": 57296,
-      "sha256": "47b3e2d7807e208b588a130409e8ca7d10bd78d6e5cd1e20c68ffe56b915af8c"
+      "bytes": 58110,
+      "sha256": "77041b3fb6e04938199ee2596ef045806da45f860d2a4ef7f24b3cd636eb4a1a"
     },
     {
       "path": "ai/02_AI_USAGE.md",
       "source": "docs/03_ai/02_AI_USAGE.md",
       "bytes": 13575,
-      "sha256": "f0c318720f6fc49ad58d4390878af44d424ecdb8cfca3a68f9b2c55bf2171da1"
+      "sha256": "b040f63360e854370c7addba4f51df3d62a83ff5afdd344b82e078129e143461"
     },
     {
       "path": "ai/03_AI_COMMANDS.md",
       "source": "docs/03_ai/03_AI_COMMANDS.md",
       "bytes": 46169,
-      "sha256": "27578198252a6a3f3a39c0fc1f9716e1b927a1fb67fdde09dd86a27d3f8bb650"
+      "sha256": "8d62791ce3b2566dcaca12ece45c98ef45da684e50426e38e58c3daa95510bea"
     },
     {
       "path": "hosts/bugx_SKILL.md",

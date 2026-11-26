@@ -47,6 +47,8 @@ def parse_python_version(executable_path):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=2.0,
             check=False,
         )
@@ -131,7 +133,8 @@ def find_python_candidates(extra_paths=None):
                 try:
                     res = subprocess.run(
                         [py_launcher, ver_flag, "-c", "import sys; print(sys.executable)"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=2.0, check=False,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                        encoding="utf-8", errors="replace", timeout=2.0, check=False,
                     )
                     if res.returncode == 0 and res.stdout.strip():
                         add_candidate(res.stdout.strip())

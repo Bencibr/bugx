@@ -317,6 +317,12 @@ def _check_venv_shebang(
             first_line = handle.readline(4096)
     except OSError as exc:
         return f"入口无法读取: {entry_rel}（{exc}）"
+    if (
+        first_line.startswith(b"MZ")
+        or entry_path.suffix.lower() in (".exe", ".com", ".cmd", ".bat")
+    ):
+        # Windows PE 可执行二进制文件或脚本（由 Windows 原生加载执行，无 Unix 文本 shebang）
+        return None
     if not first_line.startswith(b"#!"):
         return f"入口缺少 shebang（pypi console script 必须有）: {entry_rel}"
     interpreter = first_line[2:].strip().decode("utf-8", "replace")

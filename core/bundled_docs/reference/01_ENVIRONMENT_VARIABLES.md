@@ -297,6 +297,7 @@ bugx update --check --root /path/to/project
 | `BUGX_CLAUDE_USER_AGENTS_DIR` | 绝对路径 | 覆盖 Claude Desktop/Code 用户级 agents 目录探测位置 | `无默认(None/空)` | `interfaces/cli/bugx_cli/commands/plugin_claude.py` |
 | `BUGX_CLAUDE_USER_SKILLS_DIR` | 绝对路径 | 覆盖 Claude 用户级 skills 目录探测位置 | `无默认(None/空)` | `interfaces/cli/bugx_cli/commands/plugin_claude.py` |
 | `BUGX_CLINE_USER_AGENTS_DIR` | 绝对路径 | 覆盖 Cline 用户级 agents 目录探测位置 | `无默认(None/空)` | `interfaces/cli/bugx_cli/commands/plugin_cline.py` |
+| `BUGX_AGNESCODE_MODEL` | provider/model | Agnes Code 子进程模型 | `""` | `core/hosts/agnescode.py` |
 | `BUGX_CODEX_CONFIG` | 绝对路径 | 覆盖 Codex config.toml 探测位置 | `无默认(None/空)` | `interfaces/cli/bugx_cli/commands/plugin.py` |
 | `BUGX_FUNIDE_DATA_DIR` | 绝对路径 | 覆盖 FunIDE 数据目录 | `无默认(None/空)` | `interfaces/cli/bugx_cli/host_adapters.py` |
 | `BUGX_FUNIDE_PROFILE_DIR` | 绝对路径 | 覆盖 FunIDE profile 目录 | `无默认(None/空)` | `interfaces/cli/bugx_cli/host_adapters.py` |

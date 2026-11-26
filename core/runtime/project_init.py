@@ -468,7 +468,7 @@ def run_init_pipeline(root: Path, engine_root: Path) -> dict[str, Any]:
         if not coverage.get("ready"):
             if coverage.get("blocked"):
                 raise RuntimeError(str(coverage.get("detail") or "覆盖清单被阻断"))
-            coverage_bootstrap.bootstrap(root, confirmed=True)
+            coverage_bootstrap.bootstrap(root, confirmed=True, symbols=False)
         _write_ready_config(root, config, current, optional_mcp_report)
         ticket = resume_ticket.create_resume_ticket(root) if initialized else None
         (root / ".bugx" / ".init_progress.json").unlink(missing_ok=True)

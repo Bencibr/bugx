@@ -38,6 +38,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | `__init__.py` | Python 包初始化与核心模块符号导出 | `__all__` |
 | `adapters.py` | 宿主运行时适配器转接层，抹平不同宿主在 CLI / API 交互上的协议差异 | `RuntimeAdapterFactory` |
+| `antigravity.py` | Google Antigravity 宿主专用运行时适配 | `AntigravityRuntimeAdapter` |
 | `autonomous_runner.py` | 自主攻防运行器主干，驱动无头环境下的全自动循环（Pre $\rightarrow$ Run $\rightarrow$ Post） | `AutonomousRunner` |
 | `cline.py` | Cline / Roo Code 运行时特定扩展，处理专用会话注入与命令执行 | `ClineRuntimeAdapter` |
 | `common.py` | 运行时共享工具函数，包括超时保护、跨平台管道封装与环境变量清洗 | `run_with_timeout`, `sanitize_env` |
@@ -51,6 +52,8 @@ flowchart TD
 | `INTERFACE.md` | 运行时模块间协议接口规范 | 运行时状态与生命周期契约 |
 | `mcp_process_tracker.py` | MCP 守护进程追踪器，记录每个拉起的 MCP Server PID，防止孤儿进程泄漏 | `MCPProcessTracker` |
 | `mcp_registry_gate.py` | MCP 注册表门禁校验器，确保 MCP 服务配置完整有效，防止假死启动 | `verify_mcp_registry` |
+| `pi.py` | Pi 宿主专用运行时适配与超时预算透传 | `PiRuntimeAdapter` |
+| `provider_facts.py` | 宿主模型事实与提供商元数据表 | `ProviderFacts` |
 | `SPEC.md` | 运行时技术设计规范文档 | 子进程模型与信号传播规则 |
 
 ---

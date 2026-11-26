@@ -48,7 +48,7 @@ SKIP_DIRS = {
     ".agents", ".cursor", ".gemini", "node_modules", ".venv",
     "venv", "env", "__pycache__", "dist", "build", ".idea", ".tox", ".mypy_cache",
     ".pytest_cache", "target", "vendor", "Pods", "DerivedData", ".next", ".nuxt",
-    "evals",
+    "evals", "artifacts", ".tools",
 }
 _SKIP_DIRS = SKIP_DIRS
 

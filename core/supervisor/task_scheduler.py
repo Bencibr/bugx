@@ -1334,6 +1334,8 @@ class ZombieDetector:
         才允许 ``os.killpg``，否则退化为对单个 PID 发信号，避免一次终止波及
         整组无关进程。
         """
+        if not hasattr(os, "getpgid") or not hasattr(os, "getsid"):
+            return False
         try:
             return os.getpgid(pid) == pid and os.getsid(pid) == pid
         except OSError:
@@ -1450,10 +1452,11 @@ class ZombieDetector:
             while ZombieDetector.is_pid_alive(pid) and time.monotonic() < deadline:
                 time.sleep(0.02)
             if ZombieDetector.is_pid_alive(pid):
+                sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
                 try:
-                    signal_target(signal.SIGKILL)
+                    signal_target(sigkill)
                 except OSError:
-                    os.kill(pid, signal.SIGKILL)
+                    os.kill(pid, sigkill)
             terminated = not ZombieDetector.is_pid_alive(pid)
             return terminated, ("" if terminated else "signal_failed")
         except (OSError, subprocess.SubprocessError):

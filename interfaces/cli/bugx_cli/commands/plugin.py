@@ -1489,10 +1489,19 @@ def write_host_mcp_config(
         target = root / migrated.project_relpath
         payload = _load_json_object(target, engine_host_label(host_name))
         servers_key = migrated.container_key
-        servers = payload.get(servers_key)
+        container = payload
+        keys = servers_key.split(".")
+        for k in keys[:-1]:
+            child = container.get(k)
+            if not isinstance(child, dict):
+                child = {}
+                container[k] = child
+            container = child
+        leaf_key = keys[-1]
+        servers = container.get(leaf_key)
         if servers is None:
             servers = {}
-            payload[servers_key] = servers
+            container[leaf_key] = servers
         if not isinstance(servers, dict):
             raise CliError(
                 _i18n_exc(

@@ -13,6 +13,21 @@ import typing
 from pathlib import Path
 
 
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 stdio and child Python encoding on Windows (avoid GBK/cp1252 crashes)."""
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream, err_mode in ((sys.stdin, "strict"), (sys.stdout, "replace"), (sys.stderr, "replace")):
+        reconf = getattr(stream, "reconfigure", None)
+        if callable(reconf):
+            try:
+                reconf(encoding="utf-8", errors=err_mode)
+            except (OSError, ValueError):
+                pass
+
+
+_ensure_utf8_stdio()
+
+
 def _fast_dispatch_mcp_serve() -> None:
     """Start the stdio MCP script before heavy CLI imports.
 

@@ -492,7 +492,7 @@ def write_inventory_diff(manifest: Path, changes: dict) -> None:
 
 def bootstrap(
     root: Path, *, confirmed: bool = False, inherit_coverage: bool = True,
-    reconcile: bool = False,
+    reconcile: bool = False, symbols: bool = True,
 ) -> dict[str, object]:
     """Create the manifest after an explicit host/user confirmation.
 
@@ -616,7 +616,7 @@ def bootstrap(
         }
 
     try:
-        discovered = module_coverage.discovery_rows(root)
+        discovered = module_coverage.discovery_rows(root, symbols=symbols)
     except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         strict_detail = str(exc)
         if not _is_partial_parse_failure(exc):
@@ -686,18 +686,23 @@ def bootstrap(
             discovered,
             historical_unit_verdicts(root, exclude_polling=current_polling),
         )
-    discovery = build_discovery_metadata(status="complete", mode="symbols")
+    discovery = (
+        build_discovery_metadata(status="complete", mode="symbols")
+        if symbols
+        else build_discovery_metadata(status="complete", mode="files", confidence="medium")
+    )
     write_manifest(manifest, discovered, discovery_metadata=discovery)
-    try:
-        rows, _ = module_coverage.parse_manifest(manifest)
-        if not any(r.phase == "业务" for r in rows):
-            business_lines = module_coverage.business_discovery_rows(root, rows)
-            if business_lines:
-                with open(manifest, "a", encoding="utf-8") as f:
-                    for bl in business_lines:
-                        f.write(bl + "\n")
-    except Exception:
-        pass
+    if symbols:
+        try:
+            rows, _ = module_coverage.parse_manifest(manifest)
+            if not any(r.phase == "业务" for r in rows):
+                business_lines = module_coverage.business_discovery_rows(root, rows)
+                if business_lines:
+                    with open(manifest, "a", encoding="utf-8") as f:
+                        for bl in business_lines:
+                            f.write(bl + "\n")
+        except Exception:
+            pass
     rows, _ = module_coverage.parse_manifest(manifest)
     return {
         "ready": True,

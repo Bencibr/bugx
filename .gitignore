@@ -32,6 +32,7 @@ core/finding-commit/
 production-monitor-reports/
 bugx-artifacts/
 artifacts/
+.tools/
 test-report.sarif
 
 # Python

@@ -32,12 +32,16 @@ flowchart TD
 | 文件名 | 职责与功能定位 | 关键类 / 函数 |
 | :--- | :--- | :--- |
 | `__init__.py` | Python 包初始化与核心模块符号导出 | `__all__` |
+| `agnescode.py` | Agnes Code 宿主专属 ACP 协议实现 | `PLUGIN` |
+| `antigravity.py` | Google Antigravity 宿主专属 ACP 协议实现 | `PLUGIN` |
 | `base.py` | ACP 协议抽象基座，实现客户端/服务端双向通信握手、消息编解码与心跳保活 | `BaseACPAdapter` |
 | `claude.py` | Claude 系列宿主的 ACP 扩展适配，处理专属会话流与认证注入 | `ClaudeACPAdapter` |
 | `cline.py` | Cline 宿主的 ACP 扩展适配，对接 VS Code 扩展通信通道 | `ClineACPAdapter` |
 | `codex.py` | OpenAI Codex 智能体的 ACP 扩展适配，支持任务流分发与上下文刷新 | `CodexACPAdapter` |
 | `dsh.py` | DSH 环境的 ACP 协议实现，支持 Shell 会话双向流转 | `DshACPAdapter` |
 | `INTERFACE.md` | ACP 接口契约说明文档，定义数据帧与错误码 | 协议格式定义 |
+| `kimi.py` | Kimi Code 宿主专属 ACP 协议实现 | `PLUGIN` |
+| `minimax.py` | MiniMax Code 宿主专属 ACP 协议实现 | `PLUGIN` |
 | `opencode.py` | OpenCode 标准 ACP 协议实现，处理通用智能体事件通道 | `OpenCodeACPAdapter` |
 | `pi.py` | Pi 智能体 ACP 协议实现，支持轻量级边缘环境适配 | `PiACPAdapter` |
 | `SPEC.md` | ACP 架构设计规范与长连接稳定性保障标准 | 规范与重连策略 |

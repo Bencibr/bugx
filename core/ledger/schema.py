@@ -384,7 +384,7 @@ def _journal_mode_lock(db: Path) -> Iterator[None]:
         thread_acquired = True
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise LessonLedgerError("SQLite journal-mode 锁必须是普通文件")
-        if os.name != "nt":
+        if hasattr(os, "fchmod"):
             os.fchmod(descriptor, 0o600)
         deadline = time.monotonic() + 10.0
         if _fcntl is not None:

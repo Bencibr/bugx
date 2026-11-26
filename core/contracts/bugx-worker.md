@@ -1,5 +1,5 @@
 ---
-# bugx_version: 0.1.4
+# bugx_version: 0.1.5
 description: BugX 并发 worker。负责 Supervisor 分配的覆盖单元或亲和任务包（最多 5 单元）：领取租约 → 确认真实启动 → 挖掘举证 → 提交 checkpoint。不写寿命、不结算、不生成最终报告。
 mode: subagent
 permissions:

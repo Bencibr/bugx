@@ -34,6 +34,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import core.secure_atomic as secure_atomic
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows
@@ -259,39 +261,11 @@ def _fsync_directory(directory: Path) -> None:
 
 def atomic_write_json(path: str | os.PathLike[str], data: Mapping[str, Any]) -> None:
     """Atomically replace *path* with JSON, flushing file and directory metadata."""
-    target = Path(path)
-    directory = target.parent if target.parent != Path("") else Path(".")
-    directory.mkdir(parents=True, exist_ok=True)
-    temporary: Path | None = None
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{target.name}.", suffix=".tmp", dir=str(directory)
-    )
-    temporary = Path(temporary_name)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = -1
-            json.dump(
-                data,
-                handle,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, target)
-        temporary = None
-        _fsync_directory(directory)
-    finally:
-        if descriptor != -1:
-            os.close(descriptor)
-        if temporary is not None:
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+    payload = (
+        json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    secure_atomic.atomic_write_bytes(path, payload, mode=0o600)
 
 
 def _lock_for(path: Path) -> threading.RLock:

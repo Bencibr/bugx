@@ -732,7 +732,11 @@ def _run_sandbox_script(
     if script_path.suffix == ".py":
         cmd = [sys.executable, str(script_path)]
     elif script_path.suffix == ".sh":
-        cmd = ["/bin/bash", str(script_path)]
+        import shutil as _shutil
+        bash_exe = _shutil.which("bash") or ("/bin/bash" if os.name != "nt" else None)
+        if not bash_exe:
+            return -1, "当前系统缺少 bash，无法执行 .sh 脚本"
+        cmd = [bash_exe, str(script_path)]
     else:
         cmd = [str(script_path)]
 

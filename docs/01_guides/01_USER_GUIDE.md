@@ -198,12 +198,12 @@ BugX 当前有四套有意不同的 Host 列表。使用前先确定你需要的
 
 | 能力层 | 当前源码事实 |
 |---|---|
-| 安装/检测适配器 | `antigravity`、`chatgpt`、`claude`、`cline`、`codex`、`dsh`、`funide`、`kimi`、`minimax`、`opencode`、`pi`、`qoder`、`trea`、`workbuddy`、`zcode` |
-| ready engine plugin | `antigravity`、`opencode`、`codex`、`cline`、`dsh`、`claude`、`kimi`、`minimax`、`pi`、`zcode` |
-| ACP ready | `antigravity`、`cline`、`opencode` |
+| 安装/检测适配器 | `agnescode`、`antigravity`、`chatgpt`、`claude`、`cline`、`codex`、`dsh`、`funide`、`kimi`、`minimax`、`opencode`、`pi`、`qoder`、`trea`、`workbuddy`、`zcode` |
+| ready engine plugin | `agnescode`、`antigravity`、`opencode`、`codex`、`cline`、`dsh`、`claude`、`kimi`、`minimax`、`pi`、`zcode` |
+| ACP ready | `agnescode`、`antigravity`、`cline`、`kimi`、`opencode` |
 | ACP todo | `chatgpt`、`workbuddy`、`qoder`、`trea`、`funide` |
-| ACP unavailable | `claude`、`codex`、`dsh`、`kimi`、`minimax`、`pi`、`zcode` |
-| autonomous CLI choices | `antigravity`、`claude`、`codex`、`opencode`、`dsh`、`cline`、`zcode` |
+| ACP unavailable | `claude`、`codex`、`dsh`、`minimax`、`pi`、`zcode` |
+| autonomous CLI choices | `agnescode`、`antigravity`、`claude`、`codex`、`opencode`、`dsh`、`cline`、`zcode` |
 
 因此，“可安装”不等于“有 ready engine plugin”，更不等于“支持 ACP 或自治闭环”。`bugx hosts --json` 是当前机器检测结果；源码矩阵是能力上限，不能代替本机 Host 的安装和登录状态。
 

@@ -26,6 +26,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
+import core.secure_atomic as secure_atomic
+
 
 SCHEMA_VERSION = 2
 MAX_PROOF_BYTES = 64 * 1024
@@ -286,37 +288,7 @@ def retire_request_path(state_root: Path, instance: str) -> Path:
 def _atomic_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None:
     if len(payload) > MAX_PROOF_BYTES:
         raise SessionProofError(f"proof 超过 {MAX_PROOF_BYTES} bytes")
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        pass
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-    try:
-        os.fchmod(fd, mode)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        try:
-            descriptor = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        except OSError:
-            pass
-    except BaseException:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    secure_atomic.atomic_write_bytes(path, payload, mode=mode, parent_mode=0o700)
 
 
 def _canonical(payload: Mapping[str, object]) -> bytes:

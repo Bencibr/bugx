@@ -18,6 +18,7 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import shutil
 from typing import Iterator
 
 from core.infra.json_utils import unique_json_object
@@ -208,9 +209,16 @@ def _autonomous_environment(root: Path) -> Iterator[dict[str, str | None]]:
                 for entry in source_dir.iterdir():
                     if entry.name in {"opencode.json", "opencode.jsonc", "plugin", "plugins"}:
                         continue
-                    (private_dir / entry.name).symlink_to(
-                        entry, target_is_directory=entry.is_dir(),
-                    )
+                    dest = private_dir / entry.name
+                    try:
+                        dest.symlink_to(entry, target_is_directory=entry.is_dir())
+                    except OSError:
+                        if os.name != "nt":
+                            raise
+                        if entry.is_dir():
+                            shutil.copytree(entry, dest, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(entry, dest)
             except OSError as exc:
                 raise RuntimeError(
                     f"OpenCode 自治配置资产无法隔离 ({type(exc).__name__})"

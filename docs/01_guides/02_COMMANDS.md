@@ -148,7 +148,7 @@ help 接受可变数量的 COMMAND 词；completion 的值只有 bash、zsh、fi
                   [--docs-transport {stdio,remote}] [--docs-remote-url URL]
                   [--locale LOCALE] [--json]
 
---agent 可重复；当前安装/检测值为 chatgpt、claude、cline、codex、dsh、funide、kimi、minimax、opencode、pi、qoder、trea、workbuddy、zcode。默认以本地 `stdio` 模式注册 `bugx-supervisor` 与 `bugx-supervisor-worker`；`bugx-docs` 采用「远程优先（Remote-First）」模式默认直连官方只读云端 HTTP MCP 端点，无法联网或传入 `--docs-transport stdio` / `BUGX_DOCS_OFFLINE=1` 时自动无感降级为本地 `stdio` 模式及离线基线。不指定 --agent 时不要假设会配置所有 Host。--allow-missing 允许缺失可选资产时继续，但不改变核心依赖或 Host MCP 的 ready/ACP 状态。
+--agent 可重复；当前安装/检测值为 agnescode、antigravity、chatgpt、claude、cline、codex、dsh、funide、kimi、minimax、opencode、pi、qoder、trea、workbuddy、zcode。默认以本地 `stdio` 模式注册 `bugx-supervisor` 与 `bugx-supervisor-worker`；`bugx-docs` 采用「远程优先（Remote-First）」模式默认直连官方只读云端 HTTP MCP 端点，无法联网或传入 `--docs-transport stdio` / `BUGX_DOCS_OFFLINE=1` 时自动无感降级为本地 `stdio` 模式及离线基线。不指定 --agent 时不要假设会配置所有 Host。--allow-missing 允许缺失可选资产时继续，但不改变核心依赖或 Host MCP 的 ready/ACP 状态。
 安装事务支持双模式：在用户主目录（`~`）未传 `--root` 时进入**用户全局模式**，仅部署共享引擎（`~/.bugx/core`）、全局知识库、必需核心依赖（`codebase-memory-mcp` 与 `tree-sitter-language-pack`，直接安装校验且绝不降级放行）以及用户级宿主资产（DSH 全局 `cordis.patch.yml` 使用无 `--root` 动态参数），不向主目录写入项目状态或删除 `~/.bugx/core`；进入项目仓库执行或显式传 `--root <项目目录>` 时绑定项目运行态并写入项目级 MCP 绑定与 `.bugx/hosts.json`。可选能力（`playwright`、`postmcp`、`codindex`、UI/效率工具、`MCP 离线 runtime`）延迟至实际项目审计 `pre` 阶段按需启用。
 
 ### 4.6 reset [W][D]
@@ -651,7 +651,7 @@ start 的 max wall time 默认 14400.0 秒，interval 默认 5.0 秒；attach �
 
 ### 9.2 autonomous
 
-    bugx autonomous [--root ROOT] --host {claude,codex,opencode,dsh,cline,zcode}
+    bugx autonomous [--root ROOT] --host {agnescode,antigravity,claude,codex,opencode,dsh,cline,zcode}
                       [--workers N] [--model MODEL] [--provider PROVIDER]
                       [--max-turns N] [--max-wall-time SECONDS]
                       [--agent-timeout SECONDS]
@@ -669,7 +669,7 @@ start 的 max wall time 默认 14400.0 秒，interval 默认 5.0 秒；attach �
 ### 9.3 goal
 
     bugx goal [TARGET_DESCRIPTION] [--root ROOT]
-              [--host {claude,codex,opencode,dsh,cline,zcode}]
+              [--host {agnescode,antigravity,claude,codex,opencode,dsh,cline,zcode}]
               [--target-coverage PERCENT]
               [--allow-open-findings] [--disallow-quarantine]
               [--max-turns N] [--max-wall-time SECONDS]

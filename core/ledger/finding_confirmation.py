@@ -251,7 +251,7 @@ def reproduction_not_executable(value: object) -> bool:
         try:
             result = subprocess.run(
                 ["bash", "-n", "-c", text], capture_output=True, text=True,
-                timeout=5, check=False,
+                encoding="utf-8", errors="replace", timeout=5, check=False,
             )
         except (OSError, subprocess.SubprocessError):
             return False

@@ -79,7 +79,7 @@ VERSION_FLAG = {"codeql": "version"}
 SKIP_DIRS = {
     ".git", ".bugx", ".venv", "venv", "node_modules", "__pycache__",
     "dist", "build", "target", ".tox", ".mypy_cache", ".pytest_cache",
-    "vendor", "Pods", ".gradle", ".idea",
+    "vendor", "Pods", ".gradle", ".idea", "artifacts", ".tools",
 }
 
 #: 项目级忽略文件名（放在项目根，gitignore 语法）。

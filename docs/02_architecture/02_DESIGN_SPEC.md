@@ -1,6 +1,6 @@
-# BugX 0.1.4 System Architecture & Design Specification
+# BugX 0.1.5 System Architecture & Design Specification
 
-> **版本**: 0.1.4 | **更新日期**: 2026-11-25 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
+> **版本**: 0.1.5 | **更新日期**: 2026-11-26 | **定位**: 内部工程规格与缺陷修复总账本 (Internal Engineering Spec & Defect Ledger)
 > 🔒 **内部管理资产**：本文档为 BugX 系统内部底层实现契约、历史缺陷审定修复记录与自动化验证门禁总卷，仅供核心研发团队与系统维护者查阅。  
 > 最终用户请参阅面向用户的公开文档：[用户指南 (01_USER_GUIDE.md)](../../docs/01_guides/01_USER_GUIDE.md)、[命令手册 (02_COMMANDS.md)](../../docs/01_guides/02_COMMANDS.md)、[架构总览 (01_ARCHITECTURE.md)](01_ARCHITECTURE.md) 与 [核心流程 (03_BUGX_AUDIT_FLOW.md)](03_BUGX_AUDIT_FLOW.md)。  
 > 历史提案与测试执行记录只作审计留痕，不代表当前仓库仍保留对应文件；当前资产边界以本节和 `AGENTS.md` 为准。
@@ -484,6 +484,17 @@ BugX Studio WebUI（可通过 `bugx console` 或访问 `http://127.0.0.1:8080/` 
 - **协议暴露与工具矩阵**：
   - CLI：挂载 `bugx view <path> [--lines START:END] [--no-numbers] [--json]`；
   - MCP：在 `core/mcp_handlers/knowledge_handlers.py` 与 `_TOOL_TABLE`（`_SHARED_ROLES`）中注册 `bugx_inspect_source` 工具，Host 与 Worker 均可调用，直出内存级切片与元数据。
+
+### DOC-AIREV 双轨覆盖排除、Windows 原子写统一与大仓渐进式发现 (AUDITED_OK)
+
+- **Windows `os.fchmod` 跨平台根治 (`core/secure_atomic.py`, `core/skills/mcp_session_proof.py`, `core/supervisor/finding_commit.py`, `core/ledger/*`, `core/launch_phases/*`)**：
+  - 废除各模块自建的裸调用 `os.fchmod` 原子写 helper，统一委托 `core.secure_atomic.atomic_write_bytes`；POSIX 保留 `openat/renameat/fchmod` 防 TOCTOU 加固，Windows 自动安全降级为 `_write_path_based` + `os.chmod`，消除 MCP 握手写 `proof.json` 时 `AttributeError` 导致的服务无法启动缺陷。
+- **大仓发现性能治本架构 (`core/retrieval/symbol_index.py`, `core/coverage/coverage_bootstrap.py`, `core/runtime/project_init.py`, `interfaces/cli/bugx_cli/commands/lifecycle.py`)**：
+  - `init` 阶段（`project_init` / `lifecycle`）统一以 Tier-1 文件级轻量骨架（`symbols=False`）快速建立覆盖清单，消除万级单元全量同步 AST 解析导致的启动挂死；
+  - `symbol_index.audit_units` 引入 `.bugx/cache/symbol_cache.db` 内容/stat 持久化缓存与 `ProcessPoolExecutor` 多核并发解析，并输出周期性心跳进度，保障超大规模仓库完整运行且不触发宿主超时。
+- **DOC-AIREV 双轨目录排除契约 (`core/coverage/coverage_ai_review.py`, `core/retrieval/symbol_index.py`, `core/probes/*`)**：
+  - **Track 1（静态硬排除白名单）**：在 `symbol_index`、各探测器与沙盒快照中补齐 `.tools`、`artifacts` 等通用工具链与构建产物过滤，保证底层物理防死锁基底；
+  - **Track 2（AI 语义全量扫尾）**：静态白名单绝非万能，白名单放行后的所有剩余目录必须由宿主 AI 通过 `coverage review-packages` / `review-apply` 基于证据再过一遍，精准移出自定义构建产物与非产品夹具。
 
 ### DOC-224 幽灵行对账、覆盖漂移自愈、真实免疫测试与环境净化 (AUDITED_OK)
 
@@ -1523,6 +1534,8 @@ BugX supports 9 AI host platforms via explicit `HostAdapter` definitions in `int
 | `chatgpt` | ChatGPT | `.agents/plugins/marketplace.json` | `plugin` | Structured choice UI |
 | `dsh` | DeepSeek Harness | `.dsh/skills/bugx/SKILL.md` + `~/.dsh/plugins/bugx-ui`（web profile bundle） | `patch+skill+client` | Structured select / fallback / Sidebar guide icon |
 | `workbuddy` | WorkBuddy AI | `<配置根>/skills/bugx/SKILL.md`（用户级）+ `.workbuddy/skills/bugx/` + `.codebuddy/skills/bugx/` + `.workbuddy/connector/bugx/`（项目级） | `skill+connector` | WorkBuddy application select / Skill import / Connector icon |
+| `antigravity` | Google Antigravity | `.gemini/config/plugins/bugx-review/plugin.json` | `plugin` | Antigravity Agent selector |
+| `agnescode` | Agnes Code | `.agnescode/agents/bugx.md` | `agent` | `question` (`multiple=false`) |
 
 ZCode 的 `required_paths` 为空，主 Agent 与 Worker 只登记到用户级目录。其 `legacy_paths`
 只作为卸载清单：无安装记录时，通用 sweeper 对每个遗留路径调用宿主路径级 renderer，缺少

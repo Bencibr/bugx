@@ -1259,7 +1259,7 @@ def handle_supervisor_run_sandboxed_probe(service: Any, arguments: Mapping[str, 
                 except Exception:
                     pass
             stdout, stderr = proc.communicate()
-            exit_code = -signal.SIGKILL
+            exit_code = -getattr(signal, "SIGKILL", 9)
             stderr = (stderr or "") + f"\n[timeout]: Command timed out after {timeout}s and process group was terminated."
     except Exception as exc:
         exit_code = 1

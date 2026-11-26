@@ -41,6 +41,15 @@ from typing import Any, Callable, Mapping, Sequence
 from core.infra.build_info import BASE_VERSION
 from urllib.parse import parse_qs, urlparse
 
+os.environ.setdefault("PYTHONUTF8", "1")
+for _stream, _err_mode in ((sys.stdin, "strict"), (sys.stdout, "replace"), (sys.stderr, "replace")):
+    _reconf = getattr(_stream, "reconfigure", None)
+    if callable(_reconf):
+        try:
+            _reconf(encoding="utf-8", errors=_err_mode)
+        except (OSError, ValueError):
+            pass
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows hosts use msvcrt or fallback.

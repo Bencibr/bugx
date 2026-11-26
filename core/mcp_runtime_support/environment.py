@@ -171,7 +171,7 @@ def _uv_managed_python(minor_spec: str) -> str:
 
 
 def _interpreter_candidates(spec: str) -> list[tuple[str, str, str]]:
-    """列出本机**可用且满足约束**的解释器：``(路径, 版本, 来源)``，按版本降序。"""
+    """列出本机**可用且满足约束**的解释器：``(路径, 版本, 来源)``，按优先级排序。"""
     normalized = _normalize_python_spec(spec)
     found: dict[str, tuple[str, str, str]] = {}
 
@@ -187,10 +187,43 @@ def _interpreter_candidates(spec: str) -> list[tuple[str, str, str]]:
         if ok:
             found[resolved] = (resolved, version, source)
 
-    for major, minor in _allowed_minors(spec):
-        on_path = shutil.which(f"python{major}.{minor}")
+    # 1. 优先使用当前正在运行 BugX 的解释器 (sys.executable)
+    if sys.executable:
+        consider(sys.executable, "host")
+
+    # 2. 检索 PATH 中的通用 Python 命令
+    for name in ("python", "python3", "python.exe", "python3.exe"):
+        on_path = shutil.which(name)
         if on_path:
             consider(on_path, "host")
+
+    # 3. 检索具体小版本命令 (python3.12, python3.13 等)
+    for major, minor in _allowed_minors(spec):
+        for name in (f"python{major}.{minor}", f"python{major}.{minor}.exe"):
+            on_path = shutil.which(name)
+            if on_path:
+                consider(on_path, "host")
+
+    # 4. Windows 常见官方与系统安装目录
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            programs_py = Path(local_app) / "Programs" / "Python"
+            if programs_py.is_dir():
+                for candidate in sorted(programs_py.glob("Python3*")):
+                    exe = candidate / "python.exe"
+                    if exe.is_file():
+                        consider(str(exe), "host")
+        roaming_app = os.environ.get("APPDATA")
+        if roaming_app:
+            uv_py = Path(roaming_app) / "uv" / "python"
+            if uv_py.is_dir():
+                for candidate in sorted(uv_py.glob("cpython-3.*")):
+                    exe = candidate / "python.exe"
+                    if exe.is_file():
+                        consider(str(exe), "uv-managed")
+
+    # 5. pyenv 与 uv 目录 (POSIX 及通用)
     pyenv_root = Path(os.environ.get("PYENV_ROOT") or (Path.home() / ".pyenv"))
     versions_dir = pyenv_root / "versions"
     if versions_dir.is_dir():
@@ -207,8 +240,11 @@ def _interpreter_candidates(spec: str) -> list[tuple[str, str, str]]:
             if executable.is_file():
                 consider(str(executable), "uv-managed")
 
-    def sort_key(item: tuple[str, str, str]) -> tuple[int, ...]:
-        return tuple(int(part) for part in item[1].split(".") if part.isdigit())
+    def sort_key(item: tuple[str, str, str]) -> tuple[int, tuple[int, ...]]:
+        # 优先使用本机宿主已有解释器 (host)，避免无端触发外部工具多装一份
+        source_prio = 2 if item[2] == "host" else (1 if item[2] == "pyenv" else 0)
+        ver_tuple = tuple(int(part) for part in item[1].split(".") if part.isdigit())
+        return (source_prio, ver_tuple)
 
     return sorted(found.values(), key=sort_key, reverse=True)
 
@@ -216,10 +252,10 @@ def _interpreter_candidates(spec: str) -> list[tuple[str, str, str]]:
 def _resolve_env_python(env_id: str, spec: str | None) -> tuple[str, str, str]:
     """解析 pypi 环境使用的解释器；返回 ``(可执行路径, 'X.Y.Z', 来源)``。
 
-    ``spec`` 可以是 **约束**（``">=3.12,<3.14"``）或 ``"3.12"``（前缀匹配），
+    ``spec`` 可以是 **约束**（``">=3.12"``）或 ``"3.12"``（前缀匹配），
     ``None`` ⇒ 引擎自身解释器。**不写死小版本**：在本机满足约束的解释器里挑
-    **最高**的一个（3.13 可用就用 3.13），一个都没有才用 uv 自愈安装
-    **约束允许的最高版本**，全部失败才 fail-closed。
+    满足要求的本机解释器（优先使用 host 已有环境），没有才用 uv 自愈安装
+    约束允许的版本，全部失败才 fail-closed。
 
     来源 ∈ ``{"host", "pyenv", "uv-managed"}`` 并写入安装报告，便于审计
     "解释器是主机自带的，还是引擎自愈获取的"。
@@ -236,7 +272,8 @@ def _resolve_env_python(env_id: str, spec: str | None) -> tuple[str, str, str]:
     allowed = allowed_fn(spec)
     uv_fn = _get_mr_attr("_uv_managed_python", _uv_managed_python)
     pyver_fn = _get_mr_attr("_python_version_of", _python_version_of)
-    for major, minor in reversed(allowed):
+    uv_minors = [m for m in reversed(allowed) if m[1] <= 14] or list(reversed(allowed))
+    for major, minor in uv_minors:
         healed = uv_fn(f"{major}.{minor}")
         if healed:
             return healed, pyver_fn(healed), "uv-managed"
@@ -401,7 +438,11 @@ def _install_pypi_environment(
     bin_dir = _venv_bin_dir(staging, env_id)
     if bin_dir.is_dir():
         for candidate in sorted(bin_dir.iterdir()):
-            if candidate.is_file() and os.access(candidate, os.X_OK):
+            is_exec = candidate.is_file() and (
+                os.access(candidate, os.X_OK)
+                or (os.name == "nt" and candidate.suffix.lower() in (".exe", ".cmd", ".bat"))
+            )
+            if is_exec:
                 executable_rels.add(candidate.relative_to(staging).as_posix())
     # 字节码闸门必须在**计算文件树/哈希之前**落地并预编译，
     # 否则首次运行写入的 .pyc 会让 tree_hash 漂移、verify 永久失败。
@@ -441,7 +482,11 @@ def _install_bytecode_guard(staging: Path, env_id: str) -> Path:
         "sys.dont_write_bytecode = True\n",
         encoding="utf-8",
     )
-    interpreter = _venv_bin_dir(staging, env_id) / "python"
+    interpreter = _venv_bin_dir(staging, env_id) / ("python.exe" if os.name == "nt" else "python")
+    if not interpreter.is_file() and os.name == "nt":
+        alt = _venv_bin_dir(staging, env_id) / "python"
+        if alt.is_file():
+            interpreter = alt
     for arguments, label in (
         (["-m", "py_compile", str(guard)], "闸门预编译"),
         (["-m", "compileall", "-q", str(venv_dir)], "整棵 venv 预编译"),
@@ -465,18 +510,26 @@ def _install_bytecode_guard(staging: Path, env_id: str) -> Path:
 
 def _resolve_pypi_entry(staging: Path, env_id: str, entry_name: str) -> str:
     """把 lock 声明的 console script 名解析为 venv 内相对路径（fail-closed）。"""
-    candidate = _venv_bin_dir(staging, env_id) / entry_name
-    if candidate.is_symlink() or not candidate.is_file():
-        raise McpRuntimeError(
-            f"pypi server 的 console script 缺失或非普通文件: "
-            f"{VENV_DIRNAME}/{env_id}/bin/{entry_name}"
-        )
-    if not os.access(candidate, os.X_OK):
-        raise McpRuntimeError(
-            f"pypi server 的 console script 不可执行: "
-            f"{VENV_DIRNAME}/{env_id}/bin/{entry_name}"
-        )
-    return candidate.relative_to(staging).as_posix()
+    bin_dir = _venv_bin_dir(staging, env_id)
+    candidates = [bin_dir / entry_name]
+    if os.name == "nt" or sys.platform == "win32":
+        candidates.extend([
+            bin_dir / f"{entry_name}.exe",
+            bin_dir / f"{entry_name}.cmd",
+            bin_dir / f"{entry_name}.bat",
+        ])
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink():
+            if os.name != "nt" and not os.access(candidate, os.X_OK):
+                raise McpRuntimeError(
+                    f"pypi server 的 console script 不可执行: "
+                    f"{VENV_DIRNAME}/{env_id}/{bin_dir.name}/{candidate.name}"
+                )
+            return candidate.relative_to(staging).as_posix()
+    raise McpRuntimeError(
+        f"pypi server 的 console script 缺失或非普通文件: "
+        f"{VENV_DIRNAME}/{env_id}/{bin_dir.name}/{entry_name}"
+    )
 
 
 def _check_venv_shebang(
@@ -494,6 +547,12 @@ def _check_venv_shebang(
             first_line = handle.readline(4096)
     except OSError as exc:
         return f"入口无法读取: {entry_rel}（{exc}）"
+    if (
+        first_line.startswith(b"MZ")
+        or entry_path.suffix.lower() in (".exe", ".com", ".cmd", ".bat")
+    ):
+        # Windows PE 可执行二进制文件或脚本（由 Windows 原生加载执行，无 Unix 文本 shebang）
+        return None
     if not first_line.startswith(b"#!"):
         return f"入口缺少 shebang（pypi console script 必须有）: {entry_rel}"
     interpreter = first_line[2:].strip().decode("utf-8", "replace")

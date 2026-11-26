@@ -155,6 +155,7 @@ _MOBILE_SCAN_MAX_DIRS = 128
 _MOBILE_SCAN_SKIP_DIRS = frozenset({
     ".git", ".bugx", ".gradle", ".idea", "__pycache__", "node_modules",
     "build", "dist", "target", "vendor", "Pods", "DerivedData",
+    "artifacts", ".tools",
 })
 
 

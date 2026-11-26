@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import core.secure_atomic as secure_atomic
 from core.supervisor.worker_execution import run_bounded, WorkerExecutionError
 
 
@@ -255,26 +256,7 @@ def _result_record(result: Any, *, execution_id: str, case: str, argv: Sequence[
 
 
 def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    raw = _canonical(payload)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(raw)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    secure_atomic.atomic_write_bytes(path, _canonical(payload), mode=0o600, parent_mode=0o700)
 
 
 def verify_finding(root: Path, finding: Mapping[str, object], recipe: Mapping[str, object] | VerificationRecipe,

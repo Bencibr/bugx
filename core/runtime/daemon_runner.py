@@ -175,9 +175,10 @@ class DaemonRunner:
             self._remove_pid()
             return 0
 
+        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
         print(f"[BugX Daemon] 正在终止守护进程 (PID: {pid})...")
         try:
-            sig = signal.SIGKILL if force else signal.SIGTERM
+            sig = sigkill if force else signal.SIGTERM
             os.kill(pid, sig)
         except OSError as exc:
             print(f"[BugX Daemon] 发送信号失败: {exc}")
@@ -190,7 +191,7 @@ class DaemonRunner:
 
         if _is_pid_alive(pid) and force:
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, sigkill)
             except OSError:
                 pass
 

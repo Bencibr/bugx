@@ -10,7 +10,7 @@
 
 BugX 是一款装在 AI 编程助手与智能体开发环境里的**自主代码审查与自主测试智能体（Agent）**，严把代码交付关：**它帮助开发人员在写完代码后自动排查隐藏的深层 Bug，减少反复排错与返工；帮助测试人员自动化运行黑盒测试、功能验证与性能测试，自动覆盖手工盲测难以覆盖的极端场景；确保代码功能完全符合要求、在各种复杂环境下都能稳定运行、不崩溃不卡死，上线放心不翻车。** 
 
-目前已原生适配全球主流 AI 编程助手与智能体开发平台：**Google Antigravity（反重力）、Gemini Code Assist / Gemini CLI、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline、OpenCode、Kimi Code、ZCode、MiniMax Code、DSH、WorkBuddy、Qoder**；全面支持以 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰大模型**为底座的深层代码推理与漏洞发现。静态分析、行为差分、内存检查与 UI 测试全部自动化执行；通过标准化 MCP 协议接入宿主，测试审查过程断点可续、透明可查。
+目前已原生适配全球主流 AI 编程助手与智能体开发平台：**Google Antigravity（反重力）、Gemini Code Assist / Gemini CLI、Agnes Code、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline、OpenCode、Kimi Code、ZCode、MiniMax Code、DSH、WorkBuddy、Qoder**；全面支持以 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰大模型**为底座的深层代码推理与漏洞发现。静态分析、行为差分、内存检查与 UI 测试全部自动化执行；通过标准化 MCP 协议接入宿主，测试审查过程断点可续、透明可查。
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -241,7 +241,7 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 一款装进 AI 编程助手的自主代码审计 Agent：通过 MCP 在 Claude Code、Codex、Cline、OpenCode、ZCode、MiniMax Code 内运行，也可作为独立 CLI 使用；按单元跟踪审计覆盖，并对每条发现做真实执行验证。
 
 **支持哪些 AI 编程工具与大模型？**
-原生支持 **Google Antigravity（反重力）**、**Gemini Code Assist / Gemini CLI**、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline / Roo Code、OpenCode、Kimi Code、ZCode、MiniMax Code、DeepSeek Harness (DSH)、WorkBuddy、Qoder 等主流 AI 编程助手与 Agent 开发平台；深度兼容 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰模型等全系列主力模型**。
+原生支持 **Google Antigravity（反重力）**、**Gemini Code Assist / Gemini CLI**、**Agnes Code**、Claude Code、OpenAI Codex、Cursor、Trae、Windsurf、Cline / Roo Code、OpenCode、Kimi Code、ZCode、MiniMax Code、DeepSeek Harness (DSH)、WorkBuddy、Qoder 等主流 AI 编程助手与 Agent 开发平台；深度兼容 **Google 最新 Gemini 4 体系（Gemini 4 Carbon / Neon / Hydrogen）、Claude 5.5（Sonnet 5.5 / Opus 5.5）、G4 旗舰模型等全系列主力模型**。
 
 **如何验证一个漏洞？**
 不靠首发模型的自说自话，由独立的验证员执行盲审验证：一段攻击输入必须两次成功触发该漏洞，一段正常输入必须零触发；三次执行（两正例一负对照）连同命令、退出码与产物哈希全部记录在案，并通过 AST 语法断言防止空壳测试。
@@ -262,6 +262,7 @@ BugX Studio 是自带的 Web 工作台——跑 `bugx report serve`，浏览器�
 | **Claude Code** | 原生 MCP / 自治生命周期 | `bugx install --agent claude` |
 | **OpenAI Codex** | 工作区子 Agent / 原生插件 | `bugx install --agent codex` |
 | **OpenCode** | Headless ACP / 原生 MCP | `bugx install --agent opencode` |
+| **Agnes Code** | 终端原生 TUI / 智能体与原生 MCP 注入 | `bugx install --agent agnescode` |
 | **Cline / Roo Code** | MCP 交互会话（单 Claim 串行）/ CLI 多进程池并发 | `bugx install --agent cline` |
 | **Kimi Code** | Headless ACP / 原生 MCP | `bugx install --agent kimi` |
 | **ZCode** | 原生 MCP / 用户级 MCP 注册 | `bugx install --agent zcode` |

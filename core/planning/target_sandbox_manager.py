@@ -37,6 +37,8 @@ DEFAULT_IGNORES = frozenset({
     ".mypy_cache",
     ".bugx",
     ".DS_Store",
+    "artifacts",
+    ".tools",
 })
 
 

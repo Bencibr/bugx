@@ -84,7 +84,7 @@ def _assemble_project_materials(root: Path, source: Path, layout: Any) -> None:
         from core.coverage import coverage_bootstrap
         coverage = coverage_bootstrap.inspect(root)
         if not coverage.get("ready") and not coverage.get("blocked"):
-            coverage_bootstrap.bootstrap(root, confirmed=True)
+            coverage_bootstrap.bootstrap(root, confirmed=True, symbols=False)
     except Exception:
         pass
 

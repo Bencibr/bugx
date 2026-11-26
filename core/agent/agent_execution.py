@@ -543,6 +543,13 @@ def _terminate_and_reap_group(
     Every group signal is gated by ``identity.matches()``: the numeric PGID is
     observation-only and is never used as a send credential on its own.
     """
+    if not hasattr(os, "killpg"):
+        try:
+            process.kill()
+            process.wait(timeout=1.0)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return
     pgid = identity.pgid
 
     def send(sig: int) -> None:

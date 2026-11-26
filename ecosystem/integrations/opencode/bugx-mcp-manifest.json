@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "bugx-built-in-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "servers": {
     "bugx-supervisor": {
       "type": "builtin",
@@ -15,7 +15,7 @@
         "host"
       ],
       "source": "core/skills/bugx_mcp_server.py",
-      "sha256": "25d0e926745b5d2ea80533e9455e2720c2c876bca287e6db1376e9c38d8020ef",
+      "sha256": "5a6114314b55840a04760300aa748cbdad9d771096e60ced2b24c45376373ec9",
       "health": "initialize"
     },
     "bugx-supervisor-worker": {
@@ -30,7 +30,7 @@
         "worker"
       ],
       "source": "core/skills/bugx_mcp_server.py",
-      "sha256": "25d0e926745b5d2ea80533e9455e2720c2c876bca287e6db1376e9c38d8020ef",
+      "sha256": "5a6114314b55840a04760300aa748cbdad9d771096e60ced2b24c45376373ec9",
       "health": "initialize"
     },
     "bugx-docs": {
