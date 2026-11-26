@@ -61,6 +61,9 @@ def _headless_argv(ctx: RunContext) -> list[str]:
     command = ["claude", "-p", ctx.prompt]
     if ctx.session:
         command[1:1] = ["--resume", ctx.session]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["--model", model]
     return command
 
 
@@ -68,6 +71,9 @@ def _autonomous_argv(ctx: RunContext) -> list[str]:
     command = ["claude"]
     if ctx.session:
         command += ["--resume", ctx.session]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["--model", model]
     command += [
         "-p", ctx.prompt,
         "--output-format", "json",

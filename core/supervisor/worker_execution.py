@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -74,6 +75,10 @@ def _validate_command(command: Sequence[str]) -> list[str]:
     argv = list(command)
     if not argv or any(not isinstance(item, str) or not item for item in argv):
         raise WorkerExecutionError("command 必须是非空字符串数组")
+    if os.name == "nt" and argv:
+        resolved_exe = shutil.which(argv[0])
+        if resolved_exe:
+            argv[0] = resolved_exe
     return argv
 
 

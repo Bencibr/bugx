@@ -111,7 +111,11 @@ def adapt_project(root: str | os.PathLike[str], *, workcopy_id: str = "target") 
         return adapt_node_project(project_root, workcopy_id=workcopy_id, _files=files)
     if any(name in names for name in ("pyproject.toml", "setup.py", "setup.cfg", "pytest.ini", "tox.ini")) or any(path.suffix == ".py" for path in files):
         return adapt_python_project(project_root, workcopy_id=workcopy_id, _files=files)
-    raise ValueError("project is not a supported Python or Node.js target")
+    raise ValueError(
+        "project is not a supported Python or Node.js target for automated sandboxed test execution; "
+        "for multi-language targets (Dart/Flutter, Go, Java, Rust), use 'bugx autonomous' with LLM audit mode "
+        "or 'bugx engine pre' with static coverage."
+    )
 
 
 def adapt_python_project(

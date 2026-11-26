@@ -576,8 +576,11 @@ def run_l6_fault_matrix(root: Path, work: Path) -> LevelResult:
     sandbox = Path(tempfile.mkdtemp(prefix="bugx-l6-"))
     receipt = sandbox / "fault-matrix-receipt.json"
     try:
+        fault_script = Path(__file__).resolve().parent.parent / "autonomous_cve" / "run_fault_matrix.py"
+        if not fault_script.is_file():
+            fault_script = REPO_ROOT / "scripts" / "cve" / "run_fault_matrix.py"
         rc, out, err = _run(
-            [sys.executable, str(REPO_ROOT / "scripts" / "cve" / "run_fault_matrix.py"),
+            [sys.executable, str(fault_script),
              "--sandbox", str(sandbox), "--output", str(receipt), "--json"],
             cwd=REPO_ROOT, timeout=600.0,
         )

@@ -258,7 +258,7 @@ def _argv(ctx: RunContext, *, auto: bool) -> list[str]:
         # project instance can resolve shell work outside the requested root.
         cmd.append("--standalone")
     cmd += ["--agent", ctx.agent, "--format", "json"]
-    model = _configured_model(ctx.root)
+    model = getattr(ctx, "model", None) or _configured_model(ctx.root)
     if model:
         cmd += ["--model", model]
     if auto:

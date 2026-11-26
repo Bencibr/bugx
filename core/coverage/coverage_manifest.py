@@ -132,7 +132,7 @@ MANIFEST = AGENT_DIR / "module-coverage.md"
 SOURCE_EXTS = {
     ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".java", ".kt", ".kts", ".go",
     ".rs", ".swift", ".c", ".h", ".cc", ".cpp", ".cxx", ".cs", ".rb",
-    ".php", ".vue", ".svelte",
+    ".php", ".vue", ".svelte", ".dart",
 }
 EVIDENCE_EXTS = SOURCE_EXTS | symbol_index.AUDIT_ASSET_EXTS | {
     ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".md",

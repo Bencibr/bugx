@@ -50,12 +50,13 @@ SUPPORTED_SOURCE_EXTS = {
     ".rs",
     ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx",
     ".cs", ".php", ".rb",
+    ".dart",
 }
 
 SKIP_DIRS = {
     ".git", ".bugx", ".venv", "venv", "node_modules", "__pycache__",
     "dist", "build", "target", ".tox", ".mypy_cache", ".pytest_cache",
-    "vendor", "Pods", ".gradle", ".idea",
+    "vendor", "Pods", ".gradle", ".idea", ".dart_tool", ".vscode",
 }
 
 # 路由装饰器识别正则与特征

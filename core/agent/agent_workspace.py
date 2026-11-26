@@ -69,6 +69,11 @@ class AgentWorkspace:
             "history",
             "test-results",
             "benchmark-results",
+            ".dart_tool",
+            ".gradle",
+            ".idea",
+            ".vscode",
+            ".pub-cache",
         }
     )
     EXCLUDED_FILE_NAMES = frozenset(
@@ -288,7 +293,10 @@ class AgentWorkspace:
     @classmethod
     def _sha256_file(cls, path: Path) -> str:
         digest = hashlib.sha256()
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except OSError as exc:
+            raise OSError(f"cannot open file for hashing ({path}): {exc}") from exc
         try:
             before = os.fstat(descriptor)
             if not stat.S_ISREG(before.st_mode):
@@ -379,7 +387,7 @@ class AgentWorkspace:
 
     def _scan_origin_integrity(self) -> dict[str, str]:
         manifest: dict[str, str] = {}
-        for relative, kind, path, _info in self._walk_tree(self.origin_root, project_only=False):
+        for relative, kind, path, _info in self._walk_tree(self.origin_root, project_only=True):
             if kind == "directory":
                 manifest[f"directory:{relative}"] = "directory"
             elif kind == "file":

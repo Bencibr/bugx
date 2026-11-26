@@ -99,8 +99,9 @@ def _headless_argv(ctx: RunContext) -> list[str]:
     command = [_resolve_kimi_executable() or "kimi", "-p", ctx.prompt]
     if ctx.session:
         command[1:1] = ["--session", ctx.session]
-    if ctx.model:
-        command += ["-m", ctx.model]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     return command
 
 
@@ -108,8 +109,9 @@ def _autonomous_argv(ctx: RunContext) -> list[str]:
     command = [_resolve_kimi_executable() or "kimi"]
     if ctx.session:
         command += ["--session", ctx.session]
-    if ctx.model:
-        command += ["-m", ctx.model]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     command += [
         "-p",
         ctx.prompt,

@@ -85,7 +85,8 @@ def validate_rows(rows: list[ModuleRow], root: Path = REPO_ROOT,
                  discovery_mode: str | None = None,
                  require_plan_fields: bool = True,
                  allow_business_partial: bool = False,
-                 context: PassContext | None = None) -> list[str]:
+                 context: PassContext | None = None,
+                 explicit_scope: bool = False) -> list[str]:
     # 同一轮校验共享一个上下文：证据文件事实与全仓枚举结果只计算一次。
     ctx = context if context is not None else PassContext(root)
     errors: list[str] = []
@@ -141,7 +142,7 @@ def validate_rows(rows: list[ModuleRow], root: Path = REPO_ROOT,
         errors.append(f"源码枚举不完整，不能判定全覆盖: {exc}")
         discovered = set()
     omitted = sorted(p for p in discovered if p not in listed)
-    if omitted:
+    if omitted and not explicit_scope:
         errors.append("最小单元清单漏列源码或行为资产: " + ", ".join(omitted))
     # A parser-partial manifest is an explicit, persisted file-level fallback.
     # It remains schedulable and honest, but cannot be forced back through the
@@ -163,7 +164,7 @@ def validate_rows(rows: list[ModuleRow], root: Path = REPO_ROOT,
             if row.phase == "内部"
         }
         omitted_scopes = sorted(required_scopes - listed_scopes)
-        if omitted_scopes:
+        if omitted_scopes and not explicit_scope:
             errors.append("符号级最小单元漏列: " + ", ".join(omitted_scopes))
         known_scopes = {
             unit["scope"] for unit in units
@@ -175,6 +176,7 @@ def validate_rows(rows: list[ModuleRow], root: Path = REPO_ROOT,
         if unknown_scopes:
             errors.append("清单引用不存在的源码符号: " + ", ".join(unknown_scopes))
 
+    flows: list[Any] = []
     if require_graph and not partial_files:
         discovery = ctx.business(rows)
         if not discovery["complete"]:

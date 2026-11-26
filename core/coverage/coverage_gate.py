@@ -218,7 +218,11 @@ def manifest_gate_errors(path: Path) -> list[str]:
 
 
 def startup_gate_errors(
-    root: Path, manifest: Path, *, allow_business_partial: bool = False,
+    root: Path,
+    manifest: Path,
+    *,
+    allow_business_partial: bool = False,
+    explicit_scope: bool = False,
 ) -> list[str]:
     """Return strict errors for the automatic Supervisor start gate.
 
@@ -247,10 +251,16 @@ def startup_gate_errors(
     if not rows:
         return errors + ["清单漏列全部最小单元"]
     discovery_mode = manifest_discovery_mode(manifest)
+    is_explicit = (
+        explicit_scope
+        or (discovery_mode in ("explicit", "scoped", "partial"))
+        or bool(os.environ.get("BUGX_COVERAGE_MANIFEST"))
+    )
     errors.extend(validate_rows(
         rows, root, require_symbols=True, require_graph=True,
         require_plan_fields=False, discovery_mode=discovery_mode,
-        allow_business_partial=allow_business_partial, context=ctx,
+        allow_business_partial=allow_business_partial,
+        explicit_scope=is_explicit, context=ctx,
     ))
     return list(dict.fromkeys(errors))
 

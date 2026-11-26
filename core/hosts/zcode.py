@@ -119,6 +119,9 @@ def _headless_argv(ctx: RunContext) -> list[str]:
     command = ["zcode", "-p", ctx.prompt, "--mode", "yolo", "--cwd", str(ctx.root)]
     if ctx.session:
         command += ["--resume", ctx.session]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     return command
 
 
@@ -126,6 +129,9 @@ def _autonomous_argv(ctx: RunContext) -> list[str]:
     command = ["zcode", "-p", ctx.prompt, "--mode", "yolo", "--json", "--cwd", str(ctx.root)]
     if ctx.session:
         command += ["--resume", ctx.session]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     return command
 
 

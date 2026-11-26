@@ -75,6 +75,7 @@ class RunContext:
     agent: str
     session: str
     prompt: str
+    model: str | None = None
 
 
 

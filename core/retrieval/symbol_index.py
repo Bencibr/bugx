@@ -94,6 +94,7 @@ HOST_ROOT_CONFIG_NAMES = {
 DEPENDENCY_OR_GENERATED_DIRS = {
     ".git", "node_modules", "target", "dist", ".venv", "venv", "__pycache__",
     ".gradle", "vendor", "third_party", ".pytest_cache", ".ruff_cache", ".tools",
+    ".dart_tool",
 }
 # Keep the old public name for callers that used it, but do not use it as a
 # blunt ``any path segment`` filter: product code may legitimately contain a
@@ -117,7 +118,7 @@ TOP_LEVEL_ASSET_EXCLUDED_DIRS = {
 SOURCE_EXTS = {
     ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".java", ".kt", ".kts", ".go",
     ".rs", ".swift", ".c", ".h", ".cc", ".cpp", ".cxx", ".cs", ".rb",
-    ".php", ".vue", ".svelte",
+    ".php", ".vue", ".svelte", ".dart",
 }
 AUDIT_ASSET_EXTS = {
     ".sh", ".bash", ".zsh", ".fish", ".sql", ".yaml", ".yml", ".toml",

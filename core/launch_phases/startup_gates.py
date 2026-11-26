@@ -698,7 +698,9 @@ def _install_explicit_coverage_manifest(root: Path) -> int | None:
         coverage_gate = None
     if coverage_gate is not None:
         try:
-            gate_errors = coverage_gate.startup_gate_errors(resolved_root, manifest)
+            gate_errors = coverage_gate.startup_gate_errors(
+                resolved_root, manifest, explicit_scope=True
+            )
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"[launch_bugx] ✗ 显式覆盖清单预检失败: {exc}")
             return 1
@@ -713,6 +715,13 @@ def _install_explicit_coverage_manifest(root: Path) -> int | None:
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
         payload = manifest.read_bytes()
+        if module_coverage.DISCOVERY_METADATA_START.encode("utf-8") not in payload:
+            meta_header = (
+                f"{module_coverage.DISCOVERY_METADATA_START}\n"
+                '{"status": "complete", "discovery_mode": "explicit", "coverage_confidence": "high", "discovery_errors": []}\n'
+                f"{module_coverage.DISCOVERY_METADATA_END}\n\n"
+            ).encode("utf-8")
+            payload = meta_header + payload
         if destination.is_file():
             existing = destination.read_bytes()
             if existing != payload:

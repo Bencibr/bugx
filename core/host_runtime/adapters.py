@@ -120,15 +120,23 @@ class PluginAdapter(HostAdapter):
         self.executable = plugin.identity.executable
         self.host_surface = plugin.engine_run.host_surface
 
-    def _context(self, root: Path, agent: str, session: str, prompt: str) -> host_plugins.RunContext:
-        return host_plugins.RunContext(root=root, agent=agent, session=session, prompt=prompt)
+    def _context(
+        self, root: Path, agent: str, session: str, prompt: str, model: str | None = None,
+    ) -> host_plugins.RunContext:
+        return host_plugins.RunContext(
+            root=root, agent=agent, session=session, prompt=prompt, model=model,
+        )
 
     def _engine_run_node_flags(self) -> tuple[str, ...]:
         """主执行路径需要的真 node flag（数据来自插件 facet，执行为引擎职责）。"""
         return tuple(getattr(self.plugin.engine_run, "engine_run_node_flags", ()) or ())
 
-    def headless_run(self, root: Path, agent: str, session: str, prompt: str) -> list[str]:
-        argv = self.plugin.engine_run.headless_argv(self._context(root, agent, session, prompt))
+    def headless_run(
+        self, root: Path, agent: str, session: str, prompt: str, model: str | None = None,
+    ) -> list[str]:
+        argv = self.plugin.engine_run.headless_argv(
+            self._context(root, agent, session, prompt, model=model)
+        )
         argv = [str(part) for part in argv]
         flags = self._engine_run_node_flags()
         # DSH Desktop 的 ``.desktop-bin/node`` 是 Electron shim，会吞掉
@@ -137,8 +145,12 @@ class PluginAdapter(HostAdapter):
         # 完全不修更难排查，所以两条路径必须使用同一套 node 解析。
         return host_registry._with_real_node(argv, flags) if flags else argv
 
-    def autonomous_run(self, root: Path, agent: str, session: str, prompt: str) -> list[str]:
-        argv = self.plugin.engine_run.autonomous_argv(self._context(root, agent, session, prompt))
+    def autonomous_run(
+        self, root: Path, agent: str, session: str, prompt: str, model: str | None = None,
+    ) -> list[str]:
+        argv = self.plugin.engine_run.autonomous_argv(
+            self._context(root, agent, session, prompt, model=model)
+        )
         argv = [str(part) for part in argv]
         flags = self._engine_run_node_flags()
         return host_registry._with_real_node(argv, flags) if flags else argv

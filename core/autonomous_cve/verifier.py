@@ -11,15 +11,13 @@ from typing import Any
 
 from .models import HuntReceipt
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS_ROOT = REPO_ROOT / "scripts" / "cve"
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
-
 try:
-    from run_oss_cve_exploit_verify import run_manifest  # type: ignore
+    from .run_oss_cve_exploit_verify import run_manifest  # type: ignore
 except ImportError:
-    run_manifest = None
+    try:
+        from core.autonomous_cve.run_oss_cve_exploit_verify import run_manifest  # type: ignore
+    except ImportError:
+        run_manifest = None
 
 
 class AutoHuntVerifier:

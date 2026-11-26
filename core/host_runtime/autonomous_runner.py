@@ -187,10 +187,11 @@ class RealHooks:
     def agent(self, root: Path, ctx: dict, baseline: str) -> tuple[int, AgentRun]:
         prompt = ctx.get("prompt", "继续审计本轮")
         session = ctx.get("session", "")
+        model = ctx.get("model") or getattr(self, "model", None)
         cmd = (
-            self.adapter.autonomous_run(root, "bugx", session, prompt)
+            self.adapter.autonomous_run(root, "bugx", session, prompt, model=model)
             if self.autonomous else
-            self.adapter.headless_run(root, "bugx", session, prompt)
+            self.adapter.headless_run(root, "bugx", session, prompt, model=model)
         )
         try:
             timeout = self._remaining_timeout(self.agent_timeout)

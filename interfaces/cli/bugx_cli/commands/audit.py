@@ -331,10 +331,8 @@ def _command_audit_penetration(args: argparse.Namespace) -> int:
         from ..infra.security import _find_repo_root
         repo_root = _find_repo_root(Path(__file__))
         core_root = repo_root / "core"
-        scripts_root = repo_root / "scripts"
-        for p in (core_root, scripts_root):
-            if str(p) not in sys.path:
-                sys.path.insert(0, str(p))
+        if str(core_root) not in sys.path:
+            sys.path.insert(0, str(core_root))
 
         from core.infra.build_info import get_full_version_string
         from core.probes.sast_probe import run_scan as run_sast_scan
@@ -350,7 +348,7 @@ def _command_audit_penetration(args: argparse.Namespace) -> int:
         )
         # 脚本已随 DOC-232 迁入 ``scripts/cve/``：旧路径 ``run_six_worker_penetration``
         # 从仓库根已不可导入，``bugx audit --deep`` 会直接 fail-closed。包名显式写全。
-        from scripts.cve.run_six_worker_penetration import run_six_worker_penetration
+        from core.autonomous_cve.run_six_worker_penetration import run_six_worker_penetration
         from core.report_engine.models import (
             _compliance_notes as get_compliance_notes,
             _remediation_roadmap as build_remediation_roadmap,

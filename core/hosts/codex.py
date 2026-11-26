@@ -172,11 +172,17 @@ def _headless_argv(ctx: RunContext) -> list[str]:
     #   workspace-write」（``codex exec --help``），与 ``_autonomous_argv`` 保持同一
     #   approval 语义：无头通道没有人类可以点「允许」，缺它等于让每个 Worker 的
     #   控制面调用恒失败。
-    return [
+    cmd = [
         "codex", "exec", "--approve-for-me",
+    ]
+    model = getattr(ctx, "model", None)
+    if model:
+        cmd += ["-m", model]
+    cmd += [
         *_state_grants(),
         ctx.prompt,
     ]
+    return cmd
 
 
 _SCOUT_FEATURE_OPTIONS = (
@@ -319,6 +325,9 @@ def _autonomous_argv(ctx: RunContext) -> list[str]:
     # 不加 ``--skip-git-repo-check``：Git 仓库由 ``pre`` 的 ``git_environment`` 门禁
     # 保证（见 ``_headless_argv`` 注释与模块 docstring 的 ``git`` 面）。
     command = ["codex", "exec", "--approve-for-me"]
+    model = getattr(ctx, "model", None)
+    if model:
+        command += ["-m", model]
     # --approve-for-me keeps workspace-write; grant only this clone's Git metadata so
     # its startup write probe and local commits work. worktree/submodule 的 ``.git``
     # 是 gitfile，需要同时授权 gitdir 与 commondir（见 ``_git_metadata_dirs``）。

@@ -85,6 +85,7 @@ EXT_TO_LANG: dict[str, str] = {
     ".swift": "swift",
     ".php": "php",
     ".rb": "ruby",
+    ".dart": "dart",
     ".sh": "shell",
     ".bash": "shell",
 }
