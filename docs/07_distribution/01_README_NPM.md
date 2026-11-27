@@ -90,11 +90,11 @@ Run `bugx report serve` to inspect audit topology, evidence chains, and verified
 | **Cline / Roo Code** | Isolated Data Sandbox / Project Agent / User MCP | `bugx install --agent cline` |
 | **Qoder AI** | Native Agent/Worker, Subagent Concurrency, User/Project MCP | `bugx install --agent qoder` |
 | **Trae / Trae CN** | Project Agent, Multi-variant MCP Sync Mirror | `bugx install --agent trae` |
-| **DeepSeek Harness (DSH)** | Native Headless Profile / Cordis Patch / MCP Injection | `bugx install --agent dsh` |
-| **Kimi Code** | Headless ACP / Native MCP Plugin | `bugx install --agent kimi` |
-| **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & MCP | `bugx install --agent minimax` |
-| **ZCode** | Native MCP / User-Level Registry | `bugx install --agent zcode` |
-| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **DeepSeek Harness (DSH)** | Official marketplace plugin with built-in Skills, CLI & MCP ([Official Marketplace](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)) | `bugx install --agent dsh` |
+| **Kimi Code** | Official marketplace plugin with BugX Agent & MCP ([Official Marketplace](https://github.com/MoonshotAI/kimi-code)) | `bugx install --agent kimi` |
+| **MiniMax Code** | Official marketplace plugin with Agent, Skills & MCP ([Official Marketplace](https://github.com/MiniMax-AI/MiniMax-Code-Plugins)) | `bugx install --agent minimax` |
+| **ZCode** | Official marketplace plugin with BugX Agent, Skills & MCP ([Official Marketplace](https://github.com/zai-org/zcode-plugins)) | `bugx install --agent zcode` |
+| **Agnes Code** | Official marketplace plugin for terminal BugX reviews ([Official Marketplace](https://github.com/AgnesAI-Labs/agh-plugin-market)) | `bugx install --agent agnescode` |
 | **WorkBuddy / CodeBuddy** | Native Skill, Desktop Multi-variant Mirror, Project MCP | `bugx install --agent workbuddy` |
 | **GitHub Copilot** | Project Agent/Instructions, User Agent, Project MCP | `bugx install --agent copilot` |
 | **Cursor / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |
@@ -107,16 +107,16 @@ Google Antigravity · Gemini 4 · Gemini 4 Carbon · Gemini 4 Neon · Gemini Cod
 
 ## 简体中文说明
 
-BugX 是一款装在 AI 编程助手与终端里的**自主代码审查与自动化测试智能体（Autonomous Agent）**。
+BugX 可以装在你的 AI 编程工具或命令行里，专门用来**排查代码里的隐藏 Bug、自动补测试并跑通验证**。
 
-它通过确定性任务账本将待审项目拆解为独立单元，由并发 Worker 深入代码逻辑、边界分支与并发场景，并通过隔离的验证员**在沙箱中真实执行 PoC 验证漏洞**。彻底解决大模型“口头宣布查完、遇到长代码爱偷懒跳过、凭空脑补假漏洞”的问题，让代码交付透明、可查、上线不翻车。
+它会把项目拆成小块逐一检查，发现可疑问题后不会只靠“嘴说”，而是**真的在本地跑一遍复现脚本或测试，确认能触发才上报**。这样既不容易漏掉长文件里的边界问题，也不会报一堆假漏洞浪费时间。
 
-### ✨ 核心特性
+### ✨ 核心特点
 
-- 🛡️ **真实执行验证（零误报承诺）**：疑似缺陷由独立沙箱执行“双正例触发 + 单负对照零触发”实跑验证，带完整命令、退出码与终端回显证据留案，杜绝凭空臆测与假报警。
-- 📋 **状态机覆盖账本（杜绝偷懒跳过）**：以状态机跟踪全项目审计单元（已覆盖 / 阻塞 / 待审），断点可续，审查完成与否以账本终态为准，模型的口头承诺不算数。
-- 🔌 **全生态宿主即插即用**：基于标准 MCP / ACP 协议，原生适配 Google Antigravity、Claude Code、Cursor、Trae、OpenAI Codex、OpenCode、Cline、Qoder、Kimi、MiniMax、ZCode 等，深度支持 Gemini 4、Claude 5.5 与 GPT-4o 底座。
-- 📊 **自带全息 Web 工作台**：内置 Studio 交互看板，实时追踪审计拓扑、漏洞调用链、复现凭据与测试变异杀伤力。
+- 🛡️ **真跑验证，少报假问题**：找到可疑 Bug 后会实际运行复现脚本或测试用例，附上执行的命令、退出码和输出日志，有据可查。
+- 📋 **进度可追踪，中断可续**：按模块和文件记录已查/未查进度，长项目不怕查一半漏掉，随时可以接着跑。
+- 🔌 **主流 AI 编程工具开箱即用**：一条命令自动适配 Antigravity、Claude Code、Cursor、Trae、Codex、OpenCode、Cline、Qoder、DSH、Kimi、MiniMax、ZCode、Agnes Code 等。
+- 📊 **本地 Web 报告看板**：提供可视化页面查看漏洞详情、调用路径、复现记录与测试结果。
 
 ### 🚀 快速开始
 
