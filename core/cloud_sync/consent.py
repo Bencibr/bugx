@@ -22,6 +22,7 @@ from pathlib import Path
 
 CONFIG_ENV = "BUGX_CLOUD_CONFIG"
 TELEMETRY_ENABLED_ENV = "BUGX_TELEMETRY_ENABLED"
+AUTO_REPORT_DISABLED_ENV = "BUGX_NO_AUTO_REPORT"
 DEFAULT_TELEMETRY_ENABLED = True
 REVOKED_ERROR = "data_sharing_revoked"
 REVOKED_DETAIL = "用户已撤销 telemetry.data_sharing，云端同步被拒绝"
@@ -97,6 +98,31 @@ def telemetry_enabled() -> bool:
             return False
         return False
     return DEFAULT_TELEMETRY_ENABLED if stored is None else stored
+
+
+def auto_report_enabled() -> bool:
+    """返回主动异常工单上报（Crash Auto-Reporting）门禁状态。
+
+    1. 若 telemetry_enabled() 为 False（全局未授权或撤销），必须强阻断返回 False。
+    2. 若环境变量 BUGX_NO_AUTO_REPORT 设为 1/true/yes/on，返回 False。
+    3. 若 cloud-config.json 中 telemetry.auto_report_crashes 显式为 False，返回 False。
+    4. 默认返回 True。
+    """
+    if not telemetry_enabled():
+        return False
+    raw_env = os.environ.get(AUTO_REPORT_DISABLED_ENV)
+    if raw_env is not None and raw_env.strip().lower() in _TRUE_VALUES:
+        return False
+    path = config_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if isinstance(data, dict):
+        telemetry = data.get("telemetry")
+        if isinstance(telemetry, dict) and telemetry.get("auto_report_crashes") is False:
+            return False
+    return True
 
 
 def revoked_summary(scopes: set[str] | list[str] | None) -> dict:

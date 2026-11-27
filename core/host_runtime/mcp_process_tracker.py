@@ -519,7 +519,7 @@ def probe_remote_docs_mcp(
     mcp_config: Mapping[str, Mapping[str, object]],
 ) -> dict[str, object]:
     """检查宿主配置中 bugx-docs 是否为远程 HTTP URL 模式，防止误报缺本地 stdio 进程 (NEG-09)。"""
-    cfg = mcp_config.get("bugx-docs")
+    cfg = mcp_config.get("bugx-cloud")
     if not isinstance(cfg, Mapping) or cfg.get("enabled", True) is False:
         return {"configured": False, "transport": "missing"}
     raw_url = str(cfg.get("url") or "").strip()

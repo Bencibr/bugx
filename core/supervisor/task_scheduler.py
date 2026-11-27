@@ -741,10 +741,20 @@ class UnitPriorityScheduler:
         if fp in self.defect_modules:
             score += 100.0
 
-        # 6. 静态风险分数加权
+        # 6. 静态风险分数加权（无图谱数据时按高危面词表给予基线风险分，确保冷启动高风险优先）
         r_score = risk_score
         if r_score is None:
             r_score = self._risk_for_unit(unit_id, self.unit_risks)
+        if not r_score:
+            scope_tokens = _scope_tokens(f"{fp} {sym}")
+            if scope_tokens & _HIGH_VALUE_SURFACES:
+                r_score = 70.0
+            elif any(tok in scope_tokens for tok in _HIGH_VALUE_PATH_TOKENS):
+                r_score = 55.0
+            elif any(key in scope_tokens for key in _SENSITIVE_SURFACES):
+                r_score = 35.0
+            else:
+                r_score = 10.0
         bounded_risk = min(max(float(r_score or 0.0), 0.0), 100.0)
         surface_weight = max(
             [_SENSITIVE_SURFACES[key] for key in _SENSITIVE_SURFACES
@@ -1641,3 +1651,87 @@ class RoundBudgetCalculator:
                 calculated += 300.0
 
         return max(MIN_ROUND_WALL_SECONDS, min(calculated, MAX_ROUND_WALL_SECONDS))
+
+
+_DOMAIN_KEYWORD_TABLE: tuple[tuple[str, frozenset[str]], ...] = (
+    ("auth", frozenset({
+        "auth", "login", "logout", "oauth", "oidc", "jwt", "token", "session",
+        "rbac", "acl", "permission", "role", "password", "credential", "sso", "saml",
+    })),
+    ("payment", frozenset({
+        "pay", "payment", "billing", "invoice", "charge", "refund", "wallet",
+        "order", "checkout", "stripe", "ledger",
+    })),
+    ("database", frozenset({
+        "db", "database", "sql", "sqlite", "postgres", "postgresql", "mysql",
+        "redis", "mongo", "mongodb", "orm", "repo", "repository", "dao",
+        "migration", "schema", "query", "store", "storage",
+    })),
+    ("execution", frozenset({
+        "exec", "cmd", "command", "shell", "subprocess", "spawn", "eval",
+        "sandbox", "worker", "runner",
+    })),
+    ("crypto", frozenset({
+        "crypto", "encrypt", "decrypt", "cipher", "aes", "rsa", "pem",
+        "hmac", "sign", "verify", "hash", "tls", "ssl", "ssh",
+    })),
+    ("filesystem", frozenset({
+        "file", "fs", "path", "upload", "download", "archive", "zip", "tar",
+        "io", "blob", "traversal",
+    })),
+    ("api", frozenset({
+        "api", "http", "rest", "graphql", "grpc", "route", "router",
+        "endpoint", "handler", "controller", "middleware", "gateway", "server",
+    })),
+    ("frontend", frozenset({
+        "ui", "web", "frontend", "vue", "react", "svelte", "dom", "html",
+        "css", "tsx", "jsx", "component", "page", "view", "browser",
+    })),
+)
+
+
+def infer_unit_domain(unit_id: str) -> str:
+    """Infer technical/security domain for context-sticky unit clustering."""
+    fp, sym = extract_unit_scope(unit_id)
+    tokens = _scope_tokens(f"{fp} {sym}")
+    for domain, keywords in _DOMAIN_KEYWORD_TABLE:
+        if tokens & keywords:
+            return domain
+    return "general"
+
+
+def infer_unit_module(unit_id: str) -> str:
+    """Infer parent directory / module grouping key for locality clustering."""
+    fp, _ = extract_unit_scope(unit_id)
+    normalized = fp.replace("\\", "/").strip("/")
+    if "/" in normalized:
+        return normalized.rsplit("/", 1)[0]
+    return normalized or "root"
+
+
+def rank_units_high_risk_first(
+    units: Sequence[str],
+    *,
+    workspace_root: Path | None = None,
+    coverage: Mapping[str, str] | None = None,
+    preferred_domain: str | None = None,
+    preferred_module: str | None = None,
+) -> list[str]:
+    """Rank units by high-risk priority first, with optional domain/module stickiness."""
+    unique_units = list(dict.fromkeys(units))
+    if len(unique_units) <= 1:
+        return unique_units
+    scheduler = shared_scheduler(workspace_root) if workspace_root is not None else TaskScheduler(root=None)
+    cov = coverage or {}
+    pref_dom = preferred_domain.strip().lower() if isinstance(preferred_domain, str) and preferred_domain.strip() else None
+    pref_mod = preferred_module.strip() if isinstance(preferred_module, str) and preferred_module.strip() else None
+
+    def _key(u: str) -> tuple[float, str]:
+        s = scheduler.score_unit(u, coverage_status=cov.get(u, "pending"))
+        if pref_dom and pref_dom != "general" and infer_unit_domain(u) == pref_dom:
+            s += 500.0
+        if pref_mod and infer_unit_module(u) == pref_mod:
+            s += 200.0
+        return (-s, u)
+
+    return sorted(unique_units, key=_key)

@@ -104,8 +104,8 @@ def _version_from_text(path: Path, pattern: re.Pattern[str],
     except (OSError, UnicodeError):
         return None
     value = match.group(1) if match else None
-    if value == "0.1.6":
-        value = os.environ.get("BUGX_VERSION", "0.1.6").strip()
+    if value == "0.1.7":
+        value = os.environ.get("BUGX_VERSION", "0.1.7").strip()
     return value if value and VERSION_RE.fullmatch(value) else None
 
 

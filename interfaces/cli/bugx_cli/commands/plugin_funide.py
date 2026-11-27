@@ -42,7 +42,7 @@ _FUNIDE_MCP_AUTOSTART_VALUE = "newAndOutdated"
 
 
 def _funide_native_mcp_names() -> tuple[str, ...]:
-    return ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+    return ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud")
 
 
 def _funide_skill_source(root: Path) -> Path | None:
@@ -272,7 +272,7 @@ def _funide_profile_mcp_entry_owned(name: str, entry: object) -> bool:
         return False
     if name in {"bugx-supervisor", "bugx-supervisor-worker"}:
         return args[:3] == ["mcp", "serve", "--root"] and "--role" in args
-    return name == "bugx-docs" and args[:3] == ["mcp", "docs", "serve"] and "--root" in args
+    return name == "bugx-cloud" and args[:3] == ["mcp", "docs", "serve"] and "--root" in args
 
 
 def _funide_cloud_storage_path() -> Path:

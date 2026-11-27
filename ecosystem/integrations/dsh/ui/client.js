@@ -48,6 +48,16 @@ window.__ModuleLoader__.load({
     };
 
     function BugxBody() {
+      const cmdStyle = {
+        display: 'grid',
+        gap: '6px',
+        width: '100%',
+        textAlign: 'left',
+        fontSize: '12px',
+        padding: '10px 12px',
+        borderRadius: '8px',
+        border: '1px solid rgba(128, 128, 128, 0.25)',
+      };
       return h(
         'div',
         {
@@ -61,7 +71,14 @@ window.__ModuleLoader__.load({
         },
         h(BugxIcon, { size: 72 }),
         h('strong', null, 'BugX'),
-        h('span', null, 'Start an audit from the BugX Agent entry.'),
+        h('span', { style: { fontSize: '12px', opacity: 0.8 } }, 'Ready immediately after plugin install:'),
+        h(
+          'div',
+          { style: cmdStyle },
+          h('div', null, h('code', null, '/bugx'), ' — Start autonomous bug discovery & review'),
+          h('div', null, h('code', null, '/bugx-dsh'), ' — DSH workflow & troubleshooting guide'),
+          h('div', null, h('code', null, '/bugx-cli status'), ' — Run bugx CLI in workspace'),
+        ),
       );
     }
 

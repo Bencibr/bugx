@@ -7,7 +7,7 @@
   "description_en": "BugX is an autonomous code review and testing agent designed to safeguard software delivery: it surfaces hidden, deep bugs for developers right after writing code to eliminate painful debugging and rework; automates black-box, functional, and performance testing across complex edge cases for QA; and ensures software strictly meets functional requirements with rock-solid stability and resilience. By taking over tedious verification, BugX frees engineers from manual grunt work, boosts team velocity, elevates code quality, and significantly lowers long-term maintenance costs—putting technology to work for people.",
   "source": "bugx-agent",
   "type": "mcp-connector",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "homepage": "https://bugx.dev",
   "website": "https://bugx.dev",
   "examples_zh": [

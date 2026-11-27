@@ -2,7 +2,7 @@
 name: bugx
 description: BugX 深度代码审查与缺陷挖掘智能体。提供自主缺陷挖掘、敏捷单点复现（PoC）、环境体检及知识检索能力。
 metadata:
-  bugx_version: "0.1.6"
+  bugx_version: "0.1.7"
 ---
 <!-- bugx-locale: zh-CN -->
 
@@ -10,7 +10,7 @@ metadata:
 
 BugX 核心协议镜像。执行前可通过 `bugx engine path --name bugx.md` 读取完整规范；项目 `.bugx/` 保存运行态与账本。
 
-协议镜像版本：0.1.6
+协议镜像版本：0.1.7
 
 ## 1. 意图分流决策树 (Triage Decision Tree)
 拿到任务第一秒，判定属于哪个分支：

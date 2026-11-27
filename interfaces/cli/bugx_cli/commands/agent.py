@@ -371,6 +371,9 @@ def command_agent(args: argparse.Namespace) -> int:
                 exc=exc,
             )) from exc
         token = _GLOBAL_TX.set(staging)
+        from ..infra.security import _PRESERVE_MODIFIED_PATHS
+        preserve_paths = frozenset(getattr(args, "_reconcile_preserve_paths", ()) or ())
+        preserve_token = _PRESERVE_MODIFIED_PATHS.set(preserve_paths)
         preserve_staging = False
         try:
             return _command_agent_impl(
@@ -406,6 +409,7 @@ def command_agent(args: argparse.Namespace) -> int:
                 ) from install_error
             raise
         finally:
+            _PRESERVE_MODIFIED_PATHS.reset(preserve_token)
             _GLOBAL_TX.reset(token)
             if not preserve_staging:
                 shutil.rmtree(staging, ignore_errors=True)
@@ -1117,20 +1121,24 @@ def _command_agent_impl(
     if progress is not None:
         progress.update(45, "校验并装配必需核心依赖（codebase-memory / tree-sitter）")
     _ensure_core_importable()
-    from core.repair.self_heal import (
-        ensure_codebase_memory_ready,
-        ensure_tree_sitter_ready,
-    )
-    cbm_ok, cbm_detail = ensure_codebase_memory_ready(root)
-    if not cbm_ok:
-        raise CliError(
-            f"必需核心依赖 codebase-memory-mcp 安装或校验失败（不可降级放行）：{cbm_detail}"
+    if getattr(args, "_reconcile_skip_deps", False):
+        cbm_detail = "skipped_reconcile"
+        ts_detail = "skipped_reconcile"
+    else:
+        from core.repair.self_heal import (
+            ensure_codebase_memory_ready,
+            ensure_tree_sitter_ready,
         )
-    ts_ok, ts_detail = ensure_tree_sitter_ready()
-    if not ts_ok:
-        raise CliError(
-            f"必需核心依赖 tree-sitter-language-pack 安装或校验失败（不可降级放行）：{ts_detail}"
-        )
+        cbm_ok, cbm_detail = ensure_codebase_memory_ready(root)
+        if not cbm_ok:
+            raise CliError(
+                f"必需核心依赖 codebase-memory-mcp 安装或校验失败（不可降级放行）：{cbm_detail}"
+            )
+        ts_ok, ts_detail = ensure_tree_sitter_ready()
+        if not ts_ok:
+            raise CliError(
+                f"必需核心依赖 tree-sitter-language-pack 安装或校验失败（不可降级放行）：{ts_detail}"
+            )
 
     if is_home_scope:
         return _finish_global_home_install(
@@ -1160,9 +1168,11 @@ def _command_agent_impl(
     if removed_legacy_core:
         print(f"[bugx] 已直接删除旧项目引擎入口：{removed_legacy_core}")
     selected_mcp_names = targeted_mcp_names(root)
-    # 可选 MCP 能力（playwright/postmcp 等）延迟至实际项目审计 pre 阶段由 AI 与用户决定启用，
-    # 不在 install 阶段触发耗时联网装配。
-    provisioned_optional_mcps: set[str] = set()
+    if getattr(args, "_reconcile_skip_deps", False):
+        provisioned_optional_mcps = selected_mcp_names & installed_runtime_servers()
+    else:
+        provisioned_optional_mcps = provision_targeted_mcp_runtime(root, selected_mcp_names)
+        provisioned_optional_mcps |= (selected_mcp_names & installed_runtime_servers())
     opencode_config_status: str | None = None
     opencode_config_backup: Path | None = None
     host_mcp_configs: dict[str, dict[str, object]] = {}
@@ -1668,6 +1678,8 @@ def _command_agent_impl(
         "execution": "none",
         "mcp_recommendations": mcp_recommendations,
     }
+    if getattr(args, "_reconcile_quiet", False):
+        return 0
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default))
     else:
@@ -2844,7 +2856,7 @@ _OFFICIAL_MCP_SERVERS = (
     # 修改任一侧时必须同步另一侧，两处常量必须逐字一致。
     ("bugx-supervisor", ["mcp", "serve", "--root", "{ROOT}"]),
     ("bugx-supervisor-worker", ["mcp", "serve", "--root", "{ROOT}", "--role", "worker"]),
-    ("bugx-docs", ["mcp", "docs", "serve", "--root", "{ROOT}", "--db",
+    ("bugx-cloud", ["mcp", "docs", "serve", "--root", "{ROOT}", "--db",
                    "{ROOT}/.bugx/knowledge/docs.sqlite3"]),
 )
 _OFFICIAL_MCP_MARKER = "# BugX MCP overlay — official dsh-mcp-client (stdio)"
@@ -2894,7 +2906,7 @@ def _ensure_official_mcp_overlay(content: str, root: Path) -> str:
             servers_to_write = (
                 ("bugx-supervisor", ["mcp", "serve", "--role", "host"]),
                 ("bugx-supervisor-worker", ["mcp", "serve", "--role", "worker"]),
-                ("bugx-docs", ["mcp", "docs", "serve"]),
+                ("bugx-cloud", ["mcp", "docs", "serve"]),
             )
     else:
         root_text = str(Path(root).resolve())
@@ -3893,7 +3905,7 @@ def _ensure_opencode_config(
     if not isinstance(bundled_plugins, list) or _OPENCODE_REQUIRED_PLUGIN not in bundled_plugins:
         raise CliError(f"OpenCode v2 配置模板缺少 plugins 中的 {_OPENCODE_REQUIRED_PLUGIN}: {source}")
     # 注入白名单：自有控制通道 + （被定向 ∩ 已安装）的外部 server。
-    core_channels = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+    core_channels = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
     available = installed_runtime_servers()
     keep = core_channels | (set(selected or ()) & available)
     # 仅移除当前配置中不属于本轮注入白名单、且精确匹配受管理模板的可选项。
@@ -3907,9 +3919,9 @@ def _ensure_opencode_config(
             bundled_servers.pop(name, None)
     from .plugin import resolve_effective_docs_transport
     effective_docs_transport = resolve_effective_docs_transport(docs_transport, docs_remote_url)
-    if effective_docs_transport == "remote" and "bugx-docs" in bundled_servers:
+    if effective_docs_transport == "remote" and "bugx-cloud" in bundled_servers:
         from .plugin import _resolve_docs_remote_url
-        bundled_servers["bugx-docs"] = {
+        bundled_servers["bugx-cloud"] = {
             "type": "remote",
             "url": _resolve_docs_remote_url(docs_remote_url),
             "codemode": False,
@@ -3960,12 +3972,12 @@ def _ensure_opencode_config(
             name for name in managed_names
             if not isinstance(servers.get(name), dict)
         ]
-        docs_entry = servers.get("bugx-docs")
-        desired_docs = bundled_servers.get("bugx-docs")
+        docs_entry = servers.get("bugx-cloud")
+        desired_docs = bundled_servers.get("bugx-cloud")
         docs_transport_mismatch = (
             isinstance(docs_entry, dict)
             and isinstance(desired_docs, dict)
-            and _mcp_entry_state("bugx-docs", docs_entry) == "configured"
+            and _mcp_entry_state("bugx-cloud", docs_entry) == "configured"
             and (
                 (effective_docs_transport == "remote" and docs_entry.get("url") != desired_docs.get("url"))
                 or (effective_docs_transport == "stdio" and isinstance(docs_entry.get("url"), str))
@@ -3979,7 +3991,7 @@ def _ensure_opencode_config(
         for name in missing:
             servers[name] = copy.deepcopy(bundled_servers[name])
         if docs_transport_mismatch and desired_docs is not None:
-            servers["bugx-docs"] = copy.deepcopy(desired_docs)
+            servers["bugx-cloud"] = copy.deepcopy(desired_docs)
         updated = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         descriptor, temporary = tempfile.mkstemp(
             dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp",
@@ -4367,7 +4379,7 @@ def _check_host_mcp_config(root: Path, host_name: str, *, repair: bool = False) 
                 else:
                     servers = payload.get("mcpServers") if isinstance(payload, dict) else None
                     has_legacy |= isinstance(servers, dict) and any(
-                        name in {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+                        name in {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
                         or (isinstance(value, dict) and any("bugx" in str(arg).lower()
                                                            for arg in value.get("args", [])))
                         for name, value in servers.items()

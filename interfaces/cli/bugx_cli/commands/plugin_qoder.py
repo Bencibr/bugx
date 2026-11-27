@@ -157,7 +157,7 @@ def _clean_legacy_qoder_plugin_and_skills() -> None:
                 servers = mcp_data["mcpServers"]
                 bugx_keys = [
                     k for k, v in servers.items()
-                    if k in {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+                    if k in {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
                     or (isinstance(v, dict) and any("bugx" in str(arg).lower() for arg in v.get("args", [])))
                 ]
                 if bugx_keys:

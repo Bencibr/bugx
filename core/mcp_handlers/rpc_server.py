@@ -100,26 +100,11 @@ def serve(
 
     controller_lease = None
     if role == "host" and service.is_initialized():
-        if takeover:
-            takeover_func = _get_bms_attr("_takeover_holder", _cl._takeover_holder)
-            should_retry, evidence = takeover_func(service._scope().state_root)
-            if evidence.get("taken_over"):
-                record_lease_func = _get_bms_attr("_record_lease_event", _cl._record_lease_event)
-                record_lease_func(
-                    service, "controller_lease_taken_over",
-                    holder_pid=evidence.get("holder_pid"),
-                    holder_idle_seconds=evidence.get("holder_idle_seconds"),
-                    by_pid=os.getpid(),
-                )
-            elif not should_retry:
-                raise McpProtocolError(
-                    f"接管被拒（{evidence.get('reason')}）：持有者 PID "
-                    f"{evidence.get('holder_pid')} 闲置 "
-                    f"{evidence.get('holder_idle_seconds')}s 未达阈值 "
-                    f"{evidence.get('threshold_seconds')}s；可等待其自退或 "
-                    f"kill {evidence.get('holder_pid')}"
-                )
-        controller_lease = service.acquire_controller_lease()
+        # 多宿主并发模式：启动期不再强占独占 controller.lock，改为注册到
+        # state_root/hosts.json 并校验协议版本兼容（由 supervisor.json.lock 保护）。
+        register_host = getattr(service, "register_host", None)
+        if callable(register_host):
+            register_host()
 
     channel_idle_monitor_func = _get_bms_attr("_channel_idle_monitor_loop", _cl._channel_idle_monitor_loop)
     channel_stop = threading.Event()
@@ -260,7 +245,7 @@ def serve(
                 params = raw_params
             if method != "tools/list":
                 flush_tools_list_batch()
-            if method in {"notifications/initialized", "notifications/cancelled"}:
+            if method.startswith("notifications/") or method in {"notifications/initialized", "notifications/cancelled"}:
                 if logger is not None:
                     bugx_logging.log_event(
                         logger, "mcp_request_finished", method=method,
@@ -278,7 +263,21 @@ def serve(
                     "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                     "instructions": "每个工具调用都立即返回；根据 next_action 继续，不要等待长连接结果。",
                 }
-            elif method == "ping":
+            elif method in {"ping", "$/ping"}:
+                result = {}
+            elif method in {"server/discover", "server/info", "server/status"}:
+                result = {
+                    "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {
+                        "tools": {"listChanged": False},
+                        "resources": {"subscribe": False, "listChanged": False},
+                        "prompts": {"listChanged": False},
+                    },
+                    "role": service.role,
+                    "status": "ready",
+                }
+            elif method in {"logging/setLevel", "completion/complete"}:
                 result = {}
             elif method == "tools/list":
                 if cached_tool_definitions is None:
@@ -412,6 +411,9 @@ def serve(
     host_heartbeat_stop.set()
     if host_heartbeat_thread is not None:
         host_heartbeat_thread.join(timeout=1.0)
+    detach_host = getattr(service, "detach_host", None)
+    if callable(detach_host):
+        detach_host(reason="connection_closed")
     service.clear_session_proof()
     if controller_lease is not None:
         controller_lease.release()
@@ -419,30 +421,12 @@ def serve(
 
 
 def _resolve_serve_root(root: Path) -> Path:
-    """启动前解析有效服务 root：显式参数优先，参数无合法布局时自愈回退。"""
-    def _has_layout(candidate: Path) -> bool:
-        try:
-            bugx_paths.require(candidate)
-            return True
-        except (AttributeError, OSError, ValueError, RuntimeError):
-            return False
+    """启动前解析有效服务 root：严格以指定 root 为准，严禁静默回退污染其他工程。
 
-    if _has_layout(root):
-        return root
-    for raw in (os.environ.get("BUGX_PROJECT_ROOT"), str(Path.cwd())):
-        if not raw:
-            continue
-        candidate = Path(raw)
-        try:
-            same = candidate.resolve() == root.resolve()
-        except (OSError, RuntimeError):
-            same = False
-        if not same and _has_layout(candidate):
-            print(
-                f"[bugx-mcp] ⚠ 注册 root 无有效布局（{root}），自愈回退到 {candidate}",
-                file=sys.stderr,
-            )
-            return candidate
+    DOC-230/红线要求：禁止日志报警替代控制面闸门，严禁跨 workspace 越界污染。
+    若传入的 root 无有效 BugX 布局，必须保持该 root，由后续启动逻辑合法报错或
+    创建受控临时布局，绝不能偷换为当前工作区或父目录。
+    """
     return root
 
 

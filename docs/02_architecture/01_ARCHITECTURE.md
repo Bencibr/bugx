@@ -1292,10 +1292,7 @@ ASAR 头部递归匹配 `node_modules/@deepseek-ai/<package>`，兼容 Desktop �
 profile 中的 junction/符号链接目录先解析真实目标再判断，失效链接不会污染版本选择。
 
 DSH 路径解析与 UI/preset 同样分层：安装 checkout 只用于读取标准 preset，`DSH_HOME`
-只保存用户数据；两者不参与项目根推断。直接 `dsh web` 时，会话级 BugX MCP 读取当前
-Session 选中的 workspace `cwd`，为每个项目会话独立启动 MCP 并传给 `--root`；未选中目录
-明确提示用户选择工作区，不猜测、不创建临时审计目录。兼容启动器 `bugx dsh` 仍可从当前
-目录向上发现 `.bugx/manifest.json` 或 `.git`，为首个 Web Session 设置默认 `DSH_CWD`。Skill、
+只保存用户数据；两者不参与项目根推断。独立分发的 `bugx-dsh-plugin`（由 `scripts/export_dsh_plugin.py` 导出）不再使用自定义 MCP 中转代理，而是直接在 `dependencies` 中携带 `bugx-cli` 并在启动时将插件本地 `node_modules/.bin` 注入 `PATH`，同时通过 `ctx.skills.registerProvider` 注册 `bugx` / `bugx-dsh`、通过 `ctx.commands.register` 注册 `/bugx-cli`，并在 `cordis.patch.yml` 中直接声明 DSH 官方 `@deepseek-ai/dsh-mcp-client` 的三条标准通道（`bugx-supervisor`、`bugx-supervisor-worker`、`bugx-docs`）——即使宿主机未预装 `bugx-cli` 或未再次执行 `bugx install --agent dsh`，安装插件后即可直接使用。兼容启动器 `bugx dsh` 仍可从当前目录向上发现 `.bugx/manifest.json` 或 `.git`，为首个 Web Session 设置默认 `DSH_CWD`。Skill、
 launcher 和证据输出始终使用当前 Session `cwd`，避免把宿主启动目录或 DSH checkout 绑定成业务项目。
 项目卸载如果没有对应 `hosts.json` 安装记录，不猜测 `.dsh` 文件归属，也不清理共享的用户级 DSH preset。
 

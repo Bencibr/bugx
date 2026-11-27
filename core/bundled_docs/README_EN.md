@@ -102,11 +102,11 @@ Run `bugx report serve` anytime to inspect audit topology, evidence chains, and 
 | **Cline / Roo Code** | Isolated Data Sandbox / Project Agent / User MCP | `bugx install --agent cline` |
 | **Qoder AI** | Native Agent/Worker, Subagent Concurrency, User/Project MCP | `bugx install --agent qoder` |
 | **Trae / Trae CN** | Project Agent, Multi-variant MCP Sync Mirror | `bugx install --agent trae` |
-| **DeepSeek Harness (DSH)** | Native Headless Profile / Cordis Patch / MCP Injection | `bugx install --agent dsh` |
-| **Kimi Code** | Headless ACP / Native MCP Plugin | `bugx install --agent kimi` |
-| **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & MCP | `bugx install --agent minimax` |
-| **ZCode** | Native MCP / User-Level Registry | `bugx install --agent zcode` |
-| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **DeepSeek Harness (DSH)** | Zero-preinstall Plugin (Bundled Skills / `/bugx-cli` / `bugx-cli` dep / Official MCP) & Cordis Patch | `bugx install --agent dsh` or `dsh plugin add Bencibr/bugx-dsh-plugin` |
+| **Kimi Code** | Headless ACP / Zero-preinstall `npx` MCP Plugin | `bugx install --agent kimi` |
+| **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & Zero-preinstall `npx` MCP | `bugx install --agent minimax` |
+| **ZCode** | Native MCP (Zero-preinstall `npx`) / User-Level Registry | `bugx install --agent zcode` |
+| **Agnes Code** | Terminal Native TUI / Zero-preinstall Plugin (`bugx-cli` dep) & Native MCP | `bugx install --agent agnescode` |
 | **WorkBuddy / CodeBuddy** | Native Skill, Desktop Multi-variant Mirror, Project MCP | `bugx install --agent workbuddy` |
 | **GitHub Copilot** | Project Agent/Instructions, User Agent, Project MCP | `bugx install --agent copilot` |
 | **Cursor / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |

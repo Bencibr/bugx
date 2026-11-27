@@ -240,8 +240,8 @@ def version_marker(path: Path) -> str | None:
     if not match:
         return None
     value = match.group(1)
-    if value == "0.1.6":
-        value = os.environ.get("BUGX_VERSION", "0.1.6")
+    if value == "0.1.7":
+        value = os.environ.get("BUGX_VERSION", "0.1.7")
     return value
 
 def startup_release_version(value: object) -> tuple[int, int, int] | None:

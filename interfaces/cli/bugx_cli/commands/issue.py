@@ -137,6 +137,11 @@ def _add_report_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="自定义 BugX 服务端 API 根地址 (如 https://bugx.dev)",
     )
+    parser.add_argument(
+        "--attach",
+        default=None,
+        help="关联已生成的自动崩溃工单指纹 (如 bk-9d4e2a) 补充说明与现场",
+    )
 
 
 def command_feedback(args: argparse.Namespace) -> int:
@@ -155,6 +160,9 @@ def command_issue(args: argparse.Namespace) -> int:
 
     project_root = args.root or Path(os.environ.get("BUGX_PROJECT_ROOT", Path.cwd()))
     title = args.title
+    attach_fp = getattr(args, "attach", None)
+    if attach_fp and not title:
+        title = f"工单现场与说明补充 (关联指纹: {attach_fp})"
 
     # 若未指定标题且在交互式终端中，提示用户输入简要标题
     if not title and sys.stdin.isatty() and not getattr(args, "yes", False):
@@ -177,6 +185,7 @@ def command_issue(args: argparse.Namespace) -> int:
             include_logs=args.include_logs,
             mask_source=args.mask_source,
             anonymous=args.anonymous,
+            attached_fingerprint=attach_fp,
         )
     except Exception as err:
         print(f"[!] 提取会话现场数据失败: {err}", file=sys.stderr)
@@ -196,6 +205,8 @@ def command_issue(args: argparse.Namespace) -> int:
     print(" 📋 BugX 会话现场诊断包信息清单 (已完成三级安全脱敏)")
     print("=" * 60)
     print(f" • 问题标题: {payload.get('title')}")
+    if payload.get("attached_fingerprint"):
+        print(f" • 关联指纹: {payload.get('attached_fingerprint')}")
     print(f" • 关联会话: {session_info}")
     print(f" • 异常摘要: {error_summary[:80]}")
     print(f" • 宿主环境: {payload.get('host')} (OS: {payload.get('environment', {}).get('os')})")

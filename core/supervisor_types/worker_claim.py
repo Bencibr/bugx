@@ -68,6 +68,7 @@ class WorkerClaim:
     tech_stack: str = "generic"
     assigned_fixtures: tuple[str, ...] = ()
     active_probes: tuple[str, ...] = ()
+    owner_host_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.claimed_mono is None:
@@ -151,6 +152,7 @@ class WorkerClaim:
             "tech_stack": self.tech_stack,
             "assigned_fixtures": list(self.assigned_fixtures),
             "active_probes": list(self.active_probes),
+            "owner_host_id": self.owner_host_id,
         }
 
     @classmethod
@@ -285,6 +287,10 @@ class WorkerClaim:
                 tech_stack=str(value.get("tech_stack") or "generic"),
                 assigned_fixtures=tuple(str(x) for x in (value.get("assigned_fixtures") or ())),
                 active_probes=tuple(str(x) for x in (value.get("active_probes") or ())),
+                owner_host_id=(
+                    None if value.get("owner_host_id") is None
+                    else str(value["owner_host_id"]).strip() or None
+                ),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise PersistenceError(f"worker claim 无效: {exc}") from exc

@@ -223,6 +223,7 @@ def handle_supervisor_start(service: Any, arguments: Mapping[str, object]) -> di
     if round_id is None:
         round_id = run_id
     supervisor = service.get_supervisor(budget=service._budget(arguments))
+    reg_info = service.register_host() if hasattr(service, "register_host") else {}
     try:
         state = supervisor.start(
             life_score=number_argument(arguments, "life_score", 1.0),
@@ -235,15 +236,53 @@ def handle_supervisor_start(service: Any, arguments: Mapping[str, object]) -> di
             life_kind=str(life_kind),
             plan_hash=plan_hash,
         )
-        return project_state(state)
+        payload = project_state(state)
+        payload["joined"] = False
+        payload["host_id"] = getattr(service, "host_id", None)
+        payload["active_host_count"] = reg_info.get("active_host_count", 1)
+        payload["active_hosts"] = reg_info.get("active_hosts", [])
+        return payload
     except audit_supervisor.RunAlreadyStarted:
         existing = supervisor.status()
-        if existing.run_id != run_id:
+        join_active = arguments.get("join_active", True)
+        if not isinstance(join_active, bool):
+            raise McpProtocolError("join_active 必须是布尔值")
+        if not join_active and existing.run_id != run_id:
             raise
-        # Reuse must expose the same gate decision as status.  A rebuilt
-        # workspace can drift after the first start; returning CLAIM_WORKERS
-        # here would bypass the required rebind/rebuild step.
-        return {**service._status_payload(supervisor), "reused": True}
+        if existing.status in {
+            audit_supervisor.Status.COMPLETE,
+            audit_supervisor.Status.FAILED,
+            audit_supervisor.Status.INCOMPLETE,
+        }:
+            if existing.run_id != run_id:
+                raise
+        if existing.life_kind != str(life_kind):
+            raise McpProtocolError(
+                f"活跃 run 的 life_kind 为 {existing.life_kind}，与请求的 {life_kind} 冲突，拒绝混入",
+                code=-32602,
+            )
+        if plan_hash is not None and existing.plan_hash is not None and existing.plan_hash != plan_hash:
+            raise McpProtocolError(
+                f"活跃 run 的 plan_hash ({existing.plan_hash}) 与当前请求不一致，拒绝混入",
+                code=-32602,
+            )
+        from core.supervisor import host_registry
+        existing_proto = getattr(existing, "supervisor_protocol_version", 1)
+        if existing_proto != host_registry.SUPERVISOR_PROTOCOL_VERSION:
+            raise McpProtocolError(
+                f"[HOST_PROTOCOL_MISMATCH] 活跃 run 协议版本 {existing_proto} "
+                f"与当前宿主协议版本 {host_registry.SUPERVISOR_PROTOCOL_VERSION} 不兼容",
+                code=-32602,
+            )
+        # Reuse / Join must expose the same gate decision as status.
+        return {
+            **service._status_payload(supervisor),
+            "reused": True,
+            "joined": True,
+            "host_id": getattr(service, "host_id", None),
+            "active_host_count": reg_info.get("active_host_count", 1),
+            "active_hosts": reg_info.get("active_hosts", []),
+        }
 
 
 def handle_supervisor_reset_budget(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
@@ -1041,6 +1080,33 @@ def handle_supervisor_next_round(service: Any, arguments: Mapping[str, object]) 
         raise McpProtocolError(
             "gate_failure_mode 只能是 prompt_user 或 report", code=-32602
         )
+    detach_on_idle = arguments.get("detach_on_idle", False)
+    if not isinstance(detach_on_idle, bool):
+        raise McpProtocolError("detach_on_idle 必须是布尔值", code=-32602)
+    host_id = getattr(service, "host_id", None)
+    try:
+        barrier = supervisor.check_peer_barrier(current_host_id=host_id)
+    except audit_supervisor.NoRunError:
+        barrier = {"blocked_by_peers": False}
+    if barrier.get("blocked_by_peers"):
+        detached = False
+        if detach_on_idle and host_id:
+            supervisor.detach_host(host_id=host_id, reason="idle_before_next_round")
+            detached = True
+        return {
+            "status": "WAITING_PEER_HOSTS",
+            "host_id": host_id,
+            "detached": detached,
+            "peer_claims": barrier.get("peer_claims", []),
+            "active_hosts": barrier.get("active_hosts", []),
+            "reclaimed_workers": barrier.get("reclaimed_workers", []),
+            "next_action": "DETACHED" if detached else "WAIT_OR_DETACH",
+            "non_interactive": True,
+            "hint": (
+                "仍有其他在线宿主正在挖掘，当前宿主不可提前推进 Round；"
+                "可等待对端宿主完成后再推进，或传 detach_on_idle=true / 调用 bugx_supervisor_detach 退场。"
+            ),
+        }
     if mode == "report":
         # DOC-203 D4：只读预检——门禁未满足时直接返回结构化结果，
         # 不触发 next_round 的状态变更（避免自治重试风暴持续 bump
@@ -1137,14 +1203,85 @@ def handle_supervisor_finish(service: Any, arguments: Mapping[str, object]) -> d
     supervisor = service.get_supervisor()
     coverage_complete = arguments.get("coverage_complete")
     compact = bool(arguments.get("compact", False))
+    detach_on_idle = arguments.get("detach_on_idle", False)
+    if not isinstance(detach_on_idle, bool):
+        raise McpProtocolError("detach_on_idle 必须是布尔值", code=-32602)
     if coverage_complete is not None and not isinstance(coverage_complete, bool):
         raise McpProtocolError("coverage_complete 必须是布尔值或 null")
+    host_id = getattr(service, "host_id", None)
+    try:
+        barrier = supervisor.check_peer_barrier(current_host_id=host_id)
+    except audit_supervisor.NoRunError:
+        barrier = {"blocked_by_peers": False}
+    if barrier.get("blocked_by_peers"):
+        detached = False
+        if detach_on_idle and host_id:
+            supervisor.detach_host(host_id=host_id, reason="idle_before_finish")
+            detached = True
+        return {
+            "status": "WAITING_PEER_HOSTS",
+            "host_id": host_id,
+            "detached": detached,
+            "peer_claims": barrier.get("peer_claims", []),
+            "active_hosts": barrier.get("active_hosts", []),
+            "reclaimed_workers": barrier.get("reclaimed_workers", []),
+            "next_action": "DETACHED" if detached else "WAIT_OR_DETACH",
+            "non_interactive": True,
+            "hint": (
+                "仍有其他在线宿主正在挖掘，禁止提前结束整个 run；"
+                "可等待对端完成由最后一个宿主收尾，或传 detach_on_idle=true / 调用 bugx_supervisor_detach 退场。"
+            ),
+        }
     res = project_state(supervisor.finish(
         coverage_complete=coverage_complete,
         expected_revision=arguments.get("expected_revision"),
     ), compact=compact)
     _maybe_auto_record_finish_telemetry(res)
     return res
+
+
+def handle_supervisor_pull(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
+    """Atomically pull micro-batch units for the calling host in multi-host mode."""
+    name = "bugx_supervisor_pull"
+    service._require_role(arguments, name, "host")
+    supervisor = service.get_supervisor(budget=service._budget(arguments))
+    max_concurrency = int(number_argument(arguments, "max_concurrency", 4, integer=True, minimum=1, maximum=16))
+    raw_lease = arguments.get("lease_seconds")
+    lease_seconds = (
+        None if raw_lease is None
+        else float(number_argument(arguments, "lease_seconds", 300, minimum=1, maximum=3600))
+    )
+    worker_prefix = optional_string(arguments, "worker_prefix")
+    host_kind = optional_string(arguments, "host_kind") or "mcp-host"
+    preferred_domain = optional_string(arguments, "preferred_domain")
+    cluster_by_domain = arguments.get("cluster_by_domain", True)
+    if not isinstance(cluster_by_domain, bool):
+        raise McpProtocolError("cluster_by_domain 必须是布尔值", code=-32602)
+    try:
+        return supervisor.pull_units_for_host(
+            host_id=service.host_id,
+            max_concurrency=max_concurrency,
+            lease_seconds=lease_seconds,
+            worker_prefix=worker_prefix,
+            host_kind=host_kind,
+            preferred_domain=preferred_domain,
+            cluster_by_domain=cluster_by_domain,
+        )
+    except audit_supervisor.SupervisorError as exc:
+        raise McpProtocolError(str(exc), code=-32602) from exc
+
+
+def handle_supervisor_detach(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
+    """Cleanly detach the calling host and release its non-independent claims."""
+    name = "bugx_supervisor_detach"
+    service._require_role(arguments, name, "host")
+    reason = optional_string(arguments, "reason") or "host_detached"
+    supervisor = service.get_supervisor()
+    try:
+        return supervisor.detach_host(host_id=service.host_id, reason=reason)
+    except audit_supervisor.NoRunError:
+        res = service.detach_host(reason=reason)
+        return res or {"host_id": service.host_id, "detached": True, "reclaimed_workers": []}
 
 
 def handle_supervisor_fail(service: Any, arguments: Mapping[str, object]) -> dict[str, object]:
@@ -1487,6 +1624,8 @@ SUPERVISOR_HANDLERS: dict[str, Any] = {
     "bugx_supervisor_submit_finding": handle_supervisor_submit_finding,
     "bugx_supervisor_next_round": handle_supervisor_next_round,
     "bugx_supervisor_bind_context": handle_supervisor_bind_context,
+    "bugx_supervisor_pull": handle_supervisor_pull,
+    "bugx_supervisor_detach": handle_supervisor_detach,
     "bugx_supervisor_finish": handle_supervisor_finish,
     "bugx_supervisor_fail": handle_supervisor_fail,
     "bugx_supervisor_recover": handle_supervisor_recover,

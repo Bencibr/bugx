@@ -124,7 +124,7 @@ _MCP_CLIENT_PLUGIN = "@deepseek-ai/dsh-mcp-client"
 _MCP_SERVERS = (
     ("bugx-supervisor", ["mcp", "serve", "--root", "{ROOT}"]),
     ("bugx-supervisor-worker", ["mcp", "serve", "--root", "{ROOT}", "--role", "worker"]),
-    ("bugx-docs", ["mcp", "docs", "serve", "--root", "{ROOT}", "--db", "{ROOT}/.bugx/knowledge/docs.sqlite3"]),
+    ("bugx-cloud", ["mcp", "docs", "serve", "--root", "{ROOT}", "--db", "{ROOT}/.bugx/knowledge/docs.sqlite3"]),
 )
 
 #: 自有 overlay 的识别头：既用于幂等替换，也用于 ``_remove`` 定位。
@@ -298,16 +298,130 @@ def _mcp_insert_block(root: Path | None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _dsh_plugin_dir() -> Path:
+    """Active profile's installed ``bugx-dsh-plugin`` directory (if any)."""
+    return _dsh_home() / "profiles" / _active_profile() / "node_modules" / "bugx-dsh-plugin"
+
+
+def _dsh_integration_root() -> Path | None:
+    """Locate ``ecosystem/integrations/dsh`` from source checkout or installed data."""
+    repo_candidate = Path(__file__).resolve().parent.parent.parent / "ecosystem" / "integrations" / "dsh"
+    if repo_candidate.is_dir():
+        return repo_candidate
+    return None
+
+
+def _upgrade_installed_dsh_plugin(plugin_dir: Path, root: Path | None) -> bool:
+    """Upgrade an already-installed ``bugx-dsh-plugin`` in-place without refusing install."""
+    src_root = _dsh_integration_root()
+    if src_root is None:
+        return False
+    changed = False
+    pkg_name = "bugx-dsh-plugin"
+    pkg_json_path = plugin_dir / "package.json"
+    if pkg_json_path.is_file():
+        try:
+            import json
+            pkg_name = str(json.loads(pkg_json_path.read_text(encoding="utf-8")).get("name") or pkg_name)
+        except Exception:
+            pass
+
+    copies = [
+        (src_root / "mcp" / "index.js", plugin_dir / "index.js", None),
+        (
+            src_root / "ui" / "client.js",
+            plugin_dir / "client.js",
+            lambda text: text.replace("@bencibro/bugx-dsh-ui", pkg_name),
+        ),
+        (src_root / "skills" / "bugx" / "SKILL.md", plugin_dir / "skills" / "bugx" / "SKILL.md", None),
+        (src_root / "skills" / "bugx-dsh" / "SKILL.md", plugin_dir / "skills" / "bugx-dsh" / "SKILL.md", None),
+    ]
+    for src, dst, transform in copies:
+        if not src.is_file():
+            continue
+        raw = src.read_bytes()
+        data = transform(raw.decode("utf-8")).encode("utf-8") if transform else raw
+        if not dst.is_file() or dst.read_bytes() != data:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(data)
+            changed = True
+
+    home_resolved = Path.home().resolve()
+    resolved_root = Path(root).expanduser().resolve() if root is not None else None
+    global_unbound = resolved_root is None or resolved_root == home_resolved
+    if global_unbound:
+        args_block = "          - mcp\n          - serve\n"
+        worker_args = "          - mcp\n          - serve\n          - --role\n          - worker\n"
+        docs_args = "          - mcp\n          - docs\n          - serve\n"
+    else:
+        r = str(resolved_root)
+        args_block = f"          - mcp\n          - serve\n          - --root\n          - '{r}'\n"
+        worker_args = f"          - mcp\n          - serve\n          - --root\n          - '{r}'\n          - --role\n          - worker\n"
+        docs_args = f"          - mcp\n          - docs\n          - serve\n          - --root\n          - '{r}'\n          - --db\n          - '{r}/.bugx/knowledge/docs.sqlite3'\n"
+
+    patch_text = (
+        "# BugX DSH plugin bundle patch (upgraded by bugx install)\n"
+        "- insert:\n"
+        f"    - id: {pkg_name}\n"
+        f"      name: '{pkg_name}'\n"
+        "    - id: bugx-supervisor\n"
+        f"      name: '{_MCP_CLIENT_PLUGIN}'\n"
+        "      config:\n"
+        "        serverName: bugx-supervisor\n"
+        "        transport: stdio\n"
+        "        command: bugx\n"
+        "        args:\n"
+        f"{args_block}"
+        "    - id: bugx-supervisor-worker\n"
+        f"      name: '{_MCP_CLIENT_PLUGIN}'\n"
+        "      config:\n"
+        "        serverName: bugx-supervisor-worker\n"
+        "        transport: stdio\n"
+        "        command: bugx\n"
+        "        args:\n"
+        f"{worker_args}"
+        "    - id: bugx-docs\n"
+        f"      name: '{_MCP_CLIENT_PLUGIN}'\n"
+        "      config:\n"
+        "        serverName: bugx-docs\n"
+        "        transport: stdio\n"
+        "        command: bugx\n"
+        "        args:\n"
+        f"{docs_args}"
+    )
+    patch_dst = plugin_dir / "cordis.patch.yml"
+    if not patch_dst.is_file() or patch_dst.read_text(encoding="utf-8") != patch_text:
+        patch_dst.write_text(patch_text, encoding="utf-8")
+        changed = True
+    return changed
+
+
 def _bootstrap(root: Path | None, servers) -> dict:
-    """把三条 BugX MCP 通道写进用户级 profile patch（幂等、根绝对化）。"""
+    """把三条 BugX MCP 通道写进用户级 profile patch（幂等、根绝对化）。
+    若已安装 ``bugx-dsh-plugin``，直接原地升级插件并清理重复 overlay，不拒绝安装。
+    """
     del servers
     path = _profile_patch_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    owned = _owned_overlay_span(existing)
+
+    plugin_dir = _dsh_plugin_dir()
+    if plugin_dir.is_dir():
+        changed = _upgrade_installed_dsh_plugin(plugin_dir, root)
+        if owned is not None:
+            begin, finish = owned
+            updated = (existing[:begin] + existing[finish:]).strip()
+            if updated:
+                path.write_text(updated + "\n", encoding="utf-8")
+            elif path.is_file():
+                path.unlink()
+            changed = True
+        return {"path": str(plugin_dir), "changed": changed, "inserted": False}
+
     home_resolved = Path.home().resolve()
     resolved_root = Path(root).expanduser().resolve() if root is not None else None
     global_unbound = resolved_root is None or resolved_root == home_resolved
-    owned = _owned_overlay_span(existing)
     if global_unbound and owned is not None:
         existing_block = existing[owned[0]:owned[1]]
         home_marker = f"'{home_resolved}'"
@@ -406,17 +520,24 @@ def _remove(root: Path) -> dict:
 
 
 def _inspect(root: Path) -> dict:
-    """只读诊断：官方 MCP client 可解析 + profile patch 里有两条通道。"""
+    """只读诊断：官方 MCP client 可解析 + profile patch 或已装插件里有通道。"""
     del root
     path = _profile_patch_path()
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     present = [n for n, _ in _MCP_SERVERS if n in text] if _MCP_CLIENT_PLUGIN in text else []
+    plugin_patch = _dsh_plugin_dir() / "cordis.patch.yml"
+    plugin_text = plugin_patch.read_text(encoding="utf-8") if plugin_patch.is_file() else ""
+    if not present and _MCP_CLIENT_PLUGIN in plugin_text:
+        present = [n for n, _ in _MCP_SERVERS if (n in plugin_text or (n == "bugx-cloud" and "bugx-docs" in plugin_text))]
+        trust_kind = "plugin-bundle"
+    else:
+        trust_kind = "profile-patch"
     resolvable = _mcp_client_resolvable()
     return {
         "servers": present,
         "missing": [n for n, _ in _MCP_SERVERS if n not in present],
         "trust": (
-            "profile-patch" if present and resolvable
+            trust_kind if present and resolvable
             else "missing-mcp-client" if not resolvable
             else "patch-without-bugx"
         ),

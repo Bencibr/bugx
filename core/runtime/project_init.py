@@ -288,11 +288,154 @@ def _clean_optional_mcp_staging(runtime_roots: list[Path]) -> list[str]:
     return cleaned
 
 
+def _find_mcp_lock_path() -> Path | None:
+    """Locate bundled mcp-lock.json across source checkout, engine root, and package data."""
+    import sysconfig
+
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "ecosystem" / "integrations" / "opencode" / "mcp-lock.json",
+        Path(__file__).resolve().parents[1] / "mcp-lock.json",
+        Path(sysconfig.get_path("data")) / "share" / "bugx-agent" / "mcp-lock.json",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    return None
+
+
+def _lock_disabled_servers(lock_path: Path) -> set[str]:
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return set()
+    servers = payload.get("servers") if isinstance(payload, dict) else None
+    if not isinstance(servers, dict):
+        return set()
+    return {
+        str(name) for name, meta in servers.items()
+        if isinstance(meta, dict) and meta.get("enabled") is False
+    }
+
+
+def _auto_install_missing_optional_mcps(
+    root: Path,
+    script: Path,
+    install_root: Path,
+    missing: list[str],
+) -> tuple[bool, str]:
+    """按项目画像匹配结果自动安装缺失的可选 MCP 运行时（带 24h 失败负缓存）。"""
+    if os.environ.get("BUGX_DISABLE_AUTO_MCP_INSTALL", "").strip() in {"1", "true", "yes"}:
+        return False, "auto_install_disabled"
+    lock_path = _find_mcp_lock_path()
+    if lock_path is None:
+        return False, "mcp-lock.json 缺失"
+    disabled = _lock_disabled_servers(lock_path)
+    enabled_missing = [name for name in missing if name not in disabled]
+    if not enabled_missing:
+        return False, "all_missing_disabled_by_lock"
+
+    cache_path = install_root / ".provision-failed.json"
+    now = time.time()
+    force = os.environ.get("BUGX_MCP_FORCE_PROVISION", "").strip() in {"1", "true", "yes"}
+    if not force and cache_path.is_file() and not cache_path.is_symlink():
+        try:
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            cache = {}
+        if isinstance(cache, dict):
+            fresh_failed = {
+                str(k) for k, v in cache.items()
+                if isinstance(v, (int, float)) and now - float(v) < 24 * 3600
+            }
+            enabled_missing = [name for name in enabled_missing if name not in fresh_failed]
+            if not enabled_missing:
+                return False, "skipped_recent_failure_cache"
+
+    print(f"[launch_bugx] ⏳ 检测到项目匹配的可选 MCP 尚未安装（{', '.join(enabled_missing)}），正在按锁文件自动安装...")
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable, str(script), "install",
+                "--lock", str(lock_path),
+                "--runtime-root", str(install_root),
+                "--timeout", "60", "--json",
+            ],
+            cwd=root, capture_output=True, text=True, check=False, timeout=90,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        proc = None
+    else:
+        detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()[-300:]
+
+    if proc is not None and proc.returncode == 0:
+        print(f"[launch_bugx] ✓ 可选 MCP 运行时安装完成（{', '.join(enabled_missing)}）")
+        return True, "installed"
+
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if cache_path.is_file() and not cache_path.is_symlink():
+            try:
+                loaded = json.loads(cache_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
+        for name in enabled_missing:
+            existing[name] = float(now)
+        cache_path.write_text(json.dumps(existing, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return False, detail
+
+
+def _sync_installed_optional_mcps_to_hosts(root: Path, available: list[str]) -> None:
+    """将已就绪的可选 MCP（如 postmcp/codindex/playwright）同步写入项目宿主配置。"""
+    if not available or not (root / ".bugx" / "hosts.json").is_file():
+        return
+    try:
+        hosts_payload = json.loads((root / ".bugx" / "hosts.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return
+    installed = hosts_payload.get("installed") if isinstance(hosts_payload, dict) else None
+    if not isinstance(installed, list):
+        return
+    host_names = [
+        str(item["name"]) for item in installed
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    ]
+    if not host_names:
+        return
+    try:
+        cli_root = Path(__file__).resolve().parents[2] / "interfaces" / "cli"
+        if cli_root.is_dir() and str(cli_root) not in sys.path:
+            sys.path.insert(0, str(cli_root))
+        from bugx_cli.commands.agent import _ensure_opencode_config
+        from bugx_cli.commands.plugin import write_host_mcp_config
+
+        optional_set = set(available)
+        if "opencode" in host_names or (root / "opencode.json").is_file():
+            _ensure_opencode_config(
+                root,
+                selected=optional_set | {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"},
+            )
+        for host_name in host_names:
+            try:
+                write_host_mcp_config(root, host_name, optional_names=optional_set)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 def _probe_and_sanitize_optional_mcps(root: Path) -> dict[str, Any]:
-    """Probe profile-matched optional MCP launchers and discard incomplete staging caches."""
+    """Probe profile-matched optional MCP launchers, auto-install missing ones, and discard incomplete staging caches."""
     requested = _matched_optional_mcp_names(root)
     report: dict[str, Any] = {
-        "matched": sorted(requested), "available": [], "warnings": [], "cleaned_staging": [],
+        "matched": sorted(requested), "available": [], "auto_installed": [],
+        "warnings": [], "cleaned_staging": [],
     }
     if not requested:
         return report
@@ -300,37 +443,63 @@ def _probe_and_sanitize_optional_mcps(root: Path) -> dict[str, Any]:
     runtime_roots = _optional_mcp_runtime_roots(root)
     _skills_script = Path(__file__).resolve().parents[1] / "skills" / "mcp_runtime.py"
     script = _skills_script if _skills_script.is_file() else Path(__file__).with_name("mcp_runtime.py")
-    for server in sorted(requested):
-        failure = "runtime 未安装或当前不可用"
-        for runtime_root in runtime_roots:
-            try:
-                result = subprocess.run(
-                    [sys.executable, str(script), "start", "--runtime-root", str(runtime_root),
-                     "--server", server, "--print-command"],
-                    cwd=root, capture_output=True, text=True, check=False, timeout=10,
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                failure = str(exc)
-                continue
-            if result.returncode == 0:
+
+    def _probe_servers(servers: list[str]) -> tuple[list[str], list[str], dict[str, str]]:
+        ok_list: list[str] = []
+        miss_list: list[str] = []
+        fail_map: dict[str, str] = {}
+        for server in servers:
+            failure = "runtime 未安装或当前不可用"
+            for runtime_root in runtime_roots:
                 try:
-                    payload = json.loads(result.stdout)
-                except (TypeError, ValueError):
-                    payload = None
-                if (isinstance(payload, dict) and payload.get("server") == server
-                        and isinstance(payload.get("argv"), list)):
-                    report["available"].append(server)
-                    failure = ""
-                    break
-                failure = "runtime probe 返回格式无效"
-            else:
-                failure = (result.stderr or result.stdout or "runtime probe 失败").strip()[-400:]
-        if failure:
-            report["warnings"].append(f"{server}: {failure}")
+                    result = subprocess.run(
+                        [sys.executable, str(script), "start", "--runtime-root", str(runtime_root),
+                         "--server", server, "--print-command"],
+                        cwd=root, capture_output=True, text=True, check=False, timeout=10,
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    failure = str(exc)
+                    continue
+                if result.returncode == 0:
+                    try:
+                        payload = json.loads(result.stdout)
+                    except (TypeError, ValueError):
+                        payload = None
+                    if (isinstance(payload, dict) and payload.get("server") == server
+                            and isinstance(payload.get("argv"), list)):
+                        ok_list.append(server)
+                        failure = ""
+                        break
+                    failure = "runtime probe 返回格式无效"
+                else:
+                    failure = (result.stderr or result.stdout or "runtime probe 失败").strip()[-400:]
+            if failure:
+                miss_list.append(server)
+                fail_map[server] = failure
+        return ok_list, miss_list, fail_map
+
+    available, missing, fail_map = _probe_servers(sorted(requested))
+    if missing:
+        installed_ok, install_detail = _auto_install_missing_optional_mcps(
+            root, script, runtime_roots[-1], missing,
+        )
+        if installed_ok:
+            re_ok, missing, fail_map = _probe_servers(missing)
+            report["auto_installed"] = sorted(re_ok)
+            available.extend(re_ok)
+        elif install_detail not in {"auto_install_disabled", "all_missing_disabled_by_lock", "skipped_recent_failure_cache"}:
+            for server in missing:
+                fail_map[server] = f"{fail_map.get(server, '')}；自动安装未完成: {install_detail}"
+
+    report["available"] = sorted(set(available))
+    for server in missing:
+        report["warnings"].append(f"{server}: {fail_map.get(server, 'runtime 未安装')}")
+
+    if report["auto_installed"] or report["available"]:
+        _sync_installed_optional_mcps_to_hosts(root, report["available"])
 
     if report["warnings"]:
         report["cleaned_staging"] = _clean_optional_mcp_staging(runtime_roots)
-    report["available"] = sorted(set(report["available"]))
     return report
 
 

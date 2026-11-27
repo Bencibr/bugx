@@ -148,7 +148,7 @@ def _mcp_payload(workspace_root: Path) -> dict[str, Any]:
                 "disabled": False,
                 "autoApprove": [],
             },
-            "bugx-docs": {
+            "bugx-cloud": {
                 "type": "stdio",
                 "command": cli,
                 "args": [

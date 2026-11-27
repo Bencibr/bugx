@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "contract_version": "0.1.6",
+  "contract_version": "0.1.7",
   "file_count": 22,
-  "total_bytes": 457959,
+  "total_bytes": 468248,
   "files": [
     {
       "path": "OVERVIEW.md",
       "source": "README.md",
-      "bytes": 7511,
-      "sha256": "8a272498e1a5c41da161a865a81d1458e76cf845f1a5a21392a758bc38a7ace4"
+      "bytes": 7680,
+      "sha256": "9970c50494d0a52199fe38e6f3f5fc6d51c22a1e8428f51c1890843b28ce54a7"
     },
     {
       "path": "README_EN.md",
       "source": "README_EN.md",
-      "bytes": 6978,
-      "sha256": "e529ac3f5566f138ce58b494ab07a716a05fefaff47c6f0fccdfe9bcd3842a63"
+      "bytes": 7162,
+      "sha256": "6568fec076bc5066b98757416d06bb33eb69b9e127a369a10a542ffdae6fa685"
     },
     {
       "path": "reference/01_ENVIRONMENT_VARIABLES.md",
@@ -32,7 +32,7 @@
       "path": "hosts/platform_bugx_SKILL.md",
       "source": "skills/platform/bugx/SKILL.md",
       "bytes": 3941,
-      "sha256": "655783b82196921de4f36e4ef07755ec5535cefb0f5fc26cffad8adb38147ba1"
+      "sha256": "e8120e5bd97467197e7b9f46f85ba83b3c665cb43f91b34af5ee5201eb7bda40"
     },
     {
       "path": "hosts/cline_bugx_SKILL.md",
@@ -55,8 +55,8 @@
     {
       "path": "guides/03_TROUBLESHOOTING.md",
       "source": "docs/01_guides/03_TROUBLESHOOTING.md",
-      "bytes": 39154,
-      "sha256": "0a763dc6acf173232df1493b5d53ff5ec471916fab38a3b29e6d46275449b614"
+      "bytes": 45423,
+      "sha256": "72d48a79a146f29a19b10e2fafee76ffd146fdf600cec8e0776933a4ad673377"
     },
     {
       "path": "guides/04_CLOUD_AUTH_AND_SYNC_COOKBOOK.md",
@@ -91,14 +91,14 @@
     {
       "path": "ai/01_AI_REFERENCE.md",
       "source": "docs/03_ai/01_AI_REFERENCE.md",
-      "bytes": 58110,
-      "sha256": "77041b3fb6e04938199ee2596ef045806da45f860d2a4ef7f24b3cd636eb4a1a"
+      "bytes": 59569,
+      "sha256": "05b7b4cc74f1d2c136ca310de8150e0db70601a8c315c0691f11c655f2456b84"
     },
     {
       "path": "ai/02_AI_USAGE.md",
       "source": "docs/03_ai/02_AI_USAGE.md",
-      "bytes": 13575,
-      "sha256": "d1255ced21937e92133b0a64f5cc858a93332c9e5e57be6d717808aae3b002ce"
+      "bytes": 15783,
+      "sha256": "fa090ae2f4f486106e23c6558ab6d88a2a18b7170baf63183dd1c7a7fe8103f1"
     },
     {
       "path": "ai/03_AI_COMMANDS.md",

@@ -1284,6 +1284,9 @@ def command_cloud(args: argparse.Namespace) -> int:
                 project_key=identity["project_key"],
             )
             print(f"[cloud] 登记项目: status={r.status} {r.error or ''}")
+            if not r.ok and r.status == 409:
+                print("  💡 建议: 云端已存在相同 project_key 的项目（slug 冲突）。", file=sys.stderr)
+                print("  可运行 'bugx cloud projects list' 查看云端已有 slug，再指定 --project-slug <SLUG> 重新对齐，或运行 'bugx guide 409'。", file=sys.stderr)
             if r.ok:
                 pid = client.project_id(r)
                 remote_key = client.project_key(r)

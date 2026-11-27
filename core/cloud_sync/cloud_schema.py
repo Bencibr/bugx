@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 SCHEMA_VERSION = 2
-MIN_CLIENT_VERSION = "0.6.1"
+MIN_CLIENT_VERSION = "0.1.1"
 SYNC_SCOPES = ("global", "project")
 RECORD_TYPES = (
     "patterns", "incidents", "tool_experience", "consumption_events", "tombstones",

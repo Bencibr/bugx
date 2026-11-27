@@ -1112,7 +1112,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         except (OSError, ValueError):
             payload = None
         version = payload.get("bugx_version") if isinstance(payload, dict) else None
-        if version == "0.1.6":
+        if version == "0.1.7":
             version = os.environ.get("BUGX_VERSION", __version__)
         if isinstance(version, str) and version.strip():
             return _full_engine_version(version.strip(), destination)
@@ -1125,7 +1125,7 @@ def _installed_engine_version(destination: Path) -> str | None:
         match = re.search(r'bugx_version:\s*"([^"]+)"', content)
         if match:
             version = match.group(1)
-            if version == "0.1.6":
+            if version == "0.1.7":
                 version = os.environ.get("BUGX_VERSION", __version__)
             return _full_engine_version(version, destination)
     return None
@@ -1867,7 +1867,7 @@ def _version_marker(path: Path, pattern: re.Pattern[str], *, allow_symlink: bool
     except (OSError, UnicodeError, CliError):
         return None
     value = match.group(1) if match else None
-    if value == "0.1.6":
+    if value == "0.1.7":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if value and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
@@ -1881,7 +1881,7 @@ def _json_version_marker(path: Path, key: str) -> str | None:
     except (OSError, UnicodeError, json.JSONDecodeError, CliError):
         return None
     value = payload.get(key) if isinstance(payload, dict) else None
-    if value == "0.1.6":
+    if value == "0.1.7":
         value = os.environ.get("BUGX_VERSION", __version__)
     return value if isinstance(value, str) and _CONTRACT_VERSION_RE.fullmatch(value) else None
 
@@ -2019,4 +2019,60 @@ def _ensure_global_cli_symlinks() -> list[tuple[Path, str]]:
         except OSError:
             results.append((target_link, "skipped_error"))
     return results
+
+
+def auto_sync_global_engine_if_newer() -> tuple[bool, str]:
+    """当 CLI 安装包内的核心引擎严格新于共享全局引擎时，自动原子同步。
+
+    设计约束：
+    - 正常情况下（版本与 Build ID 已一致）仅做 O(1) 元数据读取后立即返回；
+    - dev 模式（``asset_root() == global_engine_root()``）直接短路；
+    - 仅向上升级（``source > destination``），绝不静默降级；
+    - 若目标全局引擎已存在但缺失 Build ID（可能损坏/未知来源），不静默覆盖，
+      交由 ``doctor`` / ``install --force`` 显式处置。
+    """
+    source = asset_root()
+    destination = global_engine_root()
+    if source.resolve() == destination.resolve():
+        return False, "dev_mode"
+
+    source_ver = _installed_engine_version(source) or _full_engine_version(__version__, source)
+    source_id = _engine_build_id(source)
+    dest_exists = destination.exists() or destination.is_symlink()
+    dest_ver = _installed_engine_version(destination) if dest_exists else None
+    dest_id = _engine_build_id(destination) if dest_exists else None
+
+    needs_sync = False
+    if not dest_exists:
+        needs_sync = True
+    elif dest_id is None:
+        # 目标存在但缺失 Build ID：若为空目录可补齐，否则拒绝静默覆盖
+        try:
+            is_empty = destination.is_dir() and not any(destination.iterdir())
+        except OSError:
+            is_empty = False
+        if not is_empty:
+            return False, "unmanaged_destination"
+        needs_sync = True
+    elif _is_newer_version(source_ver, dest_ver or ""):
+        needs_sync = True
+    elif (
+        source_ver
+        and dest_ver
+        and source_ver == dest_ver
+        and source_id is not None
+        and source_id > dest_id
+    ):
+        needs_sync = True
+
+    if not needs_sync:
+        return False, "up_to_date"
+
+    source_ok, source_detail = _engine_self_integrity(source)
+    if not source_ok:
+        raise CliError(f"CLI 安装包核心资源自检失败，无法自动同步全局引擎：{source_detail}")
+
+    _install_engine(source, force=False)
+    return True, f"全局引擎已自动同步至 {source_ver or f'build.{source_id}'}"
+
 

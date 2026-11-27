@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import os
@@ -12,6 +13,11 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+
+_PRESERVE_MODIFIED_PATHS: contextvars.ContextVar[frozenset[Path]] = (
+    contextvars.ContextVar("bugx_preserve_modified_paths", default=frozenset())
+)
 
 
 class CliError(RuntimeError):
@@ -252,10 +258,43 @@ def _write_host_resource(
         if not target.is_file():
             raise CliError(_i18n_exc("common.host_resource_not_regular_file", f"宿主资源不是普通文件: {target}", target=target))
         try:
-            if target.read_bytes() == content:
-                return 0, 1, None
+            existing_bytes = target.read_bytes()
         except OSError as exc:
             raise CliError(_i18n_exc("common.existing_host_resource_unreadable", f"无法读取已有宿主资源，未修改: {target}: {exc}", target=target, exc=exc)) from exc
+        if existing_bytes == content:
+            return 0, 1, None
+        preserved_set = _PRESERVE_MODIFIED_PATHS.get()
+        if preserved_set and target.resolve() in preserved_set:
+            sidecar_dir = root / ".bugx" / "updates" / host_name
+            _assert_no_symlink_components(sidecar_dir)
+            sidecar_dir.mkdir(parents=True, exist_ok=True)
+            sidecar = sidecar_dir / f"{target.name}.new"
+            descriptor, temporary = tempfile.mkstemp(
+                dir=str(sidecar_dir), prefix=f".{sidecar.name}.", suffix=".tmp",
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(content)
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, sidecar)
+            except (OSError, ValueError):
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+            try:
+                rel_target = target.relative_to(root)
+            except ValueError:
+                rel_target = target
+            try:
+                rel_sidecar = sidecar.relative_to(root)
+            except ValueError:
+                rel_sidecar = sidecar
+            print(
+                f"[bugx] ⚠ 保留用户本地修改: {rel_target}（新版模板已保存至 {rel_sidecar}）",
+                file=sys.stderr,
+            )
+            return 0, 1, None
         backup = _backup_host_resource(root, host_name, target)
     target.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(

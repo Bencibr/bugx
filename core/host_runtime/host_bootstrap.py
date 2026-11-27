@@ -198,7 +198,7 @@ def _builtin_mcp_servers(
         base = resolve_remote_base_url(remote_url)
         ver = contract_version_of()
         docs_entry: dict[str, object] = {
-            "url": f"{base}/api/v1/mcp/docs?contract_version={ver}",
+            "url": f"{base}/api/v1/mcp/cloud?contract_version={ver}",
         }
     else:
         docs_entry = {
@@ -215,7 +215,7 @@ def _builtin_mcp_servers(
             "command": "bugx",
             "args": ["mcp", "serve", "--root", ".", "--role", "worker"],
         },
-        "bugx-docs": docs_entry,
+        "bugx-cloud": docs_entry,
     }
 
 

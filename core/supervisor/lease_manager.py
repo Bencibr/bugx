@@ -246,6 +246,9 @@ def claimable_units(
     mode: str,
     requested_units: Sequence[str] | None = None,
     takeover_claim: WorkerClaim | None = None,
+    workspace_root: Path | None = None,
+    preferred_domain: str | None = None,
+    preferred_module: str | None = None,
 ) -> tuple[str, ...]:
     """Apply shared unit qualification for automatic, explicit and takeover claims.
 
@@ -262,16 +265,32 @@ def claimable_units(
     occupied = claimed_units_this_round(state)
 
     if mode == CLAIM_MODE_AUTO:
-        pending = sorted(
-            unit for unit, status in coverage.items()
-            if unit in visible and unit not in occupied and status == COVERAGE_PENDING
-        )
-        debt = sorted(
+        candidates = [
             unit for unit, status in coverage.items()
             if unit in visible and unit not in occupied
-            and status in UNIT_LEVEL_DEBT and status != COVERAGE_PENDING
-        )
-        return tuple([*pending, *debt])
+            and (status == COVERAGE_PENDING or status in UNIT_LEVEL_DEBT)
+        ]
+        if not candidates:
+            return ()
+        try:
+            from core.supervisor import task_scheduler
+            return tuple(
+                task_scheduler.rank_units_high_risk_first(
+                    candidates,
+                    workspace_root=workspace_root,
+                    coverage=coverage,
+                    preferred_domain=preferred_domain,
+                    preferred_module=preferred_module,
+                )
+            )
+        except Exception:
+            pending = sorted(
+                unit for unit in candidates if coverage.get(unit) == COVERAGE_PENDING
+            )
+            debt = sorted(
+                unit for unit in candidates if coverage.get(unit) != COVERAGE_PENDING
+            )
+            return tuple([*pending, *debt])
 
     if mode == CLAIM_MODE_TAKEOVER:
         if takeover_claim is None:

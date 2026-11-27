@@ -951,6 +951,50 @@ class Supervisor:
             now = float(self._clock())
             return build_decision_snapshot(state, now)
 
+    def pull_units_for_host(
+        self,
+        *,
+        host_id: str,
+        max_concurrency: int = 4,
+        lease_seconds: float | None = None,
+        worker_prefix: str | None = None,
+        host_kind: str = "mcp-host",
+        entrypoint: str | None = None,
+        preferred_domain: str | None = None,
+        cluster_by_domain: bool = True,
+    ) -> dict[str, object]:
+        """Atomically pull micro-batch units for one host in a multi-host pool."""
+        from core.supervisor import multi_host_scheduler
+        return multi_host_scheduler.pull_units_for_host(
+            self,
+            host_id=host_id,
+            max_concurrency=max_concurrency,
+            lease_seconds=lease_seconds,
+            worker_prefix=worker_prefix,
+            host_kind=host_kind,
+            entrypoint=entrypoint,
+            preferred_domain=preferred_domain,
+            cluster_by_domain=cluster_by_domain,
+        )
+
+    def detach_host(self, *, host_id: str, reason: str = "detached") -> dict[str, object]:
+        """Detach a host and immediately release its non-independent claims."""
+        from core.supervisor import multi_host_scheduler
+        return multi_host_scheduler.detach_host_from_run(
+            self, host_id=host_id, reason=reason,
+        )
+
+    def check_peer_barrier(self, *, current_host_id: str | None = None) -> dict[str, object]:
+        """Scavenge offline hosts and report whether active peer hosts still hold claims."""
+        from core.supervisor import multi_host_scheduler
+
+        def operation(state: RunState, now: float) -> dict[str, object]:
+            return multi_host_scheduler.check_peer_barrier_in_state(
+                self, state, current_host_id=current_host_id, now=now,
+            )
+
+        return self._query_readonly(operation)  # type: ignore[return-value]
+
 
 __all__ = [
     "BudgetExhausted",

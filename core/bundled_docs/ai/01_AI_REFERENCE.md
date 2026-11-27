@@ -2,9 +2,9 @@
 title: BugX AI Host and Worker Reference
 audience: AI hosts and native agents
 status: DOCUMENTATION_UNVERIFIED
-version: 0.1.6
+version: 0.1.7
 protocol: MCP 2024-11-05
-server: bugx-supervisor 0.1.6
+server: bugx-supervisor 0.1.7
 last-verified: 2026-11-17
 ---
 
@@ -355,7 +355,7 @@ report source 语义：
 
     protocolVersion: 2024-11-05
     serverName: bugx-supervisor
-    serverVersion: 0.1.6
+    serverVersion: 0.1.7
     hostHeartbeatIntervalSeconds: 5.0
     transport: local stdio
 
@@ -675,6 +675,15 @@ finish gate 需要同时检查：
 | post/share 失败 | RECOVERY_REQUIRED | 读取 report-consumption 和 post receipt，走 recovery |
 | owner 进程死亡后跨会话 --final | aborted + successor_closeout_admitted 留痕 | 证据齐全才 admit（见下）；无死亡证明 fail-closed 拒绝 |
 | serial_authorization 身份漂移 | BLOCKED | runtime_run_uuid 必须是 canonical UUID 或引擎 lifecycle run_id 形态 |
+| 409 项目身份冲突 / 同步失败 | RECOVERY_REQUIRED 或自动自愈 | 运行 `bugx cloud projects list` + `add` 对齐，或由 0.1.6+ 自动自愈；严禁 10+ 工具调用反查代码 |
+
+### 7.1 查手册与自愈优先于源码逆向工程（禁止 10+ 工具调用反查代码）
+
+当 AI 宿主或 Agent 遇到 CLI 报错、门禁阻断或同步失败时，**严禁连续调用 3 次以上工具翻读底层源码（如 `core/cloud_sync/*.py`、`commands/*.py`）或运行临时 Python 脚本逆向推导**！
+标准一步到位处置流程：
+1. 优先阅读 CLI 报错现场给出的 AI 解决建议；
+2. 直接查阅排障手册 `docs/01_guides/03_TROUBLESHOOTING.md` 对应章节，或运行 `bugx guide "<关键词>"`；
+3. 执行官方标准命令（如 409 身份冲突执行 `bugx cloud projects list` 与 `bugx cloud projects add --project-slug <SLUG>` 对齐）一步到位解决。
 
 跨会话 owner_cancelled 收口（E1 观察 #3，`core/launch_phases/post_phase.py`
 `_supervisor_owner_cancelled_proof`）：owner 进程死亡后 runtime 被孤儿裁决收敛为
@@ -789,6 +798,7 @@ AI 不得猜测 data sharing consent、report policy、tooling choice、repair s
 | telemetry | 普通 CLI 命令每日最多自动记录一次安装/心跳；`bugx telemetry flush|upload` 显式排空队列 | 独立飞轮 outbox 的脱敏事件/metrics；安装事件只带作用域化 installation ID、匿名 device ID、版本/渠道/制品类型/平台；strict 会缩减字段 | 用户级 outbox；batch default 20；未配置时门禁默认开启 | 单向；成功发送项从 outbox 清除，失败保留/递增 attempts；`telemetry.data_sharing=false` 或 `BUGX_TELEMETRY_ENABLED=0` 时本地/远程均停 | 启用时看 `telemetry inspect --latest --json`、egress audit、flush 的 `sent/remaining` 和服务端安装统计；关闭时 `flush` 不联网且返回 0 只表示跳过 |
 | diagnostic report | `bugx cloud log-report` | 诊断日志尾部；default 256 KB，handler clamp 1..1024；device/version/kind/payload | 当前 root；kind default `cli-diagnostics` | 单向 POST，需 auth/配额；日志可能含路径和上下文 | 上传前审查 + bytes/lines、网络结果、退出码 |
 | lesson feedback | `bugx cloud feedback` | 本地 feedback 的 lesson_id/outcome，最多 100，附可选 run/project | 当前项目/lifecycle filter | `--dry-run` 无网络；非 dry-run 单向 POST | dry-run 预览或 updated/missing、网络结果、退出码 |
+| issue/crash reporting | `bugx feedback` / `bugx issue report` / 顶层未捕获异常自动诊断 | 异常堆栈、环境上下文、会话脱敏摘要、近 50 行日志（自动上报强制 mask_source=True 并执行 24h 指纹频控与本地 Outbox 兜底落盘） | project/global；支持 `--attach <fingerprint>` 补充说明 | 单向 POST `/api/v1/agent/issues`；自动上报受 `auto_report_enabled` 门禁与 `BUGX_NO_AUTO_REPORT=1` 约束 | 终端打印工单指纹/编号；离线落盘至 `~/.bugx/cache/crashes/` 并在次启动 Flush |
 | bundle | `cloud export|upload` | export 生成的指定 V2 JSON bundle | export default project/full；upload 以输入 bundle scope 为准 | export 本地原子写；upload 网络并采用 snapshot、强制 baseline pull | bundle SHA-256 + snapshot_id/version + upload 后 status |
 
 知识同步的 `detail-mode=summary` 只是删除部分 pattern/incident 详情，不能当作“无业务内容”或“无敏感数据”。`sensitive_policy` 的值是 `block|redact|allow`；配置缺失时实现缺省 `redact`，`allow` 须显式设置。非 `allow` 策略的出网决策摘要在 `~/.bugx/logs/sync-policy-audit.jsonl`。

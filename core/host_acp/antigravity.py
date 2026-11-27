@@ -95,7 +95,7 @@ class AntigravityAcpPlugin(AcpPlugin):
         docs_script = engine_root / "skills" / "bugx_docs_mcp_server.py"
         if not docs_script.is_file():
             raise ValueError(f"Antigravity 探活缺少 BugX 文档引擎脚本: {docs_script}")
-        expected["bugx-docs"] = {
+        expected["bugx-cloud"] = {
             "type": "stdio",
             "command": python,
             "args": [

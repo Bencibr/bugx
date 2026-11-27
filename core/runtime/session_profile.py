@@ -57,7 +57,7 @@ PRESET_PROFILES: dict[str, dict[str, str]] = {
         "session_recovery": "resume",
         "startup_action": "start",
         "mcp_auto_install": "true",
-        "docs_mcp": "bugx-docs",
+        "docs_mcp": "bugx-cloud",
         "coverage_bootstrap": "true",
     },
 }
@@ -84,8 +84,8 @@ def autonomous_policy(config: Mapping[str, str] | None) -> dict[str, object] | N
     auto_install = str(config.get("mcp_auto_install", "true")).strip().lower()
     if auto_install not in _TRUE_VALUES | _FALSE_VALUES:
         raise ValueError("autonomous mcp_auto_install 必须是布尔值")
-    docs_mcp = str(config.get("docs_mcp", "bugx-docs")).strip()
-    if docs_mcp != "bugx-docs":
+    docs_mcp = str(config.get("docs_mcp", "bugx-cloud")).strip()
+    if docs_mcp != "bugx-cloud":
         raise ValueError("autonomous docs_mcp 只能是 bugx-docs")
     coverage_bootstrap = str(config.get("coverage_bootstrap", "true")).strip().lower()
     if coverage_bootstrap not in _TRUE_VALUES | _FALSE_VALUES:

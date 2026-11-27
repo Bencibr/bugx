@@ -345,6 +345,60 @@ class BugxMcpService:
         except bugx_paths.LayoutError:
             return False
 
+    @property
+    def host_id(self) -> str:
+        """Stable per-process host identifier for multi-host coordination."""
+        return self._session_instance_id
+
+    def register_host(self, *, max_concurrency: int = 4, host_kind: str = "mcp-host") -> dict[str, object]:
+        """Register this host in state_root/hosts.json without exclusive startup locking."""
+        if self.role != "host":
+            raise McpProtocolError("worker MCP 通道不能注册为 host")
+        from core.supervisor import host_registry
+        try:
+            return host_registry.register_or_heartbeat_host(
+                self._scope().state_root,
+                host_id=self.host_id,
+                pid=os.getpid(),
+                protocol_version=host_registry.SUPERVISOR_PROTOCOL_VERSION,
+                max_concurrency=max_concurrency,
+                host_kind=host_kind,
+                entrypoint=str(Path(__file__).resolve()),
+            )
+        except host_registry.HostProtocolMismatch as exc:
+            raise McpProtocolError(str(exc), code=-32602) from exc
+
+    def heartbeat_host(self) -> bool:
+        """Refresh this host's liveness lease in state_root/hosts.json."""
+        if self.role != "host" or not self.is_initialized():
+            return False
+        from core.supervisor import host_registry
+        try:
+            host_registry.register_or_heartbeat_host(
+                self._scope().state_root,
+                host_id=self.host_id,
+                pid=os.getpid(),
+                protocol_version=host_registry.SUPERVISOR_PROTOCOL_VERSION,
+                entrypoint=str(Path(__file__).resolve()),
+            )
+            return True
+        except (host_registry.HostProtocolMismatch, OSError, TimeoutError, ValueError, RuntimeError):
+            return False
+
+    def detach_host(self, *, reason: str = "detached") -> dict[str, object] | None:
+        """Mark this host offline cleanly in state_root/hosts.json."""
+        if self.role != "host" or not self.is_initialized():
+            return None
+        from core.supervisor import host_registry
+        try:
+            return host_registry.detach_host(
+                self._scope().state_root,
+                host_id=self.host_id,
+                reason=reason,
+            )
+        except (OSError, TimeoutError, ValueError, RuntimeError):
+            return None
+
     def acquire_controller_lease(self) -> _ControllerLease:
         """Acquire the single IDE control lease for the host channel."""
         if self.role != "host":
@@ -741,15 +795,33 @@ class BugxMcpService:
                 "idle_seconds": None, "how_to_unblock": None,
                 "observed": False, "stale": True,
             }
+
+        holder_pid = payload.get("holder_pid")
+        is_alive = isinstance(holder_pid, int) and _cl._pid_alive(holder_pid)
+        if isinstance(holder_pid, int) and not is_alive:
+            # 持有者已死，属于陈旧记录（stale lock ghost），不再建议用户 kill 死进程
+            how_to_unblock = (
+                "原占用的 host 进程已退出（陈旧锁已自愈）；"
+                "可直接重启或新起 host MCP 会话接入"
+            )
+        elif isinstance(holder_pid, int) and is_alive:
+            how_to_unblock = (
+                f"释放被占用的 host 通道：kill {holder_pid}（或关闭占用它的 IDE 会话）。"
+                f"若需多宿主并发，请用 git worktree add 创建独立分支"
+            )
+        else:
+            how_to_unblock = payload.get("how_to_unblock")
+
         return {
             "available": False,
             "blocked_by": {
-                "holder_pid": payload.get("holder_pid"),
+                "holder_pid": holder_pid,
+                "holder_alive": is_alive,
                 "holder_started_at": payload.get("holder_started_at"),
                 "observed_at": observed_at,
             },
             "idle_seconds": payload.get("holder_idle_seconds"),
-            "how_to_unblock": payload.get("how_to_unblock"),
+            "how_to_unblock": how_to_unblock,
             "observed": True,
         }
 

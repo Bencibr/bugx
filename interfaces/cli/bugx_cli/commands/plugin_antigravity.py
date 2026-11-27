@@ -256,7 +256,7 @@ def _validate_workspace_mcp(root: Path) -> tuple[bool, str]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return False, f"项目级 Antigravity MCP 配置无法解析: {target}: {exc}"
     servers = payload.get("mcpServers") if isinstance(payload, dict) else None
-    required = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+    required = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
     if not isinstance(servers, dict) or not required.issubset(servers):
         return False, "项目级 Antigravity MCP 缺少 bugx-supervisor / worker / docs 双通道"
     root_resolved = root.resolve()
@@ -272,7 +272,7 @@ def _validate_workspace_mcp(root: Path) -> tuple[bool, str]:
         if not isinstance(args, list) or "--root" not in args:
             return False, f"项目级 Antigravity MCP 条目缺少绝对 --root: {name}"
         if command_name in {"python", "python.exe", "python3", "python3.exe", "pypy", "pypy.exe"}:
-            expected_script = "bugx_docs_mcp_server.py" if name == "bugx-docs" else "bugx_mcp_server.py"
+            expected_script = "bugx_docs_mcp_server.py" if name == "bugx-cloud" else "bugx_mcp_server.py"
             if len(args) < 2 or Path(str(args[0])).name.casefold() != expected_script or args[1] != "serve":
                 return False, f"项目级 Antigravity Python MCP 条目启动器不受支持: {name}"
             script = Path(str(args[0])).expanduser()
@@ -293,7 +293,7 @@ def _validate_workspace_mcp(root: Path) -> tuple[bool, str]:
             return False, f"项目级 Antigravity MCP 条目 --root 无值: {name}"
         if root_arg != root_text:
             return False, f"项目级 Antigravity MCP 根目录不匹配: {name} -> {root_arg}"
-        if name == "bugx-docs":
+        if name == "bugx-cloud":
             if "--db" not in args:
                 return False, "项目级 Antigravity bugx-docs 条目缺少 --db"
             try:

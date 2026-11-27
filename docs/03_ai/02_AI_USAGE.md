@@ -156,6 +156,25 @@ bugx cloud status --root <ROOT> --scope all --json
 
 版本必须分清：`layout_version` 是项目运行态格式；CLI/Engine 版本是程序版本。二者不相等不自动证明要改 `manifest.json`。先核对当前 `bugx --version`、`engine status --json`、`doctor` 和安装来源；同一阻断重复出现时不原样重试、不换参数碰运气。
 
+### 启动硬门禁复合阻断处理（版本契约不一致 + Onboarding Pending）
+
+当启动阶段（`pre`）报告“版本契约不一致”且项目 onboarding 处于未决（`pending`）状态，且此时**未派发任何 Worker、未改动项目业务源码**时，严禁盲目执行 `reset`、删除 `.bugx/` 或手动篡改文件。遵循以下规范闭环自愈：
+1. **全局引擎对齐**：执行 `bugx update --repair-assets`（或 `bugx doctor --repair`），将全局引擎更新对齐至当前 CLI 版本；
+2. **项目清单对齐**：在项目根目录执行 `bugx init --root . --force`，安全对齐 `.bugx/manifest.json` 声明版本；
+3. **Onboarding 决议**：
+   - 用户需离线/本地模式：执行 `bugx cloud onboard off --root .`（或 `bugx init --root . --cloud-sync local`）；
+   - 用户需云端协同：执行 `bugx cloud onboard on --root .`（并在获得全量授权后执行 `bugx cloud sync --root . --scope all`）；
+4. **复验门禁**：重新执行 `bugx engine --root . pre`，确认退出码为 0 后再行推进。
+
+### 查手册与自愈优先于源码逆向工程（禁止 10+ 工具调用反查代码）
+
+**工程硬红线**：当 Agent 遇到 CLI 报错、门禁阻断或同步失败时，**严禁连续调用 3 次以上工具翻读底层源码（如 `core/cloud_sync/*.py`、`commands/*.py`）或运行临时 Python 脚本逆向推导**！这种做法完全违反《耗时防卫宪法》与《普适性双轨工程执行元协议》，属于严重无效开销。
+
+遇到报错的标准一步到位处理流程：
+1. **优先遵循 CLI 报错现场给出的 AI 解决建议**（CLI 已内置精确到具体子命令的纠错建议）；
+2. **查阅排障手册**：直接查阅 `docs/01_guides/03_TROUBLESHOOTING.md` 中对应的故障章节，或运行 `bugx guide "<错误关键词>"`（例如 `bugx guide 409`）；
+3. **一步到位执行官方标准命令**：例如遇到 409 项目身份冲突，直接执行 `bugx cloud projects list --root .` 查看远端 slug，再执行 `bugx cloud projects add --project-slug <REMOTE_SLUG> --root .` 对齐，或由 BugX 0.1.6+ 自动自愈，严禁通过阅读源码去反推底层数据结构。
+
 ## 汇报规则
 
 明确区分“状态检查通过”“门禁就绪”“挖掘已启动”“挖掘完成”。报告实际执行的命令、退出码、审计范围、证据位置及未完成项。仅完成 `status` / `pre` 或云端 onboarding 时，不能说已经挖掘或完成审计。

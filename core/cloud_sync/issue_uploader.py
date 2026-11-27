@@ -9,12 +9,15 @@ the diagnostic bundle via Gzip to BugX Server.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 import os
 import platform
 import re
 import subprocess
+import time
+import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -167,6 +170,7 @@ def build_issue_payload(
     include_logs: bool = True,
     mask_source: bool = False,
     anonymous: bool = False,
+    attached_fingerprint: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """装配、脱敏并构建问题上报请求 Payload。
 
@@ -225,9 +229,13 @@ def build_issue_payload(
         },
         "logs_slice": logs,
     }
+    if attached_fingerprint:
+        payload["attached_fingerprint"] = attached_fingerprint
 
     # 执行三级深度脱敏
     redacted_payload, categories = redact_diagnostics_payload(payload, mask_source=mask_source)
+    if attached_fingerprint:
+        redacted_payload["attached_fingerprint"] = attached_fingerprint
     return redacted_payload, categories
 
 
@@ -295,3 +303,249 @@ def upload_issue(
         raise RuntimeError(f"服务端拒绝上报 (HTTP {err.code}): {msg}") from err
     except Exception as err:
         raise RuntimeError(f"网络连接或上报失败: {err}") from err
+
+
+_NON_FATAL_EXCEPTIONS = (
+    KeyboardInterrupt,
+    EOFError,
+    SystemExit,
+)
+
+
+def is_fatal_internal_defect(exc: BaseException) -> bool:
+    """严格判定异常是否属于系统内部未预期缺陷。
+
+    排查准则：
+    1. 用户中断、正常退出、命令行输入错误（如 argparse 参数解析错误）一律排除；
+    2. 明确的内部缺陷（AssertionError, KeyError, IndexError, TypeError, AttributeError,
+       UnboundLocalError, MemoryError, NameError, ZeroDivisionError, RecursionError）属于致命缺陷；
+    3. 顶层未捕获的通用 Exception/RuntimeError 属于缺陷，但若是由于用户取消或已知环境阻断则排除。
+    """
+    if isinstance(exc, _NON_FATAL_EXCEPTIONS):
+        return False
+    exc_name = type(exc).__name__
+    if any(k in exc_name for k in ("UsageError", "ArgumentError", "Help", "Cancel")):
+        return False
+    # 明确内部缺陷
+    if isinstance(exc, (
+        AssertionError, KeyError, IndexError, TypeError, AttributeError,
+        UnboundLocalError, MemoryError, NameError, ZeroDivisionError, RecursionError,
+    )):
+        return True
+    # 顶层未捕获的通用异常
+    if isinstance(exc, Exception):
+        return True
+    return False
+
+
+def normalize_traceback_and_paths(tb_text: str, project_root: Path | None = None) -> str:
+    """对堆栈文本中的开发者用户名、主目录及项目绝对路径进行规范化脱敏。"""
+    if not tb_text:
+        return ""
+    # 1. 替换 HOME 路径为 ~
+    try:
+        home_path = str(Path.home().resolve())
+        if home_path and home_path != "/" and home_path in tb_text:
+            tb_text = tb_text.replace(home_path, "~")
+    except Exception:
+        pass
+
+    # 2. 替换项目根目录为 [PROJECT_ROOT]
+    if project_root:
+        try:
+            root_str = str(project_root.resolve())
+            if root_str and root_str != "/" and root_str in tb_text:
+                tb_text = tb_text.replace(root_str, "[PROJECT_ROOT]")
+        except Exception:
+            pass
+
+    # 3. 剥离 URL 中的 Basic Auth 密码 (https://user:password@domain -> https://user:[REDACTED]@domain)
+    tb_text = re.sub(r"(https?://[^/@:\s]+):[^/@:\s]+(@)", r"\1:[REDACTED]\2", tb_text)
+    return tb_text
+
+
+def compute_crash_fingerprint(exc: BaseException) -> str:
+    """计算异常的确定性稳定指纹 (SHA-256 前 10 位 hex，前缀 bk-)。"""
+    tb = getattr(exc, "__traceback__", None)
+    top_file = "unknown"
+    top_func = "unknown"
+    line_no = 0
+    while tb is not None:
+        frame = tb.tb_frame
+        code = frame.f_code
+        top_file = Path(code.co_filename).name
+        top_func = code.co_name
+        line_no = tb.tb_lineno
+        tb = tb.tb_next
+    raw = f"{type(exc).__name__}:{top_file}:{top_func}:{line_no}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    return f"bk-{digest}"
+
+
+def crashes_cache_dir() -> Path:
+    """本地 Crash Outbox 目录 (~/.bugx/cache/crashes/)。"""
+    base = Path(os.environ.get("BUGX_HOME", str(Path.home() / ".bugx"))).expanduser()
+    d = base / "cache" / "crashes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def reported_crashes_path() -> Path:
+    """崩溃上报频控缓存记录文件 (~/.bugx/cache/reported_crashes.json)。"""
+    base = Path(os.environ.get("BUGX_HOME", str(Path.home() / ".bugx"))).expanduser()
+    p = base / "cache" / "reported_crashes.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def is_crash_reported_recently(fingerprint: str, ttl_seconds: int = 86400) -> bool:
+    """检查指纹是否在指定 TTL（默认 24 小时）内已上报过。"""
+    p = reported_crashes_path()
+    if not p.is_file():
+        return False
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return False
+        last_ts = data.get(fingerprint)
+        if isinstance(last_ts, (int, float)):
+            return (time.time() - last_ts) < ttl_seconds
+    except Exception:
+        pass
+    return False
+
+
+def record_crash_reported(fingerprint: str) -> None:
+    """记录指纹已上报时间，并清理 7 天前过期记录。"""
+    p = reported_crashes_path()
+    try:
+        data: dict[str, Any] = {}
+        if p.is_file():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    data = {}
+            except Exception:
+                data = {}
+        now = time.time()
+        # 清理超过 7 天的历史记录
+        data = {k: v for k, v in data.items() if isinstance(v, (int, float)) and now - v < 7 * 86400}
+        data[fingerprint] = now
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
+
+
+def dump_crash_outbox(payload: dict[str, Any]) -> Path | None:
+    """毫秒级将脱敏后的崩溃 Payload 写入本地 Crash Outbox。"""
+    try:
+        cdir = crashes_cache_dir()
+        fp = payload.get("fingerprint") or f"crash_{int(time.time())}"
+        target = cdir / f"{fp}.json"
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(target)
+        return target
+    except Exception:
+        return None
+
+
+def auto_report_crash(
+    exc: BaseException,
+    project_root: Path | None = None,
+    command: str | None = None,
+    timeout: float = 1.2,
+) -> str | None:
+    """主动异常上报核心函数：执行错误分类、权限门禁、指纹去重、Outbox 落盘与快速即时上报。"""
+    if not is_fatal_internal_defect(exc):
+        return None
+    from core.cloud_sync.consent import auto_report_enabled
+    if not auto_report_enabled():
+        return None
+
+    fingerprint = compute_crash_fingerprint(exc)
+
+    # 24 小时去重检查（若已在 24h 内上报过，直接返回指纹，不重复发起网络调用）
+    if is_crash_reported_recently(fingerprint):
+        return fingerprint
+
+    raw_tb = traceback.format_exc()
+    norm_tb = normalize_traceback_and_paths(raw_tb, project_root)
+    env = collect_environment_context()
+    logs = collect_recent_logs(project_root, max_lines=50) if project_root else []
+
+    title = f"Crash [{type(exc).__name__}]: {str(exc)[:120]}"
+    payload: dict[str, Any] = {
+        "device_id": env.get("device_id"),
+        "client_version": env.get("bugx_version"),
+        "host": env.get("host"),
+        "title": title,
+        "description": f"Command '{command}' triggered internal defect: {type(exc).__name__}",
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "traceback": norm_tb,
+        "fingerprint": fingerprint,
+        "command": command or "unknown",
+        "is_auto_reported": True,
+        "environment": env,
+        "logs_slice": logs,
+    }
+
+    # 执行三级安全脱敏与源码遮蔽
+    redacted_payload, _ = redact_diagnostics_payload(payload, mask_source=True)
+    redacted_payload["fingerprint"] = fingerprint  # 保留指纹不被混淆
+    redacted_payload["is_auto_reported"] = True
+
+    # 1. 毫秒级写入本地 Crash Outbox (保障进程瞬退不丢包)
+    outbox_file = dump_crash_outbox(redacted_payload)
+
+    # 2. 标记指纹已记录（防止风暴）
+    record_crash_reported(fingerprint)
+
+    # 3. 尝试受控短超时即时上传 (如 1.2 秒)
+    try:
+        upload_issue(redacted_payload, timeout=timeout)
+        # 即时上传成功，安全清理本地 Outbox
+        if outbox_file and outbox_file.is_file():
+            try:
+                outbox_file.unlink()
+            except OSError:
+                pass
+    except Exception:
+        # 网络超时或失败时保持 Outbox，留待下次启动后台 Flush
+        pass
+
+    return fingerprint
+
+
+def flush_pending_crashes(max_count: int = 5, timeout: float = 2.0) -> int:
+    """启动时后台静默 Flush 遗留的 Crash Outbox 队列。"""
+    from core.cloud_sync.consent import auto_report_enabled
+    if not auto_report_enabled():
+        return 0
+
+    try:
+        cdir = crashes_cache_dir()
+        dump_files = list(cdir.glob("*.json"))
+    except Exception:
+        return 0
+
+    if not dump_files:
+        return 0
+
+    flushed = 0
+    for p in dump_files[:max_count]:
+        try:
+            content = p.read_text(encoding="utf-8", errors="replace")
+            payload = json.loads(content)
+            if isinstance(payload, dict):
+                upload_issue(payload, timeout=timeout)
+                p.unlink()
+                flushed += 1
+        except Exception:
+            continue
+
+    return flushed
+

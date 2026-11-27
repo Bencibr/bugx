@@ -37,6 +37,7 @@ from .engine_installer import (
     _version_contract_status,
     _version_marker,
     _write_engine_integrity,
+    auto_sync_global_engine_if_newer,
     _ensure_global_cli_symlinks,
     _find_current_cli_executable,
     _global_bugx_dir,

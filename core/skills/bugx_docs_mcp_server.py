@@ -36,7 +36,7 @@ from core.skills import bugx_docs_cloud_sync as _docs_sync  # noqa: E402
 
 JSONRPC_VERSION = "2.0"
 MCP_PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "bugx-docs"
+SERVER_NAME = "bugx-cloud"
 SERVER_VERSION = BASE_VERSION
 SCHEMA_VERSION = "v2-trigram-section-hybrid"
 OFFICIAL_LIBRARY_ID = "bugx:official"
@@ -789,6 +789,26 @@ def call_tool(
     _authorize(arguments, project_id, expected_token)
     contract_ver = _docs_sync.contract_version_of(BASE_VERSION)
 
+    if name == "plan_project_mcps":
+        from core.planning import capability_planner
+
+        classification = {
+            "forms": [str(v) for v in (arguments.get("forms") or [])],
+            "surfaces": [str(v) for v in (arguments.get("surfaces") or [])],
+            "languages": [str(v) for v in (arguments.get("languages") or [])],
+            "frameworks": [str(v) for v in (arguments.get("frameworks") or [])],
+        }
+        plan = capability_planner.plan_runtime_capabilities(
+            classification,
+            project_root=db.parent.parent.parent if db.parent.name == "knowledge" else None,
+        )
+        return {
+            "source": "local_or_cloud",
+            "contract_version": contract_ver,
+            "items": plan.get("items") or [],
+            "errors": plan.get("errors") or [],
+        }
+
     if name == "resolve_library":
         query = str(arguments.get("name") or "").strip()
         if not query or len(query) > 128:
@@ -1092,6 +1112,17 @@ TOOLS = [
         "description": "列出指定文档的完整 Markdown 标题结构目录 (TOC) 与字符预算，便于精准拉取章节。",
         "inputSchema": {"type": "object", "required": ["document_id", "project_id"], "properties": {
             "document_id": {"type": "string"},
+            "project_id": {"type": "string"}, "token": {"type": "string"},
+        }},
+    },
+    {
+        "name": "plan_project_mcps",
+        "description": "根据脱敏项目技术栈画像（forms/surfaces/languages/frameworks）规划推荐的 MCP 清单（云端优先、本地兜底）。",
+        "inputSchema": {"type": "object", "properties": {
+            "forms": {"type": "array", "items": {"type": "string"}},
+            "surfaces": {"type": "array", "items": {"type": "string"}},
+            "languages": {"type": "array", "items": {"type": "string"}},
+            "frameworks": {"type": "array", "items": {"type": "string"}},
             "project_id": {"type": "string"}, "token": {"type": "string"},
         }},
     },

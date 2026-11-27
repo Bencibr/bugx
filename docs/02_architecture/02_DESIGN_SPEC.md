@@ -12,22 +12,27 @@
 验收脚本是长期证据资产，不得误删；评测目录的规范路径是 `verification/evals/`。发布构建
 唯一入口是 `scripts/package_dist.py`，Jenkins 不再复制打包逻辑。
 
-## 问题上报与会话异常诊断协同契约 (DOC-007，2026-11-25，AUDITED_OK)
+## 问题上报与会话异常诊断双轨协同契约 (DOC-007 升级，2026-11-26，AUDITED_OK)
 
 ### 设计目标与边界
 
-通过 `bugx issue report` 与 `bugx feedback` 命令，提供端到端现场提取、三级脱敏与异常上报闭环：
-1. **客户端提取与脱敏**：
-   - 自动探测最近一次发生异常/错误的会话并提取对话历史、事件流与最近 500 行核心日志；
-   - 提取 OS、Python、Node、Git 与宿主环境指纹；
-   - 强制执行三级隐私脱敏（API Key/Token/DSN 密码硬过滤、系统用户路径归一化为 `~`、源代码可选遮蔽）；
-   - 终端打印脱敏摘要与前 2~3 条消息脱敏预览，必须经用户确认后方可发起 Gzip 上报；
-2. **服务端领域模型与存储**：
+通过「主动静默上报 + 手动交互上报」双轨架构，提供工业级（对标 Sentry/VS Code/Crashpad）端到端现场提取、堆栈脱敏、Outbox 落盘与异常诊断闭环：
+1. **主动静默上报通道 (Active Crash Reporting)**：
+   - **错误分类器 (`is_fatal_internal_defect`)**：严格排除用户操作性错误（`KeyboardInterrupt`、`SystemExit`、`EOFError`、参数输入与使用错误），仅对系统内部未预期缺陷（`AssertionError`、`KeyError`、`TypeError`、未处理致命异常）触发；
+   - **合规与隐私门禁 (`auto_report_enabled`)**：受 `telemetry.data_sharing`、`telemetry.auto_report_crashes` 及环境变量 `BUGX_NO_AUTO_REPORT=1` 强阻断控制（fail-closed，零网络出网）；
+   - **指纹计算与频控去重 (`compute_crash_fingerprint`)**：根据异常类型与顶层关键帧计算稳定指纹 `bk-<hash>`，本地缓存（`~/.bugx/cache/reported_crashes.json`）记录，24 小时内同一指纹仅上报 1 次，严防请求雪崩；
+   - **路径规范化与三级脱敏 (`normalize_traceback_and_paths`)**：自动将开发者 `$HOME` 替换为 `~`，将项目绝对路径替换为 `[PROJECT_ROOT]`，剥离 URL 中 Basic Auth 凭据，并强制开启源码遮蔽 `mask_source=True`；
+   - **Crash Outbox 本地落盘与次启动 Flush (`crashes_cache_dir`, `flush_pending_crashes`)**：崩溃时先毫秒级落盘至 `~/.bugx/cache/crashes/<id>.json`，受控短超时即时上报，超时或强杀时由下次任意 CLI 启动后台守护线程静默 Flush，彻底消解 Python 进程瞬退截断 daemon 线程导致的丢包问题。
+2. **手动交互上报通道 (Manual Interactive Reporting)**：
+   - 通过 `bugx issue report` 与 `bugx feedback` 命令，自动探测异常会话，支持补充问题标题与说明；
+   - 新增 `--attach <fingerprint>` 选项，允许用户将手动补充信息与刚刚由自动通道上报的崩溃指纹关联绑定；
+   - 终端打印脱敏摘要与前 2~3 条消息脱敏预览，经用户交互确认后方可发起 Gzip 上报；
+3. **服务端领域模型与存储**：
    - 落地于 Go 模块化单体架构 `server/internal/modules/agent/`；
    - 领域模型 `AgentIssue` 支持异常指纹 (`error_fingerprint`) 聚类统计 (`cluster_count`)；
    - 每日限额防护：匿名客户端限制 20 次/天/设备，已认证用户限制 50 次/天/账号；
    - 提供 `POST /api/v1/agent/issues`、`GET /api/v1/admin/agent/issues`、`GET .../:id` 与 `PUT .../:id/status`；
-3. **管理后台诊断与会话回放**：
+4. **管理后台诊断与会话回放**：
    - Vue 3 管理后台 `/cloud/sync/issues`，提供大盘指标、状态筛选与工单列表；
    - 抽屉式会话时序回放 (Timeline Replay)：完整还原用户提问、模型思考、MCP 工具调用入参与输出，错误节点高亮标红；
    - 内置核心日志终端查看器与原始脱敏 JSON 检查，支持一键流转工单状态 (open -> investigating -> resolved -> closed)。
@@ -37,10 +42,10 @@
 | 设计项 | 解决问题 | 反例与失败路径 | 结论 |
 | --- | --- | --- | --- |
 | 1. 会话现场提取与命令注册 | 缺乏自动化上报通道，异常发生后无法快速定位现场 | 项目无 `.bugx`、会话损坏、非 TTY 环境自动降级 | `AUDITED_OK` |
-| 2. 三级隐私脱敏门禁 | 泄露用户 API Key、数据库密码或系统用户名 | 复杂 DSN 密码含 `@`、不同 AI 平台 Key 形态、嵌套 JSON 字典 | `AUDITED_OK` |
-| 3. 服务端契约与领域模型 | 缺乏存储与聚合分析能力，同类异常重复建单 | 恶意刷量（受每日限额拦截）、大请求体（受 10MB 防御门禁拦截） | `AUDITED_OK` |
-| 4. 管理后台会话回放 UI | 开发者无法直观排查复杂多轮对话与工具调用堆栈 | 数据格式不规范、会话为空时优雅降级并展示纯日志切片 | `AUDITED_OK` |
-| 5. 全链路证据一致性 | 单元测试通过但端到端不通 | 协议级 E2E、Gzip 传输解压与脱敏断言全链路闭环 | `AUDITED_OK` |
+| 2. 错误智能分类与过滤 | 用户操作错误（Ctrl+C/参数错误）污染缺陷工单库 | 显式排除 KeyboardInterrupt/SystemExit/UsageError，仅对未预期代码缺陷放行 | `AUDITED_OK` |
+| 3. Crash Outbox 本地落盘与次启动 Flush | Python CLI 进程退出时 Daemon 线程被 OS 强杀导致上报截断丢包 | 毫秒级写入本地快照，短超时即时上传，失败保留并在下次 CLI 启动后台静默 Flush | `AUDITED_OK` |
+| 4. 堆栈路径规范化与三级隐私脱敏 | 泄露用户本地主目录、系统用户名、内部代码绝对路径或 API 密钥 | 路径归一化置换为 ~ 与 [PROJECT_ROOT]，Basic Auth 密码清除，强制源码遮蔽 | `AUDITED_OK` |
+| 5. 崩溃指纹 24h 频控与工单关联 | 同类死循环崩溃触发网络风暴，用户无法补充上下文 | 指纹 24h 本地限频 1 次，终端提供 --attach bk-xxxx 快捷关联补充工单 | `AUDITED_OK` |
 
 ## Kimi Code 与宿主跨平台注册契约（2026-11-24，AUDITED_OK）
 
@@ -6225,3 +6230,69 @@ RSI 引擎能力模型显式化为三方向闭环：
 2. **不可变缓存热同步 (`core/skills/bugx_docs_cloud_sync.py`)**：集成 `cloud_client.py` 与 `endpoint_router.py`（新增 `cloud.docs_remote_enabled` 布尔配置、1.5s manifest 超时、`sync.lock` 单飞并发锁、SHA-256 与 `PRAGMA quick_check` 门禁、`.gc-pending` Windows 延迟清理、以及 `BUGX_DOCS_OFFLINE=1` / `--offline` 零出网守卫）。
 3. **随包基线与 5 份 Cookbook 打包**：在 `scripts/refresh_signed_mirrors.py` 新增 `refresh_bundled_docs()`（同步公开文档与 `docs/01_guides/04..08_*` 速查卡到 `core/bundled_docs/`，改写内部相对链接防止 export 死链，物理拒收 `docs/08_internal` 与敏感串），同步纳入 `pyproject.toml`、`package.json`、`core/engine-integrity.json`。
 4. **全入口对齐**：新增 `--docs-transport {stdio,remote}`（`install` / `plugin.py` / `agent.py` / `codex.py` / `mcp_advisor.py` / `mcp_process_tracker.probe_remote_docs_mcp`），修复 WebUI `mcp_inspector.py` 与 `docs_session_service.py`，升级 `guide.py`/`system.py`（`bugx mcp docs sync`），并核销 `command_routing_*.md`、`core/locales/*.json`、`ecosystem/*` 与公开文档为精确 **43** 个真实 CLI 顶层命令（零幽灵命令）。明确维持 `bugx-docs` 与 `lesson-ledger.sqlite3` / `seed_corpus` 的严格正交隔离，绝不混库。
+
+
+## 同仓库多宿主并发挖掘与动态按需调度闭环（2026-11-27，AUDITED_OK）
+
+### 设计目标与边界
+
+支持同一项目工作区（`--root`）同时接入多个 `role=host` 的 MCP 宿主（如 Antigravity、Qoder、Claude Code、Codex、DSH 等），在宿主中途动态加入或退出时实现**零重复挖掘、按需弹性分配、故障快速回收与安全终态收敛**。
+
+1. **废除启动期 `controller.lock` 独占阻塞**：
+   - [rpc_server.py](file:///Users/sp/workspace/bug-hunter/core/mcp_handlers/rpc_server.py) 在 `role == "host"` 启动时不再独占 `state_root/controller.lock`，改为调用 [host_registry.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/host_registry.py) 注册到 `state_root/hosts.json`（由 `supervisor.json.lock` 保护）。
+   - 后台 `_host_session_heartbeat_loop`（[channel_lifecycle.py](file:///Users/sp/workspace/bug-hunter/core/mcp_handlers/channel_lifecycle.py)）每 5 秒续约一次宿主租约（默认 TTL 30s）；通道关闭时调用 `detach_host` 优雅注销。
+   - **协议版本兼容校验（替代物理路径哈希一致）**：`hosts.json` 与 `RunState` 校验 `supervisor_protocol_version`（当前 `1`），允许不同宿主经由不同 `PATH`/副本（如仓库源码 vs `~/.bugx`）并发混跑，仅在状态协议不兼容时 fail-closed 拦截。
+
+2. **幂等 Join 与多宿主归属模型**：
+   - [supervisor_handlers.py](file:///Users/sp/workspace/bug-hunter/core/mcp_handlers/supervisor_handlers.py) 的 `bugx_supervisor_start` 在遇到已存在的活跃 `RunState` 时，校验 `life_kind`、`plan_hash` 与 `supervisor_protocol_version` 一致后自动 `joined=True` 接入当前挖掘。
+   - [worker_claim.py](file:///Users/sp/workspace/bug-hunter/core/supervisor_types/worker_claim.py) 新增 `owner_host_id` 字段，显式绑定每个 `WorkerClaim` 的归属宿主。
+
+3. **弹性 Micro-Batch Pull 调度与惰性清道夫（[multi_host_scheduler.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/multi_host_scheduler.py)）**：
+   - 新增 MCP 工具 `bugx_supervisor_pull` 与 `bugx_supervisor_detach`（注册于 [tool_table.py](file:///Users/sp/workspace/bug-hunter/core/mcp_handlers/tool_table.py)）。
+   - 单次 `supervisor.json.lock` 锁内原子完成：**宿主心跳续约 + 惰性清道夫回收（对已离线/崩溃宿主名下无独立存活 PID 的 claim 立即释放回待挖池）+ 实时活跃宿主数 $N$ 感知 + 弹性配额切分**：
+     - $N = 1$：按单宿主预算正常拉取；
+     - $N \ge 2$：受 `MAX_MULTI_HOST_PULL_BURST=2` 与 $\lceil R / N \rceil$ 及全局 `state.budget.max_concurrency` 约束，避免早到宿主吞光待挖单元，保证中途加入的新宿主立即可参与并行挖掘。
+   - 依赖门禁与容量保护：内部单元未解锁业务单元时返回 `WAITING_INTERNAL_UNITS`；全局并发满额时返回 `GLOBAL_AT_CAPACITY`；本地满额返回 `HOST_AT_CAPACITY`。
+
+4. **Peer Barrier 与终态收敛**：
+   - `bugx_supervisor_next_round` 与 `bugx_supervisor_finish` 在推进前强制执行 `check_peer_barrier`（先跑清道夫清理僵尸宿主）：若仍有其他在线宿主持有活跃 claim，返回 `WAITING_PEER_HOSTS`（支持 `detach_on_idle=true` 优雅退场），把全局收敛权留给最后一个在线宿主。
+
+```mermaid
+sequenceDiagram
+    participant H1 as Host A (Antigravity)
+    participant H2 as Host B (Qoder)
+    participant L as supervisor.json.lock
+    participant S as hosts.json + supervisor.json
+
+    H1->>L: bugx_supervisor_start / register_host
+    L->>S: 创建 RunState + 注册 Host A (active, N=1)
+    H2->>L: bugx_supervisor_start / register_host
+    L->>S: 校验 protocol_version=1 -> joined=True (N=2)
+    par 并发按需拉取
+        H1->>L: bugx_supervisor_pull
+        L->>S: 清理离线宿主 + 按 N=2 分配 <=2 个 unit (owner=Host A)
+        H2->>L: bugx_supervisor_pull
+        L->>S: 跳过已占 unit + 按 N=2 分配 <=2 个 unit (owner=Host B)
+    end
+    Note over H2: 若 Host B 优雅 detach 或心跳超时离线
+    H1->>L: bugx_supervisor_pull / check_peer_barrier
+    L->>S: 立即回收 Host B 未完成 claim 回待挖池
+    H1->>L: bugx_supervisor_finish (无对端活跃 claim)
+    L->>S: 收敛至 COMPLETE
+```
+
+### 对抗审计与验证结果
+
+- **对抗审计**：4 项核心设计（废除启动锁+协议版本校验、幂等 Join、Micro-Batch Pull+清道夫、Peer Barrier）均已通过反例审计（`AUDITED_OK`）。
+- **自动化验证**：在 `$TMPDIR/bugx-tests-multihost-*` 隔离项目中完成 5 宿主并发 E2E 验证（含协议不匹配 fail-closed 拦截、5 线程并发拉取 10 单元零重复、`detach` 立即释放回收、心跳超时模拟崩溃回收、`WAITING_PEER_HOSTS` 拦截与最后一个宿主收敛至 `complete`），退出码 0（`ALL_MULTI_HOST_E2E_CHECKS_PASSED`）；所有临时测试文件已物理清理。
+
+### 高风险优先与关联域粘性组团调度（2026-11-27 补充，AUDITED_OK）
+
+1. **单宿主与多宿主统一高风险优先（[task_scheduler.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/task_scheduler.py)、[lease_manager.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/lease_manager.py)）**：
+   - `TaskScheduler.score_unit` 在无 `attack-graph.json` 冷启动时启用高危攻击面词表基线风险分（`auth`/`payment`/`database`/`sql`/`exec`/`crypto`/`api` 等），确保高风险单元始终优先于普通工具/UI 单元；
+   - `lease_manager.claimable_units(mode=CLAIM_MODE_AUTO)` 与单宿主 `claim_sync` 统一接入 `rank_units_high_risk_first`，消除纯字典序出队。
+2. **关联域粘性组团发布（[host_registry.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/host_registry.py)、[multi_host_scheduler.py](file:///Users/sp/workspace/bug-hunter/core/supervisor/multi_host_scheduler.py)）**：
+   - 新增 `infer_unit_domain`（识别 `auth` / `payment` / `database` / `execution` / `crypto` / `filesystem` / `api` / `frontend` / `general`）与 `infer_unit_module`；
+   - `hosts.json` 持久化每个宿主的 `active_domain` 与 `active_module`；
+   - `bugx_supervisor_pull` 支持可选 `preferred_domain` 与 `cluster_by_domain`（默认 `true`）：单次拉取仅成组派发同一关联域/模块的单元（不混塞跨域单元），同一宿主连续拉取保持上下文粘性；当前域挖完后自动平滑切换到剩余最高风险的新域。
+3. **验证结果**：在 `$TMPDIR/bugx-tests-risk-affinity-*` 隔离项目中完成单宿主冷启动高风险优先与双宿主真实 MCP 进程域粘性组团验证（`h_db` 连续两批纯拉取 `database` 2+1 单元后自动切至 `auth` 2 单元，`h_ui` 成组拉取 `frontend` 2 单元），退出码 `0`（`ALL_RISK_AND_AFFINITY_TESTS_PASSED`），临时文件已物理清理。

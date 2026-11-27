@@ -559,7 +559,7 @@ def push_layer(client, ns, root: Path, layer: str, project_id: str,
                 # 426：V1 旧协议/V2 schema 缺失，服务端明确要求升级客户端
                 if res.status == 426 or err.code == "SYNC_PROTOCOL_UPGRADE_REQUIRED":
                     upgrade_hint = (
-                        f"请升级 BugX 客户端至 {err.min_client_version or '0.6.1'}+ 并重建全局引擎。\n"
+                        f"请升级 BugX 客户端至 {err.min_client_version or '0.1.1'}+ 并重建全局引擎。\n"
                         f"  推荐执行：bugx update\n"
                         f"  或手动执行：pip install --upgrade bugx-cli && bugx install --force"
                     )

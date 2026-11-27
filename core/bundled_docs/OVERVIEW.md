@@ -102,11 +102,11 @@ bugx report serve
 | **Cline / Roo Code** | 独立数据沙箱 / 项目级 Agent / 用户级 MCP | `bugx install --agent cline` |
 | **Qoder AI** | 原生 Agent/Worker、Subagent 并发、用户级/项目级 MCP 注入 | `bugx install --agent qoder` |
 | **Trae / Trae CN** | 项目级 Agent、多变体 MCP 同步镜像 | `bugx install --agent trae` |
-| **DeepSeek Harness (DSH)** | 原生 Headless Profile / Cordis Patch / MCP 注入 | `bugx install --agent dsh` |
-| **Kimi Code** | Headless ACP / 原生 MCP 插件 | `bugx install --agent kimi` |
-| **MiniMax Code** | 自定义 Agent、Plugin V1 Worker、Skill 与 MCP | `bugx install --agent minimax` |
-| **ZCode** | 原生 MCP / 用户级注册 | `bugx install --agent zcode` |
-| **Agnes Code** | 终端原生 TUI / 智能体与原生 MCP 注入 | `bugx install --agent agnescode` |
+| **DeepSeek Harness (DSH)** | 零预装插件包（内置 Skill / `/bugx-cli` / `bugx-cli` 依赖 / 官方 MCP 直连）与 Cordis Patch | `bugx install --agent dsh` 或 `dsh plugin add Bencibr/bugx-dsh-plugin` |
+| **Kimi Code** | Headless ACP / 零预装 `npx` MCP 插件 | `bugx install --agent kimi` |
+| **MiniMax Code** | 自定义 Agent、Plugin V1 Worker、Skill 与零预装 `npx` MCP | `bugx install --agent minimax` |
+| **ZCode** | 原生 MCP（零预装 `npx`）/ 用户级注册 | `bugx install --agent zcode` |
+| **Agnes Code** | 终端原生 TUI / 零预装插件包（`bugx-cli` 依赖）与原生 MCP | `bugx install --agent agnescode` |
 | **WorkBuddy / CodeBuddy** | 原生 Skill、桌面端多变体镜像、项目级 MCP | `bugx install --agent workbuddy` |
 | **GitHub Copilot** | 项目级 Agent/指令注入、用户级 Agent、项目级 MCP | `bugx install --agent copilot` |
 | **Cursor / Windsurf** | 项目级 / 用户级 MCP 标准接入 | `bugx install` 自动检测装配 |

@@ -198,7 +198,7 @@ def _build_mcp_manifest() -> dict[str, Any]:
             "bugx-supervisor-worker": _server(
                 ["mcp", "serve", "--root", ".", "--role", "worker"]
             ),
-            "bugx-docs": _server(
+            "bugx-cloud": _server(
                 [
                     "mcp", "docs", "serve", "--root", ".", "--db",
                     ".bugx/knowledge/docs.sqlite3"
@@ -509,7 +509,7 @@ def validate_install(root: Path) -> tuple[bool, str]:
     servers = mcp_data.get("mcpServers") if isinstance(mcp_data, dict) else None
     if not isinstance(servers, dict):
         return False, f"MiniMax Code servers.mcp.json 缺少 mcpServers 对象（{mcp_path}）"
-    required_channels = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+    required_channels = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud")
     missing_channels = [
         ch for ch in required_channels if not isinstance(servers.get(ch), dict)
     ]

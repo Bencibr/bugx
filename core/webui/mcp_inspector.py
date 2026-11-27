@@ -382,7 +382,7 @@ def _default_mcp_command(name: str, reg_entry: dict[str, Any]) -> tuple[str, lis
         return "bugx", ["mcp", "serve", "--root", ".", "--role", "host"]
     if name == "bugx-supervisor-worker":
         return "bugx", ["mcp", "serve", "--root", ".", "--role", "worker"]
-    if name == "bugx-docs":
+    if name == "bugx-cloud":
         return "bugx", ["mcp", "docs", "serve", "--root", ".", "--db", ".bugx/knowledge/docs.sqlite3"]
     if name in ONLINE_MCP_CATALOG:
         on_item = ONLINE_MCP_CATALOG[name]
@@ -482,7 +482,7 @@ def inspect_workspace_mcp(workspace_path: Path | str) -> dict[str, Any]:
     if not servers:
         for def_name, def_tools, def_cmd in (
             ("bugx-supervisor", 12, "bugx mcp serve --root . --role host"),
-            ("bugx-docs", 4, "bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3"),
+            ("bugx-cloud", 4, "bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3"),
         ):
             is_dis = def_name in disabled_mcps
             servers.append({
@@ -509,7 +509,7 @@ def inspect_workspace_mcp(workspace_path: Path | str) -> dict[str, Any]:
 MCP_DESCRIPTIONS: dict[str, str] = {
     "bugx-supervisor": "BugX 核心审计调度控制面，提供任务认领、证据链校验、心跳续约与结算门禁",
     "bugx-supervisor-worker": "BugX Worker 受限执行视图，专为并发子智能体提供零逃逸任务认领与上报",
-    "bugx-docs": "项目级 SQLite FTS5 全文文档检索引擎，支持架构规范与安全基线毫秒级检索",
+    "bugx-cloud": "项目级 SQLite FTS5 全文文档检索引擎，支持架构规范与安全基线毫秒级检索",
     "postmcp": "HTTP/REST/GraphQL 动态接口契约测试与越权差分发包探针",
     "playwright": "真实无头浏览器自动化探针，用于 DOM XSS、鉴权流、CSRF 与前端视觉回归验证",
     "dbhub": "多源关系型数据库（PostgreSQL/MySQL/SQLite）Schema 审计与只读安全查询探针",
@@ -535,7 +535,7 @@ MCP_TOOLS_CATALOG: dict[str, list[dict[str, str]]] = {
         {"name": "bugx_supervisor_rebind_target", "description": "动态重定向分析目标文件或模块", "parameters": "new_target, preserve_context"},
         {"name": "bugx_supervisor_status", "description": "查询 Supervisor 全局健康状态与运行指标", "parameters": "verbose"},
     ],
-    "bugx-docs": [
+    "bugx-cloud": [
         {"name": "resolve_library", "description": "解析当前项目或 BugX 官方受控文档库", "parameters": "name, project_id"},
         {"name": "search_docs", "description": "在官方与当前项目文档章节级 FTS5 trigram 索引中检索", "parameters": "query, project_id, library_id, limit"},
         {"name": "fetch_doc", "description": "高效只读读取指定文档或精确章节（保留子标题完整边界）", "parameters": "document_id, section, project_id"},
@@ -1399,7 +1399,7 @@ def auto_match_project_capabilities(workspace_path: Path | str, *, apply: bool =
 
     rec_mcps: list[dict[str, Any]] = []
     # Always include core control-plane MCPs plus matched MCPs
-    for core_mcp in ("bugx-supervisor", "bugx-docs"):
+    for core_mcp in ("bugx-supervisor", "bugx-cloud"):
         rec_mcps.append({
             "id": core_mcp,
             "name": core_mcp,
@@ -1410,7 +1410,7 @@ def auto_match_project_capabilities(workspace_path: Path | str, *, apply: bool =
         })
     for m in (plan.get("items") or plan.get("matched_mcps") or []):
         m_name = m.get("name")
-        if m_name in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"):
+        if m_name in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"):
             continue
         reason_str = str(m.get("source") or m.get("reason") or "profile:surface-match")
         rec_mcps.append({

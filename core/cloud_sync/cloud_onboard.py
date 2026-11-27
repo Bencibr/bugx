@@ -644,30 +644,69 @@ def sync_layers(client, root: Path, project_slug: str | None = None,
             project_key=identity["project_key"],
         )
         if not proj.ok:
-            out["project"] = f"登记失败 code={proj.status} {proj.error}"
-            out["ok"] = False
-            return out
-        pid = client.project_id(proj)
-        if not pid:
-            out["ok"] = False
-            out["error"] = "项目登记响应缺少 project_id"
-            return out
-        remote_key = client.project_key(proj)
-        if remote_key != identity["project_key"]:
-            out["ok"] = False
-            out["error"] = "项目登记响应 project_key 不一致，拒绝跨项目同步"
-            return out
-        if binding and binding != pid:
-            out["ok"] = False
-            out["error"] = "本地项目绑定与服务端 project_id 不一致，拒绝跨项目同步"
-            return out
-        _save_project_binding(root, pid, identity["slug"], identity["project_key"], account_id)
-        project_data = client._data(proj) if hasattr(client, "_data") else {}
-        if isinstance(project_data, dict) and project_data.get("lifecycle_status") == "deleted":
-            # Registration is deliberately allowed to return a terminal
-            # project identity so the client can still pull/ACK its retained
-            # tombstones.  Never call profile or push for that namespace.
-            deleted_layers.add("project")
+            healed = False
+            if proj.status == 409:
+                # 409 Conflict: 云端已存在相同 project_key 的项目（slug 冲突）
+                # 自动自愈：通过 list_projects 按稳定的 project_key 对齐远端 slug 与 project_id
+                try:
+                    r_list = client.list_projects()
+                    if getattr(r_list, "ok", False):
+                        p_list = client._data(r_list)
+                        if isinstance(p_list, list):
+                            for p in p_list:
+                                if isinstance(p, dict) and p.get("project_key") == identity["project_key"]:
+                                    remote_slug = str(p.get("slug") or "")
+                                    remote_pid = str(p.get("id") or p.get("project_id") or "")
+                                    if remote_slug and remote_pid:
+                                        print(
+                                            f"[cloud] ✨ [AI 自动自愈] 检测到云端已存在相同 project_key 项目 "
+                                            f"(slug='{remote_slug}', id={remote_pid})，自动对齐本地项目身份与绑定...",
+                                            file=sys.stderr,
+                                        )
+                                        save_committed_identity(root, remote_slug, identity["project_key"])
+                                        _save_project_binding(root, remote_pid, remote_slug, identity["project_key"], account_id)
+                                        pid = remote_pid
+                                        identity["slug"] = remote_slug
+                                        if p.get("lifecycle_status") == "deleted":
+                                            deleted_layers.add("project")
+                                        healed = True
+                                        break
+                except Exception:
+                    pass
+            if not healed:
+                advice = ""
+                if proj.status == 409:
+                    advice = (
+                        "；提示：云端已存在相同 project_key 的项目（slug 冲突）。"
+                        "解决办法：1. 运行 'bugx cloud projects list --root .' 查看云端既有 slug；"
+                        "2. 运行 'bugx cloud projects add --project-slug <REMOTE_SLUG> --root .' 或修改 .bugx-project.json 一步对齐身份；"
+                        "3. 运行 'bugx guide 409' 查看详细排障手册 Section 10.2。"
+                    )
+                out["project"] = f"登记失败 code={proj.status} {proj.error}{advice}"
+                out["ok"] = False
+                return out
+        else:
+            pid = client.project_id(proj)
+            if not pid:
+                out["ok"] = False
+                out["error"] = "项目登记响应缺少 project_id"
+                return out
+            remote_key = client.project_key(proj)
+            if remote_key != identity["project_key"]:
+                out["ok"] = False
+                out["error"] = "项目登记响应 project_key 不一致，拒绝跨项目同步"
+                return out
+            if binding and binding != pid:
+                out["ok"] = False
+                out["error"] = "本地项目绑定与服务端 project_id 不一致，拒绝跨项目同步"
+                return out
+            _save_project_binding(root, pid, identity["slug"], identity["project_key"], account_id)
+            project_data = client._data(proj) if hasattr(client, "_data") else {}
+            if isinstance(project_data, dict) and project_data.get("lifecycle_status") == "deleted":
+                # Registration is deliberately allowed to return a terminal
+                # project identity so the client can still pull/ACK its retained
+                # tombstones.  Never call profile or push for that namespace.
+                deleted_layers.add("project")
         # 同步（pull/push）开始前提醒一次：身份文件在 git 仓库里但未提交，
         # 多设备会因身份缺失注册出重复项目。检测失败/非 git 仓库时静默跳过。
         warn_uncommitted_identity(root)

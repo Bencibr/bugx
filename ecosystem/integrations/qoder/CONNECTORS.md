@@ -26,7 +26,7 @@ Run `bugx install --agent qoder` from the project root. The installer merges the
       "command": "bugx",
       "args": ["mcp", "serve", "--root", "/absolute/project/path", "--role", "worker"]
     },
-    "bugx-docs": {
+    "bugx-cloud": {
       "command": "bugx",
       "args": ["mcp", "docs", "serve", "--root", "/absolute/project/path", "--db", ".bugx/knowledge/docs.sqlite3"]
     }

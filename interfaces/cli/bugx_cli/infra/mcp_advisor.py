@@ -37,7 +37,7 @@ OPENCODE_MCP_PACKAGES = {
 _LOCAL_MCP_COMMANDS = {
     "bugx-supervisor": ["bugx", "mcp", "serve", "--root", ".", "--role", "host"],
     "bugx-supervisor-worker": ["bugx", "mcp", "serve", "--root", ".", "--role", "worker"],
-    "bugx-docs": [
+    "bugx-cloud": [
         "bugx", "mcp", "docs", "serve", "--root", ".",
         "--db", ".bugx/knowledge/docs.sqlite3",
     ],
@@ -89,7 +89,7 @@ REQUIRED_MCP_RECOMMENDATIONS = (
         "install_hint": "只暴露 Worker 控制面；宿主主控工具不会在此通道提供",
     },
     {
-        "name": "bugx-docs",
+        "name": "bugx-cloud",
         "purpose": "项目私有版本化文档检索与 citation",
         "command": "bugx mcp docs serve --root . --db .bugx/knowledge/docs.sqlite3",
         "install_hint": "内置 SQLite FTS5 文档服务；首次启动自动索引 README/docs/core Markdown，"
@@ -127,10 +127,10 @@ def _mcp_entry_state(name: str, entry: object) -> str:
         return "disabled"
     if "enabled" in entry:
         return "incompatible"
-    if name == "bugx-docs" and isinstance(entry.get("url"), str) and entry["url"].strip():
+    if name == "bugx-cloud" and isinstance(entry.get("url"), str) and entry["url"].strip():
         try:
             from core.host_runtime.mcp_process_tracker import probe_remote_docs_mcp
-            probe = probe_remote_docs_mcp({"bugx-docs": entry})
+            probe = probe_remote_docs_mcp({"bugx-cloud": entry})
             return "configured" if probe.get("healthy") else "incompatible"
         except Exception:
             return "incompatible"
@@ -221,7 +221,7 @@ def verify_builtin_mcp_manifest() -> dict[str, object]:
         repository_root = path.parents[3] if (len(path.parents) > 3 and path.parents[2].name == "ecosystem") else path.parents[2]
     else:
         repository_root = path.parent
-    for name in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"):
+    for name in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"):
         item = servers.get(name)
         if not isinstance(item, dict) or item.get("type") != "builtin":
             raise CliError(f"受信任 MCP manifest 缺少内置服务: {name}")
@@ -255,7 +255,7 @@ def verify_builtin_mcp_manifest() -> dict[str, object]:
                     pass
         if actual != digest:
             raise CliError(f"受信任 MCP hash 不匹配: {name}")
-        if name == "bugx-docs" and command[:4] != ["bugx", "mcp", "docs", "serve"]:
+        if name == "bugx-cloud" and command[:4] != ["bugx", "mcp", "docs", "serve"]:
             raise CliError("bugx-docs manifest 命令不受信任")
     return payload
 
@@ -359,18 +359,38 @@ def targeted_mcp_names(root: Path) -> set[str]:
                     profile = detected
         except (CliError, OSError, ImportError, ValueError, RuntimeError):
             pass
-    surfaces = set(profile.get("surfaces") or [])
-    classification = profile.get("classification")
-    if isinstance(classification, dict):
-        surfaces.update(classification.get("surfaces") or [])
-    selected = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
-    if "ui" in surfaces:
-        selected.add("playwright")
-    if {"storage", "queue"} & surfaces:
-        # 数据层：结构化查询（dbhub，npm）与缓存/队列（redis，pypi）。
-        # 注：两者在批准 lock 中为 enabled=false ⇒ 仍会被 provision 的
-        # ``- disabled`` 排除，不会自动联网安装；此处只声明"形态适用"。
-        selected.update({"dbhub", "redis"})
+    classification: dict[str, Any] = {
+        key: list(profile.get(key) or [])
+        for key in ("forms", "surfaces", "languages", "frameworks")
+    }
+    inner = profile.get("classification")
+    if isinstance(inner, dict):
+        for key in ("forms", "surfaces", "languages", "frameworks"):
+            if inner.get(key):
+                classification[key] = list(inner[key])
+    selected = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
+    try:
+        engine = asset_root()
+        repo_root = engine.parent
+        for path_entry in (str(repo_root), str(engine)):
+            if path_entry not in sys.path:
+                sys.path.insert(0, path_entry)
+        from core.planning import capability_planner
+
+        matched, _errors = capability_planner.optional_mcp_names(
+            classification, project_root=root,
+        )
+        selected.update(matched)
+    except Exception:
+        surfaces = set(classification.get("surfaces") or [])
+        if "ui" in surfaces:
+            selected.add("playwright")
+        if {"rest", "graphql"} & surfaces:
+            selected.add("postmcp")
+        if classification.get("languages"):
+            selected.add("codindex")
+        if {"storage", "queue"} & surfaces:
+            selected.update({"dbhub", "redis"})
     return selected
 
 
@@ -672,7 +692,7 @@ def _collect_mcp_recommendations(
             configured = {}
 
     lock_disabled = _lock_disabled_servers()
-    core_channels = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-docs"}
+    core_channels = {"bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud"}
     missing_hosts: list[str] = []
     if not global_scope and active_hosts:
         try:

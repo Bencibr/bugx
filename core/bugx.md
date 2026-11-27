@@ -2,7 +2,7 @@
 name: bugx
 # Frontmatter is host/Agent routing metadata. Human-facing usage guidance belongs in README.md and docs/.
 description: Use BugX when asked to perform autonomous code review, deep bug hunting, black-box testing, or automated functional and performance verification. Do NOT use BugX for normal conversation, everyday coding, minor cosmetic fixes, or documentation tasks. Normal development should proceed without activating BugX lifecycle.
-version: 0.1.6
+version: 0.1.7
 mode: all
 temperature: 0.1
 permission:
@@ -1286,6 +1286,7 @@ python3 "$(bugx engine path --name lesson_ledger.py)" export-book \
 - ❌ **错题集失职**：发现 bug 却不反思归类写入错题集（浪费经验记忆）、
   勘察时不读错题集（放弃往哪挖的线索）、把错题集当"旧 bug 复现清单"去重复
   报（它是指向新同类的线索，不是免去重券）。
+- ❌ **逆向工程代查手册**：遇到 CLI 报错、门禁阻断、409 冲突或同步异常时，连续调用 3 次以上工具翻读底层源码（如 `core/cloud_sync/*.py`、`commands/*.py`）或运行临时 Python 脚本逆向推导——严重违反耗时防卫宪法；必须优先遵循报错给出的 AI 解决建议、查阅排障手册或运行 `bugx guide "<关键词>"` 一步到位解决。
 
 ## 你的自我认知
 

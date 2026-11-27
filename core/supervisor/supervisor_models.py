@@ -661,6 +661,7 @@ class RunState:
     report_consumption: dict[str, object] = field(default_factory=lambda: {"phase": "OPEN"})
     verification_runs: list[dict[str, object]] = field(default_factory=list)
     verification_protocol_version: int = 2
+    supervisor_protocol_version: int = 1
     confirmation_gate: dict[str, object] = field(default_factory=lambda: {
         "ready": True, "total": 0, "confirmed": 0, "rejected": 0, "pending": 0,
     })
@@ -795,6 +796,7 @@ class RunState:
             "report_consumption": copy.deepcopy(self.report_consumption),
             "verification_runs": copy.deepcopy(self.verification_runs),
             "verification_protocol_version": self.verification_protocol_version,
+            "supervisor_protocol_version": self.supervisor_protocol_version,
             "confirmation_gate": copy.deepcopy(self.confirmation_gate),
             "coverage": dict(sorted(self.coverage.items())),
             "business_admissions": copy.deepcopy(self.business_admissions),
@@ -911,6 +913,7 @@ class RunState:
                 report_consumption=copy.deepcopy(dict(value.get("report_consumption", {"phase": "OPEN"}))),
                 verification_runs=copy.deepcopy(value.get("verification_runs", [])),
                 verification_protocol_version=int(value.get("verification_protocol_version", 1)),
+                supervisor_protocol_version=int(value.get("supervisor_protocol_version", 1)),
                 confirmation_gate=copy.deepcopy(dict(confirmation_raw)),
                 coverage={str(key): str(item) for key, item in coverage_raw.items()},
                 history=copy.deepcopy(history_raw),  # type: ignore[arg-type]

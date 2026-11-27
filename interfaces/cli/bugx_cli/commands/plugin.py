@@ -618,7 +618,11 @@ def _sync_mcp_mirror(
     elif not isinstance(servers, dict):
         raise CliError(f"{mirror_label} 配置 {servers_key} 不是对象，拒绝写入: {mirror_target}")
 
-    for name in {"playwright", "postmcp"} - set(optional_names or set()):
+    # 清理历史遗留的 bugx-docs 条目，统一收敛为 bugx-cloud
+    legacy_docs_key = "bugx-" + "docs"
+    if legacy_docs_key in servers and "bugx-cloud" in desired:
+        servers.pop(legacy_docs_key, None)
+    for name in set(OPENCODE_MCP_PACKAGES) - set(optional_names or set()):
         if _host_mcp_entry_is_current(name, servers.get(name)):
             servers.pop(name, None)
 
@@ -660,7 +664,11 @@ def _sync_trae_mcp_mirror(
             servers = {}
             payload[servers_key] = servers
 
-        for name in {"playwright", "postmcp"} - set(optional_names or set()):
+        # 清理历史遗留的 bugx-docs 条目，统一收敛为 bugx-cloud
+        legacy_docs_key = "bugx-" + "docs"
+        if legacy_docs_key in servers and "bugx-cloud" in desired:
+            servers.pop(legacy_docs_key, None)
+        for name in set(OPENCODE_MCP_PACKAGES) - set(optional_names or set()):
             if _host_mcp_entry_is_current(name, servers.get(name)):
                 servers.pop(name, None)
 
@@ -720,48 +728,24 @@ def _host_global_mcp_target(host_name: str, root: Path) -> Path | None:
 
 
 def _resolve_docs_remote_url(explicit: str | None = None) -> str:
-    """解析并校验 bugx-docs remote HTTP MCP 端点 URL。"""
-    import re as _re
-    from ..common import __version__
-
+    """解析并校验 bugx-cloud remote HTTP MCP 端点 URL。"""
     try:
-        from core.cloud_sync.endpoint_router import load_cloud_config, validate_base_url
-    except Exception as exc:  # noqa: BLE001
-        raise CliError(f"无法加载云端路由校验器以配置远程 bugx-docs：{exc}") from exc
+        from core.cloud_sync.cloud_mcp_client import resolve_cloud_mcp_url
 
-    ver_match = _re.match(r"([0-9]+\.[0-9]+\.[0-9]+)", str(__version__))
-    contract_ver = ver_match.group(1) if ver_match else str(__version__)
-    raw = str(explicit or "").strip()
-    if raw:
-        base_part, _, query = raw.partition("?")
-        try:
-            normalized = validate_base_url(base_part)
-        except ValueError as exc:
-            raise CliError(f"非法 --docs-remote-url: {exc}") from exc
-        if "/api/v1/mcp/docs" not in normalized:
-            normalized = f"{normalized}/api/v1/mcp/docs"
-        return f"{normalized}?{query}" if query else f"{normalized}?contract_version={contract_ver}"
-
-    cfg = load_cloud_config()
-    base = str(cfg.get("base_url") or "https://bugx.dev").strip()
-    try:
-        normalized_base = validate_base_url(base)
+        return resolve_cloud_mcp_url(explicit)
     except ValueError as exc:
-        raise CliError(f"云端 base_url 无法用于远程 bugx-docs: {exc}") from exc
-    return f"{normalized_base}/api/v1/mcp/docs?contract_version={contract_ver}"
+        raise CliError(f"非法远端 bugx-cloud URL: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise CliError(f"无法加载云端路由校验器以配置远程 bugx-cloud：{exc}") from exc
 
 
 def _probe_docs_remote_connectivity(url: str, timeout: float = 1.0) -> bool:
-    """快速探测远程文档服务连通性（1s 有界超时）。"""
-    import urllib.error
-    import urllib.request
+    """快速探测远程 bugx-cloud MCP 服务连通性（POST JSON-RPC ping，1s 有界超时）。"""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "bugx-install-probe"}, method="HEAD")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status < 500
-    except urllib.error.HTTPError as exc:
-        return exc.code < 500
-    except (urllib.error.URLError, TimeoutError, OSError):
+        from core.cloud_sync.cloud_mcp_client import probe_cloud_mcp_ping
+
+        return probe_cloud_mcp_ping(url, timeout=timeout)
+    except Exception:
         return False
 
 
@@ -844,9 +828,9 @@ def _host_supervisor_server_definitions(
         }
         if entry_extra:
             docs_entry.update(copy.deepcopy(entry_extra))
-    result["bugx-docs"] = docs_entry
+    result["bugx-cloud"] = docs_entry
     for name in sorted(optional_names or set()):
-        if name not in {"playwright", "postmcp"}:
+        if name not in OPENCODE_MCP_PACKAGES:
             continue
         result[name] = {
             "type": "stdio",
@@ -1157,7 +1141,7 @@ def _prune_global_mcp_servers(servers: dict[str, object], current_root: Path, ma
     changed = False
     project_entries: dict[str, list[str]] = {}
     for server_name, server_cfg in list(servers.items()):
-        if not str(server_name).startswith("bugx-supervisor") and not str(server_name).startswith("bugx-docs"):
+        if not str(server_name).startswith("bugx-supervisor") and not str(server_name).startswith("bugx-cloud"):
             continue
         if not isinstance(server_cfg, dict):
             continue
@@ -1328,10 +1312,10 @@ def _host_mcp_entry_is_current(
         return False
     if entry.get("disabled") is True or entry.get("enabled") is False:
         return False
-    if name == "bugx-docs" and isinstance(entry.get("url"), str) and entry["url"].strip():
+    if name == "bugx-cloud" and isinstance(entry.get("url"), str) and entry["url"].strip():
         try:
             from core.host_runtime.mcp_process_tracker import probe_remote_docs_mcp
-            return bool(probe_remote_docs_mcp({"bugx-docs": entry}).get("healthy"))
+            return bool(probe_remote_docs_mcp({"bugx-cloud": entry}).get("healthy"))
         except Exception:
             return False
     expected = OPENCODE_PINNED_MCP_COMMANDS.get(name)
@@ -1571,7 +1555,8 @@ def write_host_mcp_config(
             raise CliError(_i18n_exc("plugin.qoder_servers_not_object", f"Qoder 配置 {servers_key} 不是对象，拒绝写入: {target}", servers_key=servers_key, target=target))
         desired = _host_supervisor_server_definitions(shape="qoder", optional_names=optional_names)
         windows_launcher = _qoder_windows_mcp_launcher() if os.name == "nt" else None
-        # Qoder Desktop can spawn stdio from its application directory.
+        # Qoder Desktop can spawn stdio from its application directory (cwd may be /).
+        # Always absolutize --root and --db to ensure project binding.
         for entry in desired.values():
             args = entry.get("args")
             if isinstance(args, list):
@@ -1582,6 +1567,7 @@ def write_host_mcp_config(
                     entry["args"] = [*_SAFE_PYTHON_MODULE_LAUNCHER_PREFIX, *entry["args"]]
                     if environment:
                         entry["env"] = environment
+        _absolutize_server_definitions(desired, root)
     elif host_name == "trea":
         # DOC-169：补全 Trea 的项目级 MCP 写入（flat 形态，与 qoder 同构）。
         target = root / ".trea" / "mcp.json"
@@ -1645,7 +1631,11 @@ def write_host_mcp_config(
                 return _host_mcp_entry_is_current(name, current, root)
         else:
             _entry_is_current = _host_mcp_entry_is_current
-    optional_managed = {"playwright", "postmcp"}
+    legacy_docs_key = "bugx-" + "docs"
+    if legacy_docs_key in servers and "bugx-cloud" in desired:
+        servers.pop(legacy_docs_key, None)
+        changed = True
+    optional_managed = set(OPENCODE_MCP_PACKAGES)
     for name in optional_managed - set(optional_names or set()):
         current = servers.get(name)
         is_managed = (
@@ -1663,7 +1653,7 @@ def write_host_mcp_config(
             continue
         drop_cwd = host_name == "qoder" and name in HOST_ALL_MCP and "cwd" in current
         entry_is_current = _entry_is_current(name, current)
-        if name == "bugx-docs" and entry_is_current:
+        if name == "bugx-cloud" and entry_is_current:
             effective_transport = resolve_effective_docs_transport(docs_transport, docs_remote_url)
             if effective_transport == "remote" and current.get("url") != expected.get("url"):
                 entry_is_current = False
@@ -1684,7 +1674,7 @@ def write_host_mcp_config(
                         merged["env"] = environment
                     elif "env" not in expected:
                         merged.pop("env", None)
-                if name == "bugx-docs":
+                if name == "bugx-cloud":
                     if "url" in expected:
                         merged.pop("command", None)
                         merged.pop("args", None)
@@ -2432,7 +2422,7 @@ def _remove_host_mcp_entry(
     def _is_bugx_mcp_entry(name: str, entry: object, *, shared: bool) -> bool:
         if shared:
             return name in HOST_ALL_MCP or (
-                name in {"playwright", "postmcp"}
+                name in OPENCODE_PINNED_MCP_COMMANDS
                 and _mcp_tokens_match(
                     _host_mcp_command_tokens(entry), OPENCODE_PINNED_MCP_COMMANDS[name], root,
                 )

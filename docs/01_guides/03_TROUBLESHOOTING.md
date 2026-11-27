@@ -177,6 +177,99 @@ env -u BUGX_GLOBAL_ENGINE_ROOT \
 
 这仍然不是完整审计完成。完整完成还必须有 Worker `claim → worker-start → tool_call/heartbeat → checkpoint`、coverage、Finding verification、post 和 settlement receipt。
 
+## 2.6 启动硬门禁阻断：三方版本契约不一致与 Onboarding Pending 复合自愈
+
+### 适用场景与安全边界
+
+在启动 BugX（如 `bugx audit`、`bugx engine --root . pre` 或各 AI 编程宿主 Agent/MCP 接入）时，启动预检被硬门禁阻断：
+- **版本契约不一致**：CLI 版本（如 `0.1.6`）、全局引擎版本（如 `0.1.2`）与项目清单版本（如 `0.1.4`）三者漂移不一致；
+- **云端同步未决 (Onboarding Pending)**：当前项目的 `.bugx/cloud-onboard.json` 处于 `state: "pending"`，未决议是走云端同步还是纯本地模式；
+- **当前状态安全边界**：
+  1. 调度器尚未派发任何 Worker（Claim 计数为 0，无任何长跑或子进程并发任务）；
+  2. 被测项目的任何业务源码未发生改动（Git 工作树保持干净）。
+
+### 根因分析
+
+1. **三方版本漂移 (Three-way Version Drift)**：
+   - 开发者通过包管理器更新了全局 CLI（`pip install -U bugx-cli` 或 `npm i -g bugx-cli`），此时 `bugx --version` 升级至最新版；
+   - 位于用户目录 `~/.bugx/core/` 的全局引擎为之前安装遗留的旧版本，尚未同步刷新；
+   - 被测项目 `.bugx/manifest.json` 为更早时初始化生成的历史版本；
+   - BugX 启动门禁 `startup_version_gate` 采取严格的 fail-closed 防护，禁止新 CLI 驱动旧引擎和旧项目，以防止通信协议截断和数据损坏。
+2. **Onboarding 未决状态 (Pending State)**：
+   - 项目在非交互式终端或无头自动化模式下运行，未显式指定 `--cloud-sync local` 或 `--cloud-sync sync`；
+   - 隐私合规红线要求系统不得在未获授权时隐式上传项目数据，因此产生未决挂起。
+
+### 证据取证
+
+运行以下只读检查验证当前三方版本状态与 Onboarding 状态：
+
+```sh
+# 1. 验证 CLI 版本
+bugx --version
+
+# 2. 检查三方版本契约状态
+bugx engine --root . status --json | grep -A 10 "version"
+
+# 3. 检查当前项目 Onboarding 状态
+bugx cloud status --root . --scope project --json
+```
+
+若输出显示类似如下内容，即确诊为本复合阻断：
+```text
+[BugX] Version contract: cli=0.1.6 project_manifest=0.1.4 engine=0.1.2
+[launch_bugx] ✗ 启动版本门禁失败：版本不一致
+.bugx/cloud-onboard.json: "state": "pending"
+```
+
+### 规范三步自愈操作（无需改动任何源码）
+
+因为当前未派发任何 Worker 且未改动源码，可直接执行受控闭环修复三部曲：
+
+#### 步骤 1：对齐全局引擎至当前 CLI 版本 (Refresh Global Engine)
+执行资产自愈命令，将最新 CLI 内置的核心引擎资源同步部署至 `~/.bugx/core/`：
+```sh
+bugx update --repair-assets
+# 或执行全量用户级自愈：
+bugx doctor --repair
+```
+> **判定**：运行 `bugx doctor --installation-only --json`，确认 `engine_metadata` 与 `cli` 一致为当前版本（如 `0.1.6`）。
+
+#### 步骤 2：对齐当前项目清单版本 (Sync Project Manifest)
+在项目根目录下刷新项目元数据清单（安全保留已有 `sessions/`、`logs/` 与错题集，将 `manifest.json` 契约版本安全对齐）：
+```sh
+bugx init --root . --force
+```
+> **判定**：检查 `.bugx/manifest.json` 中的 `"bugx_version"` 与 CLI 版本一致。
+
+#### 步骤 3：消除 Onboarding Pending 挂起态 (Resolve Onboarding State)
+根据当前网络环境与合规要求选择分支：
+- **分支 A（纯本地/离线模式，推荐内网开发或无需云端协同）**：
+  ```sh
+  bugx cloud onboard off --root .
+  # 或显式写入 local 策略：
+  bugx init --root . --cloud-sync local
+  ```
+- **分支 B（云端协同模式，需已登录或准备登录 BugX 平台）**：
+  ```sh
+  bugx cloud onboard on --root .
+  # 并在获得全量授权后完成推拉同步：
+  bugx cloud sync --root . --scope all
+  ```
+> **判定**：检查 `.bugx/cloud-onboard.json` 中的 `state` 为 `"local"` 或 `"done"`，不再为 `"pending"`。
+
+#### 步骤 4：复验门禁解除
+重新运行启动预检：
+```sh
+bugx engine --root . pre
+```
+
+### 终态标准
+
+- `pre` 预检退出码严格为 `0`；
+- 版本契约核对一致：`cli == engine == project_manifest`；
+- Onboarding 状态明确为 `local` 或 `done`；
+- 系统成功越过启动门禁，输出就绪标志，且未对项目业务源码产生任何侵入或脏改动。
+
 ## 3. init 不能完成
 
 ### 症状
@@ -514,6 +607,43 @@ BUGX_TELEMETRY_ENABLED=0 bugx telemetry flush --batch-size 20
 #### 必须停止
 
 遇到凭据/TLS/服务端 schema 错误、发送状态无法和 audit 对齐、需要扩大到 knowledge/profile/log/bundle 数据面，或用户没有授权新的网络动作时，停止在 `BLOCKED`/`UNVERIFIED`/`RECOVERY_REQUIRED`，只报告已收集证据和下一步，不删除队列、不重置安装身份、不伪造服务端统计。
+
+### 10.2 云端项目登记 409 冲突（Project Key / Slug 漂移）快速自愈与身份对齐
+
+#### 症状
+- 执行 `bugx cloud onboard on` 或 `bugx cloud sync --root . --scope all` 时输出：
+  ```text
+  [cloud] project: 登记失败 code=409 ...
+  [cloud] ok: False
+  ```
+- 项目在云端已存在相同 `project_key`，但当时登记的 `slug`（例如 `my-project-copy`）与本地当前的 `slug`（例如 `my-project`）不一致。
+
+#### 根因
+BugX 项目通过仓库 Git 历史及 Commit 特征计算出全局唯一的 `project_key`。当同一个仓库被复制到新目录、重命名或从异地克隆后，本地推导出的 `project_key` 与云端已有项目完全一致，但本地目录名推导出的默认 `slug` 与云端记录不一致。云端服务端为了防串号和覆盖保护，返回 HTTP 409 Conflict。
+
+#### 自动化与一步到位处置（严禁翻读源码）
+
+##### 路径 A：BugX 0.1.6+ 自动自愈
+在 BugX 0.1.6+ 中，`sync_layers` 已内置 409 自动自愈：
+当捕获到 409 冲突时，系统会自动调用 `client.list_projects()` 检索与当前 `project_key` 匹配的远端项目，自动对齐本地 `.bugx-project.json` 与 `.bugx/cloud-project.json` 的 slug 及 project_id，并在终端输出 `[cloud] ✨ [AI 自动自愈] 检测到云端已存在相同 project_key 项目...`，零人工干预完成对齐。
+
+##### 路径 B：手动 1 步对齐（若网络或权限受限）
+1. 查询云端项目真实 Slug：
+   ```sh
+   bugx cloud projects list --root .
+   ```
+   记录输出列表中与当前仓库匹配的项目 `slug`（如 `bug-hunter-copy`）。
+
+2. 一步对齐本地项目身份：
+   ```sh
+   bugx cloud projects add --project-slug <REMOTE_SLUG> --root .
+   ```
+   （或直接编辑根目录 `.bugx-project.json`，将 `"slug"` 改为云端对应的 `<REMOTE_SLUG>`）
+
+3. 重新同步：
+   ```sh
+   bugx cloud onboard on --root .
+   ```
 
 ## 11. Report 未认证、来源不对或浏览器打不开
 

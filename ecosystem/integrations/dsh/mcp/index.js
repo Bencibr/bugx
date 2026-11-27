@@ -1,219 +1,229 @@
 /*
- * DSH's stock MCP client owns one process-level cwd.  BugX cannot use that
- * contract because DSH Web assigns cwd per session.  This bridge keeps the
- * tool schemas process-wide, but opens one BugX MCP process per session cwd.
+ * BugX DSH Plugin — Bundles BugX skills (/bugx, /bugx-dsh) and direct
+ * /bugx-cli command for DeepSeek Harness (DSH), and ensures the bundled
+ * `bugx-cli` binary (node_modules/.bin/bugx) is on PATH for DSH's official
+ * @deepseek-ai/dsh-mcp-client entries declared in cordis.patch.yml.
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
+import { existsSync, realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
 import z from "@deepseek-ai/schemastery";
 
-// Resilient loader supporting @modelcontextprotocol/client, @modelcontextprotocol/sdk, and host bundles
-let Client, StdioClientTransport, zod;
+const BUNDLED_SKILL_RANK = 600;
 
-try {
-  const m = await import("zod");
-  zod = m.z || m.default || m;
-} catch {
-  try {
-    const desktopReq = createRequire("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/package.json");
-    zod = desktopReq("zod");
-  } catch {
-    zod = { record: () => ({ parse: (x) => x }) };
-  }
-}
-
-try {
-  const clientMod = await import("@modelcontextprotocol/client");
-  const stdioMod = await import("@modelcontextprotocol/client/stdio");
-  Client = clientMod.Client;
-  StdioClientTransport = stdioMod.StdioClientTransport;
-} catch {
-  try {
-    const clientMod = await import("@modelcontextprotocol/sdk/client/index.js");
-    const stdioMod = await import("@modelcontextprotocol/sdk/client/stdio.js");
-    Client = clientMod.Client;
-    StdioClientTransport = stdioMod.StdioClientTransport;
-  } catch {
-    try {
-      const desktopReq = createRequire("/Applications/DSH Desktop.app/Contents/Resources/app.asar.unpacked/package.json");
-      const clientPkg = desktopReq("@modelcontextprotocol/client");
-      const stdioPkg = desktopReq("@modelcontextprotocol/client/stdio");
-      Client = clientPkg.Client;
-      StdioClientTransport = stdioPkg.StdioClientTransport;
-    } catch (e) {
-      console.error("[bugx-dsh-mcp-client] Failed to load MCP client library:", e);
+function ensureBugxBinOnPath() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(here, "node_modules", ".bin"),
+    join(here, "..", ".bin"),
+    join(here, "..", "..", ".bin"),
+  ];
+  const current = process.env.PATH || "";
+  const sep = process.platform === "win32" ? ";" : ":";
+  const parts = current.split(sep).filter(Boolean);
+  for (const binDir of candidates) {
+    if (existsSync(binDir) && !parts.includes(binDir)) {
+      parts.push(binDir);
     }
   }
+  process.env.PATH = parts.join(sep);
 }
 
-const MAX_NAME = 64;
-const INVALID_NAME = /[^A-Za-z0-9_-]/g;
-const HASH_LENGTH = 12;
-const RAW_RESULT = zod?.record && zod?.string && zod?.unknown
-  ? zod.record(zod.string(), zod.unknown())
-  : { parse: (value) => value };
+// Ensure bundled `bugx` binary is discoverable on PATH before downstream
+// @deepseek-ai/dsh-mcp-client entries in cordis.patch.yml spawn `bugx`.
+ensureBugxBinOnPath();
 
-function publicName(server, raw) {
-  const joined = `mcp__${server}__${raw}`;
-  const normalized = joined.replace(INVALID_NAME, "_");
-  if (normalized === joined && normalized.length <= MAX_NAME) return normalized;
-  const hash = createHash("sha256").update(`${server}\0${raw}`).digest("hex").slice(0, HASH_LENGTH);
-  return `${normalized.slice(0, MAX_NAME - HASH_LENGTH - 1)}_${hash}`;
+function resolveSkillsDir() {
+  const sameDir = fileURLToPath(new URL("./skills/", import.meta.url));
+  if (existsSync(sameDir)) return sameDir;
+  const parentDir = fileURLToPath(new URL("../skills/", import.meta.url));
+  if (existsSync(parentDir)) return parentDir;
+  return sameDir;
 }
 
-function textFrom(content, name) {
-  const text = Array.isArray(content)
-    ? content.filter((item) => item && item.type === "text").map((item) => item.text ?? "").join("\n")
-    : "";
-  return text || `(${name} returned no model-visible content)`;
+function canonicalPath(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }
 
-function output(rawName) {
-  return {
-    schema: {
-      type: "object",
-      properties: { content: { type: "array", items: {} }, structuredContent: {} },
-      required: ["content"],
-      additionalProperties: false,
-    },
-    render(_args, value) {
-      return [{ type: "text", text: textFrom(value?.content, rawName) }];
-    },
-  };
-}
-
-function runJson(command, args, timeoutMs = 30000) {
+function runCommand(command, args, { cwd, timeoutMs = 60000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env: { ...scrubbedParentEnv() }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      env: { ...scrubbedParentEnv() },
+      ...(cwd ? { cwd } : {}),
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`BugX MCP schema command timed out after ${timeoutMs}ms`));
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`));
     }, timeoutMs);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", (error) => { clearTimeout(timer); reject(error); });
     child.once("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `BugX MCP schema command exited with ${code}`));
-        return;
-      }
-      try { resolve(JSON.parse(stdout)); }
-      catch (error) { reject(new Error(`BugX MCP schema output is invalid: ${error.message}`)); }
+      resolve({ code: code ?? 1, stdout, stderr });
     });
   });
 }
 
-function sessionCwd(exec, workspaceRegistry) {
-  const cwd = exec?.agent?.session?.header?.cwd;
-  if (typeof cwd !== "string" || !cwd.trim() || !existsSync(cwd)) {
-    throw new Error("未选中 DSH Web 项目目录。请先在 Web 工作区选择一个项目，再启动 BugX Agent；BugX 不会猜测目录，也不会创建临时审计目录。");
+function splitShellArgs(raw) {
+  const args = [];
+  let current = "";
+  let quote = null;
+  let escaped = false;
+  for (const ch of String(raw ?? "").trim()) {
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+      continue;
+    }
+    if (ch === "'" || ch === "\"") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (current.length > 0) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += ch;
   }
-  const sessionId = exec?.agent?.session?.id;
-  const selected = typeof sessionId === "string" && workspaceRegistry?.list?.().some(
-    (workspace) => workspace.sessionIds?.some((id) => String(id) === sessionId),
-  );
-  // The compatibility launcher intentionally supplies DSH_CWD for the first
-  // session. Direct dsh web sessions must be attached to a real workspace.
-  if (!selected && process.env.DSH_CWD !== cwd) {
-    throw new Error("未选中 DSH Web 项目目录。请先在 Web 工作区选择一个项目，再启动 BugX Agent；BugX 不会猜测目录，也不会创建临时审计目录。");
-  }
-  return cwd;
+  if (current.length > 0) args.push(current);
+  return args;
 }
 
-export const name = "bugx-session-mcp-client";
-export const inject = ["tools"];
-export const Config = z.object({
-  serverName: z.string().default("bugx-supervisor"),
-  command: z.string().default("bugx"),
-  args: z.array(String).default(["mcp", "serve"]),
-  role: z.string().default("host"),
-  schemaCommand: z.string().default("bugx"),
-  schemaArgs: z.array(String).default(["mcp", "schema"]),
-  toolCallTimeoutMs: z.number().default(60000),
-  failOnStartupError: z.boolean().default(false),
-});
+function registerBundledSkills(ctx) {
+  const skillsDir = resolveSkillsDir();
+  const defs = [
+    {
+      name: "bugx",
+      description: "BugX 自主代码审查与智能测试：排查深层 Bug、运行黑盒/回归/安全验证与多 Worker 并发审计。支持 /bugx 直接启动。",
+      file: `${skillsDir}bugx/SKILL.md`,
+    },
+    {
+      name: "bugx-dsh",
+      description: "BugX 在 DeepSeek Harness (DSH) 下的专属工作流、确认协议与排障手册。",
+      file: `${skillsDir}bugx-dsh/SKILL.md`,
+    },
+  ];
+  const candidates = defs
+    .filter((d) => existsSync(d.file))
+    .map((d) => ({
+      name: d.name,
+      description: d.description,
+      invocation: { modelInvocable: true, userInvocable: true },
+      provider: "bugx-dsh-plugin",
+      source: "bundled",
+      resourceBase: { kind: "directory", path: skillsDir },
+      rank: BUNDLED_SKILL_RANK,
+      locator: d.file,
+    }));
 
-export async function apply(ctx, config) {
-  let schema;
-  try {
-    schema = await runJson(config.schemaCommand, [...config.schemaArgs, "--role", config.role]);
-  } catch (error) {
-    if (config.failOnStartupError) throw error;
-    ctx.logger.error(`bugx-session-mcp-client: ${String(error)}`);
-    return;
-  }
-  const tools = new Map();
-  const connections = new Map();
-  const workspaceRegistry = ctx.get?.("workspaceRegistry");
+  if (candidates.length === 0 || typeof ctx.inject !== "function") return;
 
-  async function connectionFor(cwd) {
-    let connection = connections.get(cwd);
-    if (connection) return connection;
-    const client = new Client({ name: "bugx-dsh-session-client", version: "0.18.0" }, { capabilities: {} });
-    const transport = new StdioClientTransport({
-      command: config.command,
-      args: [...config.args, "--root", cwd, "--role", config.role],
-      env: { ...scrubbedParentEnv() },
-      cwd,
-    });
-    connection = { client, transport };
-    connections.set(cwd, connection);
-    try {
-      await client.connect(transport);
-      return connection;
-    } catch (error) {
-      connections.delete(cwd);
-      try { await client.close(); } catch {}
-      throw error;
-    }
-  }
-
-  for (const tool of schema.tools ?? []) {
-    const rawName = tool.name;
-    const modelName = publicName(schema.server ?? config.serverName, rawName);
-    const definition = {
-      name: modelName,
-      description: tool.description ?? "",
-      parameters: tool.inputSchema,
-      output: output(rawName),
-      timeoutMs: config.toolCallTimeoutMs,
-      execute: async (args, exec) => {
-        const cwd = sessionCwd(exec, workspaceRegistry);
-        const { client } = await connectionFor(cwd);
-        let result;
-        if (typeof client.callTool === "function") {
-          result = await client.callTool(
-            { name: rawName, arguments: args && typeof args === "object" ? args : {} },
-            { signal: exec.signal, timeout: config.toolCallTimeoutMs }
-          );
-        } else {
-          result = await client.request(
-            { method: "tools/call", params: { name: rawName, arguments: args && typeof args === "object" ? args : {} } },
-            RAW_RESULT,
-            { signal: exec.signal, timeout: config.toolCallTimeoutMs }
-          );
-        }
-        if (result.isError === true) throw new Error(textFrom(result.content, rawName));
+  ctx.inject(["skills"], (skillCtx) => {
+    const provider = {
+      name: "bugx-dsh-plugin",
+      list: () => Promise.resolve(candidates),
+      async get(candidate) {
+        const match = candidates.find((c) => c.name === candidate?.name) ?? candidates[0];
         return {
-          content: Array.isArray(result.content) ? result.content : [{ type: "text", text: textFrom([], rawName) }],
-          ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+          name: match.name,
+          description: match.description,
+          invocation: match.invocation,
+          provider: match.provider,
+          source: match.source,
+          resourceBase: match.resourceBase,
+          content: await readFile(match.locator, "utf8"),
         };
       },
     };
-    tools.set(modelName, ctx.tools.register(definition));
-  }
+    skillCtx.effect(
+      () => skillCtx.skills.registerProvider(() => provider),
+      "bugx-dsh-plugin: skills",
+    );
+  });
+}
 
-  ctx.effect(() => async () => {
-    for (const dispose of tools.values()) dispose();
-    for (const { client } of connections.values()) {
-      try { await client.close(); } catch {}
-    }
-    connections.clear();
-  }, "bugx-session-mcp-client");
+function registerCliCommand(ctx, config) {
+  if (typeof ctx.inject !== "function") return;
+  ctx.inject(["commands"], (cmdCtx) => {
+    cmdCtx.effect(
+      () => cmdCtx.commands.register({
+        name: "bugx-cli",
+        description: "Run bugx CLI command directly in the current workspace (e.g. /bugx-cli status, /bugx-cli doctor)",
+        input: { hint: "<subcommand> [args...]" },
+        handler: async (invocation) => {
+          ensureBugxBinOnPath();
+          const argv = splitShellArgs(invocation.rawInput);
+          const args = argv.length > 0 ? argv : ["--help"];
+          const rawCwd = invocation.agent?.session?.header?.cwd || process.env.DSH_CWD || process.cwd();
+          const cwd = existsSync(rawCwd) ? canonicalPath(rawCwd) : process.cwd();
+          try {
+            const res = await runCommand(config.command, args, {
+              cwd,
+              timeoutMs: config.commandTimeoutMs,
+            });
+            const combined = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n");
+            if (res.code !== 0) {
+              return {
+                kind: "error",
+                text: combined || `bugx exited with code ${res.code}`,
+              };
+            }
+            return {
+              kind: "success",
+              text: combined || "(no output)",
+            };
+          } catch (error) {
+            if (error?.code === "ENOENT") {
+              return {
+                kind: "error",
+                text: `未找到 '${config.command}' 命令。请确认 bugx-cli 依赖已安装，或执行 npm install -g bugx-cli。`,
+              };
+            }
+            return {
+              kind: "error",
+              text: `执行 ${config.command} 失败: ${error?.message ?? String(error)}`,
+            };
+          }
+        },
+      }),
+      "bugx-dsh-plugin: /bugx-cli command",
+    );
+  });
+}
+
+export const name = "bugx-dsh-plugin";
+export const inject = [];
+export const Config = z.object({
+  command: z.string().default("bugx"),
+  commandTimeoutMs: z.number().default(60000),
+});
+
+export function apply(ctx, config) {
+  ensureBugxBinOnPath();
+  registerBundledSkills(ctx);
+  registerCliCommand(ctx, config);
 }

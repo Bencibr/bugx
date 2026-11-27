@@ -6,11 +6,11 @@
   <a href="README.md">中文</a> · English
 </p>
 
-# BugX — Autonomous Code Review & Automated Testing Agent
+# BugX — Automated Bug-Hunting & Testing Agent
 
-BugX is an **autonomous code review and automated testing agent** designed for AI coding assistants and CLI workflows.
+BugX runs inside your AI coding tool or terminal to **find hidden bugs, write tests, and verify issues by actually running them**.
 
-It partitions codebases into deterministic audit units, orchestrates concurrent Workers to explore complex logic branches and edge cases, and deploys isolated verifiers to **execute sandboxed PoCs for real bug confirmation**. It eliminates AI hallucinations, premature "all good" claims, and false alarms, ensuring robust, crash-free software releases.
+Instead of guessing from code alone, it splits the project into manageable parts, checks edge cases, and **runs real reproduction scripts or tests locally before reporting a bug**. That means fewer missed edge cases in large files and far fewer false alarms.
 
 <p align="center">
   <a href="https://pypi.org/project/bugx-cli/"><img src="https://img.shields.io/pypi/v/bugx-cli.svg?style=flat&color=0284c7&label=PyPI" alt="PyPI"></a>
@@ -26,10 +26,10 @@ It partitions codebases into deterministic audit units, orchestrates concurrent 
 
 ### ✨ Key Features
 
-- 🛡️ **Real Execution Verification (Zero False Alarms)**: Suspected flaws are verified in an isolated sandbox with dual positive tests and a clean negative control. Every finding carries executable PoC commands, exit codes, and output hashes.
-- 📋 **Ledger-Tracked State Machine Coverage**: Codebases are decomposed into atomic units (covered / blocked / pending). Audits resume seamlessly across sessions, and completion is determined by ledger state—not conversational claims.
-- 🔌 **Universal Host Integration via MCP / ACP**: Seamlessly plugs into Google Antigravity, Claude Code, Cursor, Trae, OpenAI Codex, OpenCode, Cline, Qoder, Kimi Code, MiniMax Code, and ZCode. Fully supports Gemini 4, Claude 5.5, and GPT-4o models.
-- 📊 **Built-in Web Studio Dashboard**: Live interactive web interface (`bugx report serve`) visualizing coverage status, call chains, PoC proof artifacts, and mutation test efficacy.
+- 🛡️ **Verified by Execution, Not Guesswork**: Suspected bugs are reproduced with real commands or tests, recording the exact command, exit code, and output so you don't waste time on false positives.
+- 📋 **Trackable & Resumable Progress**: Keeps track of which modules have been checked or skipped, so large codebases can be audited across sessions without losing place.
+- 🔌 **Works with Popular AI Coding Tools**: One command sets up Antigravity, Claude Code, Cursor, Trae, Codex, OpenCode, Cline, Qoder, DSH, Kimi Code, MiniMax Code, ZCode, Agnes Code, and more.
+- 📊 **Local Web Report Viewer**: Browse findings, call paths, reproduction logs, and test results in a clean local web UI (`bugx report serve`).
 
 ---
 
@@ -102,11 +102,11 @@ Run `bugx report serve` anytime to inspect audit topology, evidence chains, and 
 | **Cline / Roo Code** | Isolated Data Sandbox / Project Agent / User MCP | `bugx install --agent cline` |
 | **Qoder AI** | Native Agent/Worker, Subagent Concurrency, User/Project MCP | `bugx install --agent qoder` |
 | **Trae / Trae CN** | Project Agent, Multi-variant MCP Sync Mirror | `bugx install --agent trae` |
-| **DeepSeek Harness (DSH)** | Native Headless Profile / Cordis Patch / MCP Injection | `bugx install --agent dsh` |
-| **Kimi Code** | Headless ACP / Native MCP Plugin | `bugx install --agent kimi` |
-| **MiniMax Code** | Custom Agent, Plugin V1 Worker, Skill & MCP | `bugx install --agent minimax` |
-| **ZCode** | Native MCP / User-Level Registry | `bugx install --agent zcode` |
-| **Agnes Code** | Terminal Native TUI / Agent MCP Injection | `bugx install --agent agnescode` |
+| **DeepSeek Harness (DSH)** | Official marketplace plugin with built-in Skills, CLI & MCP ([Official Marketplace](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)) | `bugx install --agent dsh` |
+| **Kimi Code** | Official marketplace plugin with BugX Agent & MCP ([Official Marketplace](https://github.com/MoonshotAI/kimi-code)) | `bugx install --agent kimi` |
+| **MiniMax Code** | Official marketplace plugin with Agent, Skills & MCP ([Official Marketplace](https://github.com/MiniMax-AI/MiniMax-Code-Plugins)) | `bugx install --agent minimax` |
+| **ZCode** | Official marketplace plugin with BugX Agent, Skills & MCP ([Official Marketplace](https://github.com/zai-org/zcode-plugins)) | `bugx install --agent zcode` |
+| **Agnes Code** | Official marketplace plugin for terminal BugX reviews ([Official Marketplace](https://github.com/AgnesAI-Labs/agh-plugin-market)) | `bugx install --agent agnescode` |
 | **WorkBuddy / CodeBuddy** | Native Skill, Desktop Multi-variant Mirror, Project MCP | `bugx install --agent workbuddy` |
 | **GitHub Copilot** | Project Agent/Instructions, User Agent, Project MCP | `bugx install --agent copilot` |
 | **Cursor / Windsurf** | Standard User/Project MCP Integration | `bugx install` (auto-detected) |

@@ -7,7 +7,7 @@
   "description_en": "Autonomous code review and testing agent. Catches hidden deep bugs for developers, automates black-box, functional, and performance testing for QA, and ensures rock-solid software delivery.",
   "source": "bugx-agent",
   "type": "skill-only",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "examples_zh": [
     "运行代码审查，排查深层 Bug 与性能隐患",
     "自动化运行功能验证与黑盒测试"

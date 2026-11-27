@@ -64,7 +64,7 @@
         ],
         "codemode": false
       },
-      "bugx-docs": {
+      "bugx-cloud": {
         "type": "local",
         "command": [
           "bugx",

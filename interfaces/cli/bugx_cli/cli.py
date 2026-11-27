@@ -102,6 +102,21 @@ def _fast_dispatch_mcp_serve() -> None:
     if script is None:
         return
 
+    # 若启动的是 ~/.bugx/core 中的共享引擎，做一次 O(1) metadata 比对：
+    # 当用户通过 pip/npm 刚升级完 CLI 但尚未跑其他命令时，在拉起 MCP 前自动对齐全局引擎。
+    global_core_dir = (Path.home() / ".bugx" / "core").resolve()
+    try:
+        script_resolved = script.resolve()
+        if global_core_dir in script_resolved.parents:
+            bundled_meta = Path(__file__).resolve().parents[3] / "core" / "metadata.txt"
+            global_meta = global_core_dir / "metadata.txt"
+            if bundled_meta.is_file() and global_meta.is_file():
+                if bundled_meta.read_bytes() != global_meta.read_bytes():
+                    from .infra.engine_installer import auto_sync_global_engine_if_newer
+                    auto_sync_global_engine_if_newer()
+    except Exception:
+        pass
+
     forwarded = ["serve", "--root", str(root), "--role", role]
     if takeover:
         forwarded.append("--takeover")
@@ -375,6 +390,13 @@ def _generate_ai_exception_advice(exc: Exception, command: str | None = None) ->
         return "目标资产已存在；如需强制覆盖更新，请追加 --force 参数"
     if "未登录" in text or "unauthorized" in text.lower() or "凭据" in text or "token" in text.lower():
         return "当前操作需要云端鉴权，请运行: bugx auth login 登录，或在交互终端执行 bugx project sync"
+    if "409" in text or "conflict" in normalized or "身份冲突" in text or "登记失败" in text:
+        return (
+            "云端项目身份冲突 (409)：云端已存在相同 project_key 的项目。"
+            "可运行 `bugx cloud projects list --root <ROOT>` 查看远端项目，"
+            "并执行 `bugx cloud projects add --project-slug <REMOTE_SLUG>` 对齐身份，"
+            "或直接运行 `bugx guide 409` 查看排障手册 Section 10.2。"
+        )
     if "Connection refused" in text or "网络连接失败" in text or "timed out" in text.lower():
         return "网络通信异常或云端端点超时，请检查系统网络代理，或检查 BUGX_CLOUD_API_BASE 配置"
     if "Permission denied" in text or "权限不足" in text or isinstance(exc, PermissionError):
@@ -1718,6 +1740,23 @@ def _maybe_report_installation(command: str) -> None:
         pass
 
 
+def _maybe_flush_pending_crashes(command: str) -> None:
+    """在执行正常 CLI 命令时，后台守护线程静默 Flush 历史遗留的崩溃 Outbox。"""
+    if command in {"completion", "config", "cloud", "auth", "telemetry"}:
+        return
+    try:
+        import threading
+        from core.cloud_sync.issue_uploader import flush_pending_crashes
+
+        threading.Thread(
+            target=flush_pending_crashes,
+            kwargs={"max_count": 3, "timeout": 1.5},
+            daemon=True,
+        ).start()
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     from . import common as _common_ns
     _common_ns._ACTIVE_TRACE_ID = None  # placeholder replaced below
@@ -1830,7 +1869,20 @@ def main(argv: list[str] | None = None) -> int:
                 and not installation_only_diagnosis):
             # Installation-only doctor remains available when assets are broken.
             _ensure_core_importable()
+            if args.command not in {"update", "uninstall", "reset"}:
+                from .infra.engine_installer import auto_sync_global_engine_if_newer
+                from .infra.project_reconcile import auto_reconcile_project_if_needed
+
+                synced_engine, engine_msg = auto_sync_global_engine_if_newer()
+                if synced_engine:
+                    refresh_i18n_after_engine_swap()
+                    print(f"[bugx] ✓ {engine_msg}", file=sys.stderr)
+                if args.command in {"doctor", "engine", "autonomous", "audit", "report", "supervisor", "mcp"}:
+                    reconciled, rec_msg = auto_reconcile_project_if_needed(root)
+                    if reconciled:
+                        print(f"[bugx] ✓ 已自动对齐项目与宿主配置（{rec_msg}）", file=sys.stderr)
         _maybe_report_installation(args.command)
+        _maybe_flush_pending_crashes(args.command)
         if args.command == "probe":
             probe_args = getattr(args, "probe_args", [])
             result = int(command_probe(args, probe_args))
@@ -1905,6 +1957,21 @@ def main(argv: list[str] | None = None) -> int:
         advice = _generate_ai_exception_advice(exc, getattr(args, "command", None))
         if advice:
             print(f"  💡 AI 解决建议: {advice}", file=sys.stderr)
+        # 工业级主动异常诊断上报 (仅对未预期内部缺陷生效，具备脱敏、本地落盘、去重与即时上报)
+        crash_fingerprint = None
+        try:
+            from core.cloud_sync.issue_uploader import auto_report_crash
+            crash_fingerprint = auto_report_crash(
+                exc,
+                project_root=root,
+                command=getattr(args, "command", None),
+                timeout=1.2,
+            )
+        except Exception:
+            pass
+        if crash_fingerprint:
+            print(f"  ⚡ [自动诊断] 崩溃现场已生成脱敏诊断包 (工单指纹: {crash_fingerprint})", file=sys.stderr)
+            print(f"  💡 若需补充说明或现场截图，可运行: bugx feedback --attach {crash_fingerprint}", file=sys.stderr)
         return 1
     finally:
         # Release the diagnostic log and its lock file once the command

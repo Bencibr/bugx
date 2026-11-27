@@ -40,6 +40,11 @@ _BUILTIN_GUIDES = [
         "文件锁定 / WinError 32 处置",
         "新版 `bugx-docs` 采用不可变快照切换 + 延迟 GC，不直接覆盖正在只读占用的 SQLite 句柄；若遇残留占用，请关闭冗余宿主会话并重跑 `bugx mcp docs sync --root . --force`。",
     ),
+    (
+        {"409", "conflict", "冲突", "身份冲突", "slug", "project_key", "rebind", "登记失败"},
+        "云端项目登记 409 冲突与身份对齐 (1 步自愈)",
+        "项目登记返回 409 时系云端已存在相同 project_key 但 slug 不同的项目。自愈步骤：1. 运行 `bugx cloud projects list --root .` 查看远端 slug；2. 运行 `bugx cloud projects add --project-slug <REMOTE_SLUG> --root .`（或修改 .bugx-project.json 中的 slug）对齐身份；3. 运行 `bugx cloud onboard on --root .` 恢复同步。详见排障手册 Section 10.2。",
+    ),
 ]
 
 

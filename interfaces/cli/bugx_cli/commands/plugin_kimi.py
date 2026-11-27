@@ -200,7 +200,7 @@ def _build_desktop_plugin_manifest(version: str = "0.1.3", locale: str | None = 
                     "worker",
                 ],
             },
-            "bugx-docs": {
+            "bugx-cloud": {
                 "command": "bugx",
                 "args": [
                     "mcp",
@@ -428,7 +428,7 @@ def validate_install(root: Path) -> tuple[bool, str]:
     if not isinstance(servers, dict):
         return False, f"Kimi Code kimi.plugin.json 缺少 mcpServers（{manifest}）"
     missing_channels = [
-        ch for ch in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+        ch for ch in ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud")
         if not isinstance(servers.get(ch), dict)
     ]
     if missing_channels:

@@ -143,6 +143,7 @@ def apply_claim_operation(
     write_access=None,
     worker_role=None,
     preferred_affinity=None,
+    owner_host_id=None,
 ) -> WorkerClaim:
     """``claim_worker`` 的状态变更体（DES-03）。
 
@@ -540,6 +541,7 @@ def apply_claim_operation(
         tech_stack=assigned_tech_stack,
         assigned_fixtures=assigned_fixtures,
         active_probes=assigned_active_probes,
+        owner_host_id=(str(owner_host_id).strip() if isinstance(owner_host_id, str) and owner_host_id.strip() else None),
     )
     if superseded_claim is not None:
         superseded_claim.state = "superseded"

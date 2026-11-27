@@ -1045,7 +1045,19 @@ def supervisor_mcp_gate(*, review_mode: str | None,
     # 宿主进程无法动态感知新配置，探活绝不能替代重启，必须阻断并强制要求重启宿主。
     if status is not None and _mcp_session_is_stale(status):
         host = str(status.get("host") or "当前宿主")
-        print(f"[launch_bugx] ✗ 必须强制重启宿主：{host} 已配置 Supervisor MCP，但当前会话尚未加载该 MCP 工具链。")
+        root = resolve_project_root()
+        conflict_hint = ""
+        try:
+            state_file = root / ".bugx" / "pollings" / "polling-000001" / "lifecycles" / "lifecycle-000001" / "state" / "host-channel-unavailable.json"
+            if state_file.is_file():
+                data = json.loads(state_file.read_text(encoding="utf-8"))
+                holder_pid = data.get("holder_pid")
+                how = data.get("how_to_unblock")
+                if holder_pid:
+                    conflict_hint = f"\n  ⚠ 诊断发现 host 通道被占用（PID {holder_pid}）；建议：{how or '释放占用或使用 git worktree'}"
+        except Exception:
+            pass
+        print(f"[launch_bugx] ✗ 必须强制重启宿主：{host} 已配置 Supervisor MCP，但当前会话尚未加载该 MCP 工具链。{conflict_hint}")
         print("  宿主进程（IDE/终端）不支持动态热重载配置，必须【重载窗口 / 重启宿主会话】后再启动 BugX。")
         return "restart_required"
 

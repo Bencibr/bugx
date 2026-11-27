@@ -64,6 +64,7 @@ def claim_worker(
     graph_task_id: str | None = None,
     worker_role: str | None = None,
     preferred_affinity: str | None = None,
+    owner_host_id: str | None = None,
 ) -> WorkerClaim:
     """领取一个 coverage unit 或一个独立 graph-stage lease。
 
@@ -160,6 +161,7 @@ def claim_worker(
             write_access=write_access,
             worker_role=worker_role,
             preferred_affinity=preferred_affinity,
+            owner_host_id=owner_host_id,
         )
 
     return self._mutate(operation)  # type: ignore[return-value]

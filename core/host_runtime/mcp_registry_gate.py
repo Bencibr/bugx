@@ -49,7 +49,7 @@ MCP_REGISTRY: tuple[dict[str, object], ...] = (
     {
         "name": "codindex", "tier": "optional", "status": "active",
         "credentials": {"env": (), "require_any": False},
-        "applies": {}, "installer": "npm",
+        "applies": {"any_language": True}, "installer": "npm",
         "package": "codindex", "source": "https://github.com/Bencibr/codindex",
         "trust": "B",
         "audit": ("codindex@0.1.2（MIT）固定 npm dist.integrity；Node >=22.5。"
@@ -58,7 +58,7 @@ MCP_REGISTRY: tuple[dict[str, object], ...] = (
                   "避免 better-sqlite3 原生 ABI 与安装脚本成为启动前置条件。"),
     },
     {
-        "name": "bugx-docs", "tier": "optional", "status": "active",
+        "name": "bugx-cloud", "tier": "optional", "status": "active",
         "credentials": {"env": (), "require_any": False},
         "applies": {}, "installer": "builtin", "package": None, "source": "builtin",
         "trust": "builtin", "audit": "DOC-233 设计项 3a（内建通道）",

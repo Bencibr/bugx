@@ -188,12 +188,12 @@ RUNTIME_NAMES = {
 
 
 OPENCODE_REQUIRED_MCP = ("playwright", "postmcp", "dbhub", "redis", "semgrep", "mobile")
-OPENCODE_LOCAL_MCP = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+OPENCODE_LOCAL_MCP = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud")
 OPENCODE_ALL_REQUIRED_MCP = OPENCODE_REQUIRED_MCP + OPENCODE_LOCAL_MCP
 OPENCODE_BUGX_MANAGED_MCP = OPENCODE_ALL_REQUIRED_MCP
 # Native host MCP channels for local automatic review and knowledge lookup.
 HOST_SUPERVISOR_MCP = ("bugx-supervisor", "bugx-supervisor-worker")
-HOST_ALL_MCP = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-docs")
+HOST_ALL_MCP = ("bugx-supervisor", "bugx-supervisor-worker", "bugx-cloud")
 HOST_SUPERVISOR_MCP_ROLES = {"bugx-supervisor": "host", "bugx-supervisor-worker": "worker"}
 PROBE_SCRIPTS = {
     "efficiency": "efficiency_probe.py",

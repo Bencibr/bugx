@@ -512,6 +512,11 @@ def _record_host_channel_unavailable(state_root: Path, *, holder_pid: int | None
     （审计 V10）；此处落盘一条带 TTL 的记录，供 worker 通道内联与 doctor 读取。
     """
     holder_started_at, holder_started_at_error = _holder_started_at(holder_pid)
+    alive_hint = (
+        f"释放被占用的 host 通道：kill {holder_pid}（或关闭占用它的 IDE 会话）。若需多宿主并发，请用 git worktree add 创建独立分支"
+        if isinstance(holder_pid, int) and _pid_alive(holder_pid)
+        else "原占用进程已退出或不存在；可直接重新启动 host MCP 会话"
+    )
     payload = {
         "schema_version": 1,
         "reason": "controller_lease_occupied",
@@ -522,11 +527,7 @@ def _record_host_channel_unavailable(state_root: Path, *, holder_pid: int | None
         "holder_idle_seconds": None,
         "observed_at": time.time(),
         "ttl_seconds": _HOST_CHANNEL_STATE_TTL_SECONDS,
-        "how_to_unblock": (
-            f"释放被占用的 host 通道：kill {holder_pid}（或关闭占用它的 IDE 会话）"
-            if isinstance(holder_pid, int) and holder_pid > 0
-            else "关闭占用 host 通道的 IDE 会话，或 bugx mcp serve --role host --takeover"
-        ),
+        "how_to_unblock": alive_hint,
     }
     try:
         secure_atomic.atomic_write_json(
@@ -732,9 +733,12 @@ def _host_session_heartbeat_once(root: Path) -> bool:
 
 
 def _host_session_heartbeat_loop(service: "BugxMcpService", stop: threading.Event) -> None:
-    """Keep the host Session alive while its MCP stdio channel is open."""
+    """Keep the host Session and multi-host registry alive while its MCP stdio channel is open."""
     while not stop.is_set():
         _host_session_heartbeat_once(service.root)
+        heartbeat_host = getattr(service, "heartbeat_host", None)
+        if callable(heartbeat_host):
+            heartbeat_host()
         service.refresh_session_proof()
         if stop.wait(HOST_SESSION_HEARTBEAT_INTERVAL_SECONDS):
             return

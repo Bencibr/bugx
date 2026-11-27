@@ -40,11 +40,13 @@ def _registry_entries() -> tuple[dict[str, object], ...]:
 
 
 def _matches_applies(entry: Mapping[str, object], classification: Mapping[str, Any]) -> bool:
-    """注册表 ``applies`` 与画像形态是否相交（空 applies = 与形态无关）。"""
+    """注册表 ``applies`` 与画像形态/语言是否相交（空 applies = 与形态无关）。"""
     applies = entry.get("applies")
     if not isinstance(applies, Mapping) or not applies:
         return False
-    for key in ("forms", "surfaces"):
+    if applies.get("any_language") and (classification.get("languages") or ()):
+        return True
+    for key in ("forms", "surfaces", "languages"):
         wanted = {str(v).casefold() for v in (applies.get(key) or ())}
         if not wanted:
             continue
@@ -138,22 +140,63 @@ def plan_runtime_capabilities(
                     "source": f"skill:{skill_id}", "reason": "required_runtime",
                 })
 
-    # 2) 注册表形态兜底（保持既有默认行为等价；skills 声明优先）
-    for entry in _registry_entries():
-        if entry.get("status") != "active":
-            continue
-        name = str(entry["name"])
-        if name in items:
-            continue
-        if _matches_applies(entry, classification):
-            satisfied, env = _credentials_satisfied(name)
-            if not satisfied:
-                record_skipped(name, "registry:applies", env)
+    # 2) 云端优先推荐（bugx-cloud plan_project_mcps），经本地白名单过滤；不可达/local 模式时无缝回退本地规则
+    cloud_used = False
+    try:
+        from core.cloud_sync.cloud_mcp_client import call_cloud_mcp_tool
+
+        cloud_payload = call_cloud_mcp_tool(
+            "plan_project_mcps",
+            {
+                "forms": [str(v) for v in (classification.get("forms") or ())],
+                "surfaces": [str(v) for v in (classification.get("surfaces") or ())],
+                "languages": [str(v) for v in (classification.get("languages") or ())],
+                "frameworks": [str(v) for v in (classification.get("frameworks") or ())],
+            },
+            project_root=project_root,
+            timeout=1.5,
+        )
+        if isinstance(cloud_payload, dict) and isinstance(cloud_payload.get("items"), list):
+            cloud_used = True
+            for entry in cloud_payload["items"]:
+                if not isinstance(entry, Mapping):
+                    continue
+                name = str(entry.get("name") or "").strip()
+                if not name or name in items:
+                    continue
+                if not _is_active(name):
+                    errors.append(f"云端推荐了未在本地登记或未激活的 MCP（已拒绝）: {name}")
+                    continue
+                satisfied, env = _credentials_satisfied(name)
+                if not satisfied:
+                    record_skipped(name, "cloud:bugx-cloud", env)
+                    continue
+                items[name] = {
+                    "name": name,
+                    "tier": str(entry.get("tier") or "optional"),
+                    "source": "cloud:bugx-cloud",
+                    "reason": str(entry.get("reason") or "cloud:plan"),
+                }
+    except Exception:
+        cloud_used = False
+
+    # 3) 本地兜底（注册表形态规则；skills 声明优先）
+    if not cloud_used:
+        for entry in _registry_entries():
+            if entry.get("status") != "active":
                 continue
-            items[name] = {
-                "name": name, "tier": str(entry.get("tier") or "optional"),
-                "source": "registry:applies", "reason": "applies",
-            }
+            name = str(entry["name"])
+            if name in items:
+                continue
+            if _matches_applies(entry, classification):
+                satisfied, env = _credentials_satisfied(name)
+                if not satisfied:
+                    record_skipped(name, "registry:applies", env)
+                    continue
+                items[name] = {
+                    "name": name, "tier": str(entry.get("tier") or "optional"),
+                    "source": "registry:applies", "reason": "applies",
+                }
 
     return {
         "items": sorted(items.values(), key=lambda item: item["name"]),

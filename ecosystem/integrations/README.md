@@ -24,7 +24,7 @@ flowchart TD
 | 目录名 | 目标生态平台 | 包含核心内容与职责说明 |
 | :--- | :--- | :--- |
 | `cline/` | Cline / Roo Code | 包含 `skills/bugx/SKILL.md`，向 Cline 用户提供自然语言调用 BugX 攻防与审查的标准技能规范 |
-| `dsh/` | DSH (Deep Shell) | 包含 `agents/bugx.md`, `mcp/` (Node.js MCP 桥接), `ui/` (前端交互组件), `skills/` 与 `dsh-patch.yml`，提供端到端深度无缝嵌入 |
+| `dsh/` | DSH (Deep Shell) | 包含 `agents/bugx.md`, `mcp/index.js` (插件入口：内嵌 `bugx`/`bugx-dsh` Skill、`/bugx-cli` 命令与 `bugx-cli` PATH 引导，配合 `cordis.patch.yml` 直连官方 `@deepseek-ai/dsh-mcp-client`), `ui/` (前端侧边栏组件), `skills/` 与 `dsh-patch.yml`，安装插件即开箱即用 |
 | `opencode/` | OpenCode | 包含 `opencode.json`, `bugx-mcp-manifest.json`, `mcp-lock.json`，提供 BugX、Codindex 等 MCP 工具声明与依赖锁 |
 | `pi/` | Pi Agent | 包含 `extensions/bugx` (TypeScript 编写的 Pi 原生扩展插件，含 `manifest.json` 与 `index.ts`) 以及技能定义 |
 | `qoder/` | Qoder IDE | 包含 `connector-meta.json` 与 `CONNECTORS.md`，定义与 Qoder 协作的连接器契约 |
